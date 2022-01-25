@@ -745,7 +745,7 @@
 	CASE_B(0xcc)												/* INT3 */
 #if C_DEBUG	
 		FillFlags();
-		if (DEBUG_Breakpoint())
+		if (DEBUG_Breakpoint() || DEBUG_IntBreakpoint(3))
 			return debugCallback;
 #endif			
 		CPU_SW_Interrupt_NoIOPLCheck(3,GETIP);

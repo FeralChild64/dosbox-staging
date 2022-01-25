@@ -358,7 +358,7 @@ switch (inst.code.op) {
 	case O_INT:
 #if C_DEBUG
 		FillFlags();
-		if (((inst.entry & 0xFF)==0xcc) && DEBUG_Breakpoint()) 
+		if (((inst.entry & 0xFF)==0xcc) && DEBUG_Breakpoint() || DEBUG_IntBreakpoint(3)) 
 			return debugCallback;
 		else if (DEBUG_IntBreakpoint(inst_op1_b)) 
 			return debugCallback;

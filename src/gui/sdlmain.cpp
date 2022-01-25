@@ -3448,15 +3448,21 @@ bool GFX_Events()
 static BOOL WINAPI ConsoleEventHandler(DWORD event) {
 	switch (event) {
 	case CTRL_SHUTDOWN_EVENT:
+		break;
 	case CTRL_LOGOFF_EVENT:
+		break;
 	case CTRL_CLOSE_EVENT:
+		exit(0);
 	case CTRL_BREAK_EVENT:
 		raise(SIGTERM);
 		return TRUE;
 	case CTRL_C_EVENT:
+		break;
 	default: //pass to the next handler
 		return FALSE;
 	}
+
+	return FALSE;
 }
 #endif
 

@@ -63,6 +63,7 @@ int old_cursor_state;
 // Forwards
 static void DrawCode(void);
 static void DEBUG_RaiseTimerIrq(void);
+static void DisassembleMemory(Bit16u seg, Bit32u ofs1, Bit32u num, char* filename);
 static void SaveMemory(Bit16u seg, Bit32u ofs1, Bit32u num);
 static void SaveMemoryBin(Bit16u seg, Bit32u ofs1, Bit32u num);
 static void LogMCBS(void);
@@ -95,11 +96,16 @@ public:
 };
 #endif
 
+#ifndef MAXCMDLEN
+#define MAXCMDLEN 254
+#endif
+
 
 class DEBUG;
 
 DEBUG*	pDebugcom	= 0;
 bool	exitLoop	= false;
+std::string	autoexec  = "";
 
 
 // Heavy Debugging Vars for logging
@@ -332,6 +338,7 @@ public:
 	static bool				DeleteByIndex		(Bit16u index);
 	static void				DeleteAll			(void);
 	static void				ShowList			(void);
+	static void				SaveList			(void);
 
 
 private:
@@ -659,6 +666,53 @@ void CBreakpoint::ShowList(void)
 		nr++;
 	}
 }
+
+void CBreakpoint::SaveList(void)
+{
+	// iterate list
+	int nr = 0;
+	std::list<CBreakpoint*>::iterator i;
+
+	if (BPoints.size() < 1) {
+		DEBUG_ShowMsg("DEBUG: No breakpoints to save.\n");
+		return;
+	}
+
+	const char* filename = "BPLIST.TXT";
+	FILE* f = fopen(filename,"wb");
+	if (!f) {
+		DEBUG_ShowMsg("DEBUG: Saving breakpoints failed.\n");
+		return;
+	}
+
+	const char* buffer = "";
+
+	for (i = BPoints.begin(); i != BPoints.end(); ++i) {
+		CBreakpoint* bp = (*i);
+		if (bp->GetType() == BKPNT_PHYSICAL) {
+			fprintf(f,"BP %04X:%04X\n",bp->GetSegment(),bp->GetOffset());
+		}
+		else if (bp->GetType() == BKPNT_INTERRUPT) {
+			if (bp->GetValue() == BPINT_ALL) fprintf(f,"BPINT %02X\n",bp->GetIntNr());
+			else if (bp->GetOther() == BPINT_ALL) fprintf(f,"BPINT %02X AH=%02X\n",bp->GetIntNr(),bp->GetValue());
+			else fprintf(f,"BPINT %02X AH=%02X AL=%02X\n",bp->GetIntNr(),bp->GetValue(),bp->GetOther());
+		}
+		else if (bp->GetType() == BKPNT_MEMORY) {
+			fprintf(f,"BPMEM %04X:%04X (%02X)\n",bp->GetSegment(),bp->GetOffset(),bp->GetValue());
+		}
+		else if (bp->GetType() == BKPNT_MEMORY_PROT) {
+			fprintf(f,"BPPM %04X:%08X (%02X)\n",bp->GetSegment(),bp->GetOffset(),bp->GetValue());
+		}
+		else if (bp->GetType() == BKPNT_MEMORY_LINEAR) {
+			fprintf(f,"BPLM %08X (%02X)\n",bp->GetOffset(),bp->GetValue());
+		};
+
+		nr++;
+	}
+
+	fclose(f);
+	DEBUG_ShowMsg("DEBUG: Breakpoints saved to %s.\n",filename);
+};
 
 bool DEBUG_Breakpoint(void)
 {
@@ -1118,6 +1172,20 @@ bool ParseCommand(char* str) {
 		return true;
 	}
 
+	if (command == "DA") { // Disassemble
+		Bit16u seg = (Bit16u)GetHexValue(found, found); found++;
+		Bit32u ofs = GetHexValue(found, found); found++;
+		Bit32u num = GetHexValue(found, found); found++;
+		char filename[13];
+		for (int i = 0; i < 12; i++) {
+			if (found[i] && (found[i] != ' ')) filename[i] = found[i];
+			else { filename[i] = 0; break; };
+		};
+		filename[12] = 0;
+		DisassembleMemory(seg, ofs, num, filename);
+		return true;
+	};
+
 	if (command == "BP") { // Add new breakpoint
 		Bit16u seg = (Bit16u)GetHexValue(found,found);found++; // skip ":"
 		Bit32u ofs = GetHexValue(found,found);
@@ -1182,6 +1250,22 @@ bool ParseCommand(char* str) {
 		DEBUG_ShowMsg("Breakpoint list:\n");
 		DEBUG_ShowMsg("-------------------------------------------------------------------------\n");
 		CBreakpoint::ShowList();
+		return true;
+	}
+
+	if (command == "BPSAVE") {
+		CBreakpoint::SaveList();
+		return true;
+	};
+
+	if (command == "EXEC") {
+		char filename[13];
+		for (int i = 0; i < 12; i++) {
+			if (found[i] && (found[i] != ' ')) filename[i] = found[i];
+			else { filename[i] = 0; break; };
+		};
+		filename[12] = 0;
+		DEBUG_ExecCommandFile(filename);
 		return true;
 	}
 
@@ -1347,6 +1431,7 @@ bool ParseCommand(char* str) {
 	if (command == "HELP" || command == "?") {
 		DEBUG_ShowMsg("Debugger commands (enter all values in hex or as register):\n");
 		DEBUG_ShowMsg("Commands------------------------------------------------\n");
+		DEBUG_ShowMsg("DA [s]:[o] [len] [file]   - Write disassembly to file.\n");
 		DEBUG_ShowMsg("BP     [segment]:[offset] - Set breakpoint.\n");
 		DEBUG_ShowMsg("BPINT  [intNr] *          - Set interrupt breakpoint.\n");
 		DEBUG_ShowMsg("BPINT  [intNr] [ah] *     - Set interrupt breakpoint with ah.\n");
@@ -1357,7 +1442,11 @@ bool ParseCommand(char* str) {
 		DEBUG_ShowMsg("BPLM   [linear address]   - Set linear memory breakpoint (memory change).\n");
 #endif
 		DEBUG_ShowMsg("BPLIST                    - List breakpoints.\n");
+		DEBUG_ShowMsg("BPSAVE                    - Save breakpoints to file bplist.txt.\n");
 		DEBUG_ShowMsg("BPDEL  [bpNr] / *         - Delete breakpoint nr / all.\n");
+
+		DEBUG_ShowMsg("EXEC [filename]           - Execute debugger commands from filename.\n");
+
 		DEBUG_ShowMsg("C / D  [segment]:[offset] - Set code / data view address.\n");
 		DEBUG_ShowMsg("DOS MCBS                  - Show Memory Control Block chain.\n");
 		DEBUG_ShowMsg("INT [nr] / INTT [nr]      - Execute / Trace into interrupt.\n");
@@ -1656,7 +1745,7 @@ Bit32u DEBUG_CheckKeys(void) {
 			break;
 		}
 #endif
-		switch (toupper(key)) {
+		switch (key) {
 		case 27:	// escape (a bit slow): Clears line. and processes alt commands.
 			key=getch();
 			if(key < 0) { //Purely escape Clear line
@@ -1879,12 +1968,39 @@ Bitu DEBUG_Loop(void) {
 	return DEBUG_CheckKeys();
 }
 
+bool DEBUG_ExecCommandFile(const char* filename)
+{
+	#define DEBUG_COMMAND_FILE_COMMENT ";"
+	ifstream in(filename);
+	if (!in) return false;
+	
+	char *pch;
+	char c[MAXCMDLEN + 1];
+	string line;
+	
+	DEBUG_ShowMsg("Executing command file %s...", filename);
+	
+	while (getline(in, line)) {		
+		strcpy(c, line.c_str());
+		strtok(c, DEBUG_COMMAND_FILE_COMMENT);
+		ParseCommand(c);
+	}
+	in.close();
+
+	return true;
+}
+
 void DEBUG_Enable(bool pressed) {
 	if (!pressed)
 		return;
 	static bool showhelp=false;
+	static bool runautoexec=true;
 	debugging=true;
 	SetCodeWinStart();
+	if(runautoexec) {
+		runautoexec=false;
+		DEBUG_ExecCommandFile(autoexec.c_str());
+	}	
 	DEBUG_DrawScreen();
 	DOSBOX_SetLoop(&DEBUG_Loop);
 	if(!showhelp) { 
@@ -2258,6 +2374,7 @@ void DEBUG_ShutDown(Section * /*sec*/) {
 Bitu debugCallback;
 
 void DEBUG_Init(Section* sec) {
+	Section_prop * section=static_cast<Section_prop *>(sec);
 
 //	MSG_Add("DEBUG_CONFIGFILE_HELP","Debugger related options.\n");
 	DEBUG_DrawScreen();
@@ -2274,6 +2391,8 @@ void DEBUG_Init(Section* sec) {
 	CALLBACK_Setup(debugCallback,DEBUG_EnableDebugger,CB_RETF,"debugger");
 	/* shutdown function */
 	sec->AddDestroyFunction(&DEBUG_ShutDown);
+	/* Setup Debug Autoexec from file */
+	autoexec=section->Get_string("autoexec");
 }
 
 // DEBUGGING VAR STUFF
@@ -2355,6 +2474,56 @@ bool CDebugVar::LoadVars(char *name)
 	}
 	fclose(f);
 	return true;
+}
+
+static void DisassembleMemory(Bit16u seg, Bit32u ofs1, Bit32u num, char* filename)
+{
+	if (num <= 0) return;
+
+	char dline[200];Bitu size;Bitu c;
+	char buffer[128];
+	char temp[16];
+	static char line30[31] = "                              ";
+	if (strlen(filename) == 0) sprintf(filename,"DISASM.TXT");
+
+	FILE* f = fopen(filename,"wb");
+	if (!f) {
+		DEBUG_ShowMsg("DEBUG: Disassembly failed.\n",filename);
+		return;
+	}
+
+	DEBUG_ShowMsg("DEBUG: Disassembling %04X bytes from %04X:%04X to %s...",num,seg,ofs1,filename);
+
+
+	for (Bitu x = 0; x < num; x++) {
+		PhysPt start = GetAddress(seg,ofs1+x);
+
+		sprintf(buffer,"%04X:%04X  ",seg,ofs1+x);
+		size = DasmI386(dline,start,reg_eip,cpu.code.big);
+
+		if (size > 1) x += size - 1;
+
+		for (c = 0; c < size; c++) {
+			Bit8u value;
+			if (mem_readb_checked(start+c,&value)) value = 0;
+			sprintf(temp,"%02X",value);
+			strcat(buffer,temp);
+		}
+
+		// Spacepad it up to 30 characters
+		size_t byteslen = strlen(buffer);
+		if (byteslen && (byteslen < 31)) {
+			line30[31 - byteslen] = 0;
+			strcat(buffer,line30);
+			line30[31 - byteslen] = ' ';
+		}
+		else 	strcat(buffer,line30);
+
+		fprintf(f,"%s%s\n",buffer,dline);
+	}
+
+	fclose(f);
+	DEBUG_ShowMsg("DEBUG: Disassembly successful.\n",filename);
 }
 
 static void SaveMemory(Bit16u seg, Bit32u ofs1, Bit32u num) {
