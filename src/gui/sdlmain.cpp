@@ -852,6 +852,7 @@ static SDL_Window *SetWindowMode(SCREEN_TYPES screen_type,
 		}
 
 		uint32_t flags = opengl_driver_crash_workaround(screen_type);
+		flags |= SDL_WINDOW_ALLOW_HIGHDPI;
 #if C_OPENGL
 		if (screen_type == SCREEN_OPENGL)
 			flags |= SDL_WINDOW_OPENGL;
@@ -1564,22 +1565,25 @@ dosurface:
 			SDL_GetWindowSize(sdl.window, &windowWidth, &windowHeight);
 		}
 
+        int renderWidth, renderHeight;
+        SDL_GL_GetDrawableSize(sdl.window, &renderWidth, &renderHeight);
+
 		if (sdl.clip.x == 0 && sdl.clip.y == 0 &&
 		    sdl.desktop.fullscreen && !sdl.desktop.full.fixed &&
 		    (sdl.clip.w != windowWidth || sdl.clip.h != windowHeight)) {
 			// LOG_MSG("attempting to fix the centering to %d %d %d %d",(windowWidth-sdl.clip.w)/2,(windowHeight-sdl.clip.h)/2,sdl.clip.w,sdl.clip.h);
-			sdl.clip = calc_viewport(windowWidth, windowHeight);
+			sdl.clip = calc_viewport(renderWidth, renderHeight);
 			glViewport(sdl.clip.x, sdl.clip.y, sdl.clip.w, sdl.clip.h);
 		} else if (sdl.desktop.window.resizable) {
-			sdl.clip = calc_viewport(windowWidth, windowHeight);
+			sdl.clip = calc_viewport(renderWidth, renderHeight);
 			glViewport(sdl.clip.x, sdl.clip.y, sdl.clip.w, sdl.clip.h);
 		} else {
 			/* We don't just pass sdl.clip.y as-is, so we cover the case of non-vertical
 			 * centering on Android (in order to leave room for the on-screen keyboard)
 			 */
-			sdl.clip = calc_viewport(windowWidth, windowHeight);
+			sdl.clip = calc_viewport(renderWidth, renderHeight);
 			glViewport(sdl.clip.x,
-			           windowHeight - (sdl.clip.y + sdl.clip.h),
+			           renderHeight - (sdl.clip.y + sdl.clip.h),
 			           sdl.clip.w,
 			           sdl.clip.h);
 		}
@@ -1629,7 +1633,7 @@ dosurface:
 			glUniform2f(sdl.opengl.ruby.texture_size,
 			            (GLfloat)texsize_w, (GLfloat)texsize_h);
 			glUniform2f(sdl.opengl.ruby.input_size, (GLfloat)width, (GLfloat)height);
-			glUniform2f(sdl.opengl.ruby.output_size, (GLfloat)sdl.clip.w, (GLfloat)sdl.clip.h);
+			glUniform2f(sdl.opengl.ruby.output_size, (GLfloat)renderWidth, (GLfloat)renderHeight);
 			// The following uniform is *not* set right now
 			sdl.opengl.actual_frame_count = 0;
 		} else {
