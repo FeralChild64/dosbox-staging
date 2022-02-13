@@ -315,6 +315,19 @@ constexpr int RateToPeriodUs(const int rate)
 /* Alias for indicating, that new window should not be user-resizable: */
 constexpr bool FIXED_SIZE = false;
 
+// Texture buffer and presentation functions and type-defines
+using update_frame_buffer_f = void(const uint16_t *);
+using present_frame_f = void();
+static void PresentTexture();
+static void UpdateTexture([[maybe_unused]] const uint16_t *changedLines);
+static void UpdateAndPresentSurface(const uint16_t *changedLines);
+static inline void EmptyPresentation() { /* no-op */ }
+#if C_OPENGL
+static void UpdateGlPixelBuffer([[maybe_unused]] const uint16_t *changedLines);
+static void UpdateGlFrameBuffer(const uint16_t *changedLines);
+static void PresentGlBuffer();
+#endif
+
 struct SDL_Block {
 	bool initialized = false;
 	bool active = false; // If this isn't set don't draw
@@ -410,6 +423,8 @@ struct SDL_Block {
 	SDL_Window *window = nullptr;
 	SDL_Renderer *renderer = nullptr;
 	std::string render_driver = "";
+	update_frame_buffer_f *update_frame_buffer = UpdateAndPresentSurface;
+	present_frame_f *present_frame = EmptyPresentation;
 	int display_number = 0;
 	struct {
 		SDL_Surface *input_surface = nullptr;
@@ -2021,6 +2036,117 @@ void GFX_EndUpdate(const Bit16u *changedLines)
 			}
 		}
 		break;
+	}
+}
+
+
+// Texture update and presentation
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+static void UpdateTexture([[maybe_unused]] const uint16_t *changedLines)
+{
+	if (sdl.updating && sdl.update_display_contents) {
+		SDL_UpdateTexture(sdl.texture.texture,
+		                  nullptr, // update entire texture
+		                  sdl.texture.input_surface->pixels,
+		                  sdl.texture.input_surface->pitch);
+	}
+}
+
+static void PresentTexture()
+{
+	if (render_pacer.CanRun()) {
+		SDL_RenderClear(sdl.renderer);
+		SDL_RenderCopy(sdl.renderer, sdl.texture.texture, nullptr, &sdl.clip);
+		SDL_RenderPresent(sdl.renderer);
+	}
+	render_pacer.Checkpoint();
+}
+
+// OpenGL PBO-based update, frame-based update, and presentation
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#if C_OPENGL
+static void UpdateGlPixelBuffer([[maybe_unused]] const uint16_t *changedLines)
+{
+	if (sdl.updating) {
+		glUnmapBufferARB(GL_PIXEL_UNPACK_BUFFER_EXT);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, sdl.draw.width, sdl.draw.height,
+		                GL_BGRA_EXT, GL_UNSIGNED_INT_8_8_8_8_REV, 0);
+		glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_EXT, 0);
+	} else {
+		sdl.opengl.actual_frame_count++;
+	}
+}
+
+static void UpdateGlFrameBuffer(const uint16_t *changedLines)
+{
+	if (changedLines) {
+		const auto framebuf = static_cast<uint8_t *>(sdl.opengl.framebuf);
+		const auto pitch = sdl.opengl.pitch;
+		int y = 0;
+		size_t index = 0;
+		while (y < sdl.draw.height) {
+			if (!(index & 1)) {
+				y += changedLines[index];
+			} else {
+				const uint8_t *pixels = framebuf + y * pitch;
+				const int height = changedLines[index];
+				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, y, sdl.draw.width, height,
+				                GL_BGRA_EXT, GL_UNSIGNED_INT_8_8_8_8_REV, pixels);
+				y += height;
+			}
+			index++;
+		}
+	} else {
+		sdl.opengl.actual_frame_count++;
+	}
+}
+
+static void PresentGlBuffer()
+{
+	if (render_pacer.CanRun()) {
+		glClear(GL_COLOR_BUFFER_BIT);
+		if (sdl.opengl.program_object) {
+			glUniform1i(sdl.opengl.ruby.frame_count, sdl.opengl.actual_frame_count++);
+			glDrawArrays(GL_TRIANGLES, 0, 3);
+		} else {
+			glCallList(sdl.opengl.displaylist);
+		}
+		SDL_GL_SwapWindow(sdl.window);
+	}
+	render_pacer.Checkpoint();
+}
+#endif
+
+// Surface update & presentation
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+static void UpdateAndPresentSurface([[maybe_unused]] const uint16_t *changedLines)
+{
+	// Changed lines are "streamed in" over multiple ticks - so important
+	// we don't ignore or skip this content (otherwise parts of the image
+	// won't be updated). So no matter, we always processed these changes,
+	// even if we don't have to render a frame this pass.  The content is
+	// updated in a persistent buffer.
+	if (changedLines) {
+		int y = 0;
+		size_t index = 0;
+		int16_t rect_count = 0;
+		auto *rect = sdl.updateRects;
+		assert(rect);
+		while (y < sdl.draw.height) {
+			if (index & 1) {
+				rect->x = sdl.clip.x;
+				rect->y = sdl.clip.y + y;
+				rect->w = sdl.draw.width;
+				rect->h = changedLines[index];
+				rect++;
+				rect_count++;
+			}
+			y += changedLines[index];
+			index++;
+		}
+		if (rect_count) {
+			SDL_UpdateWindowSurfaceRects(sdl.window, sdl.updateRects, rect_count);
+		}
 	}
 }
 
