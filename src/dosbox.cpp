@@ -160,6 +160,14 @@ static Bitu Normal_Loop() {
 			if (DEBUG_ExitLoop()) return 0;
 #endif
 		} else {
+			// Ignore the indicator to allow rendering intermediate
+			// frames
+			bool use_frame_indicator = false;
+			GFX_MaybePresentFrame(use_frame_indicator);
+
+			// process the event queue after presenting the frame to
+			// move the input events closer to the next round of CPU
+			// execution
 			if (!GFX_Events())
 				return 0;
 			if (ticksRemain > 0) {
