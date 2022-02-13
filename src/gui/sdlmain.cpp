@@ -236,6 +236,8 @@ constexpr auto REFRESH_RATE_HOST_VRR_MIN =  75;
 constexpr auto REFRESH_RATE_DOS_DEFAULT  =  70;
 constexpr auto REFRESH_RATE_DOS_MAX      = 120;
 
+enum class PRESENTATION_MODE { UNSET, CFR, VFR, LIMIT_VFR };
+
 enum class SCALING_MODE { NONE, NEAREST, PERFECT };
 
 // Size and ratio constants
@@ -382,6 +384,8 @@ struct SDL_Block {
 		// position when leaving fullscreen for the first time.
 		// See FinalizeWindowState function for details.
 		bool lazy_init_window_size = false;
+		// Will be populated with the display's actual refresh period
+		int refresh_period_us = RateToPeriodUs(REFRESH_RATE_HOST_DEFAULT);
 		bool vsync = false;
 		int vsync_skip = 0;
 		bool want_resizable_window = false;
@@ -425,6 +429,8 @@ struct SDL_Block {
 	std::string render_driver = "";
 	update_frame_buffer_f *update_frame_buffer = UpdateAndPresentSurface;
 	present_frame_f *present_frame = EmptyPresentation;
+	PRESENTATION_MODE presentation_mode = PRESENTATION_MODE::UNSET;
+
 	int display_number = 0;
 	struct {
 		SDL_Surface *input_surface = nullptr;
@@ -1936,6 +1942,59 @@ bool GFX_StartUpdate(uint8_t * &pixels, int &pitch)
 	return false;
 }
 
+
+// Returns true if enough time has passed since the last call to this function to 
+// fit within the given frame tempo (in microseconds). This function uses an earned
+// tally of frames over the given period to get closer to the rate limit instead of a
+// simpler time-check.
+static bool IsFrameAllowed(const int throttle_tempo_us)
+{
+	static int allow_frames_tally = 0;
+	constexpr int burst_frame_limit = 2;
+
+	const auto current_time = GetTicksUs();
+	static auto last_time = current_time;
+	const auto time_since_last = current_time - last_time;
+
+	// If we've crossed the threshold, add one to the allowance but not past the limit
+	if (time_since_last >= throttle_tempo_us) {
+		allow_frames_tally = std::min(allow_frames_tally + 1, burst_frame_limit);
+		last_time = current_time - (time_since_last % throttle_tempo_us);
+	}
+	if (allow_frames_tally > 0) {
+		allow_frames_tally--;
+		return true;
+	}
+	return false;
+}
+
+// Dependending on the presentation mode, this function may present the current buffer's frame.
+// The 'frame_is_ready' argument both indicates if a complete frame is ready to be presented,
+// and also is set to false in the event the frame was presented.
+void GFX_MaybePresentFrame(bool& frame_is_ready)
+{
+	switch (sdl.presentation_mode) {
+	case PRESENTATION_MODE::CFR:
+		frame_is_ready = IsFrameAllowed(sdl.draw.dos_frame_period_us);
+		break;
+	case PRESENTATION_MODE::VFR:
+		frame_is_ready = frame_is_ready && sdl.update_display_contents;
+		break;
+	case PRESENTATION_MODE::LIMIT_VFR:
+		frame_is_ready = frame_is_ready && sdl.update_display_contents &&
+		                 IsFrameAllowed(sdl.desktop.refresh_period_us);
+		break;
+	case PRESENTATION_MODE::UNSET: return;
+	}
+	if (frame_is_ready) {
+		sdl.present_frame();
+		frame_is_ready = false;
+	}
+	else {
+		render_pacer.Reset();
+	}
+}
+
 void GFX_EndUpdate(const Bit16u *changedLines)
 {
 	if (!sdl.update_display_contents)
@@ -2182,6 +2241,49 @@ Bitu GFX_GetRGB(Bit8u red,Bit8u green,Bit8u blue) {
 #endif
 	}
 	return 0;
+}
+
+// Determines which frame presentation mode to use based on simple herustics.
+static inline void DeterminePresentationMode(PRESENTATION_MODE &mode)
+{
+	// Get and save the current display's refresh period
+	const auto refresh_rate = GFX_GetDisplayRefreshRate();
+	sdl.desktop.refresh_period_us = RateToPeriodUs(refresh_rate);
+
+	// If we're using a VRR monitor, then use a constant frame method
+	if (refresh_rate >= REFRESH_RATE_HOST_VRR_MIN) {
+		if (mode != PRESENTATION_MODE::CFR) {
+			mode = PRESENTATION_MODE::CFR;
+			LOG_MSG("DISPLAY: Using DOS frame rate with high-refresh (%d-Hz) display",
+			        refresh_rate);
+		}
+		return;
+	}
+	// Test how quickly the presentaton layer can dispatch back-to-back frames
+	Delay(ceil_sdivide(sdl.desktop.refresh_period_us, 1000)); // in ms
+	const auto time_at_start = GetTicksUs();
+	int back_to_back_test_frames = 5;
+	while (back_to_back_test_frames--)
+		sdl.present_frame();
+	const auto elapsed_us = GetTicksUs() - time_at_start;
+	render_pacer.Reset(); // Reset the render pacer to avoid a false positive
+
+	// If it handles them quickly, then use an unlimited variable frame rate
+	if (!sdl.desktop.vsync && elapsed_us < sdl.desktop.refresh_period_us) {
+		if (mode != PRESENTATION_MODE::VFR) {
+			mode = PRESENTATION_MODE::VFR;
+			LOG_MSG("DISPLAY: Using variable frame rate with standard %d-Hz display",
+			        refresh_rate);
+		}
+		return;
+	}
+	// If it handles them slowly, then use a limited variable frame rate
+	if (mode != PRESENTATION_MODE::LIMIT_VFR) {
+		mode = PRESENTATION_MODE::LIMIT_VFR;
+		LOG_MSG("DISPLAY: Limiting variable frame rate to %d-Hz display",
+		        refresh_rate);
+	}
+	assert(mode != PRESENTATION_MODE::UNSET);
 }
 
 void GFX_Stop() {
