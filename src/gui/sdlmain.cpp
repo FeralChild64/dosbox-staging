@@ -1258,7 +1258,7 @@ Bitu GFX_SetSize(int width,
 {
 	Bitu retFlags = 0;
 	if (sdl.updating)
-		GFX_EndUpdate( 0 );
+		GFX_EndUpdate(nullptr);
 
 	const bool double_width = flags & GFX_DBL_W;
 	const bool double_height = flags & GFX_DBL_H;
@@ -2167,7 +2167,7 @@ Bitu GFX_GetRGB(Bit8u red,Bit8u green,Bit8u blue) {
 
 void GFX_Stop() {
 	if (sdl.updating)
-		GFX_EndUpdate( 0 );
+		GFX_EndUpdate(nullptr);
 	sdl.active=false;
 }
 
