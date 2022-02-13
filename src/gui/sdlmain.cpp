@@ -518,24 +518,20 @@ void GFX_SetTitle(Bit32s cycles, int /*frameskip*/, bool paused)
 
 int GFX_GetDisplayRefreshRate()
 {
-	constexpr auto invalid_refresh = -1;
 	assert(sdl.window);
-	const int display_in_use = SDL_GetWindowDisplayIndex(sdl.window);
-	if (display_in_use < 0) {
+
+	SDL_DisplayMode mode = {};
+	const auto display_in_use = SDL_GetWindowDisplayIndex(sdl.window);
+	if (display_in_use < 0)
 		LOG_ERR("SDL: Could not get the current window index: %s", SDL_GetError());
-		return invalid_refresh;
-	}
-
-	SDL_DisplayMode mode;
-	if (SDL_GetCurrentDisplayMode(display_in_use, &mode) != 0) {
+	else if (SDL_GetCurrentDisplayMode(display_in_use, &mode) != 0)
 		LOG_ERR("SDL: Could not get the current display mode: %s", SDL_GetError());
-		return invalid_refresh;
-	}
-	if (mode.refresh_rate < 23 || mode.refresh_rate > 500) {
-		LOG_ERR("SDL: Got an unexpected refresh rate of %d Hz; not using it", mode.refresh_rate);
-		return invalid_refresh;
-	}
 
+	if (mode.refresh_rate < REFRESH_RATE_MIN) {
+		LOG_WARNING("VIDEO: Got a strange refresh rate of %d Hz; using %d Hz instead",
+		            mode.refresh_rate, REFRESH_RATE_HOST_DEFAULT);
+		mode.refresh_rate = REFRESH_RATE_HOST_DEFAULT;
+	}
 	return mode.refresh_rate;
 }
 
