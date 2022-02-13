@@ -1355,6 +1355,10 @@ dosurface:
 		changing between modes with different dimensions */
 		SDL_FillRect(sdl.surface, NULL, SDL_MapRGB(sdl.surface->format, 0, 0, 0));
 		SDL_UpdateWindowSurface(sdl.window);
+
+		sdl.update_frame_buffer = UpdateAndPresentSurface;
+		sdl.present_frame = EmptyPresentation;
+
 		sdl.desktop.type = SCREEN_SURFACE;
 		break; // SCREEN_SURFACE
 
@@ -1422,6 +1426,9 @@ dosurface:
 		
 		if (rinfo.flags & SDL_RENDERER_ACCELERATED)
 			retFlags |= GFX_HARDWARE;
+
+		sdl.update_frame_buffer = UpdateTexture;
+		sdl.present_frame = PresentTexture;
 
 		sdl.desktop.type = SCREEN_TEXTURE;
 		break; // SCREEN_TEXTURE
@@ -1687,8 +1694,14 @@ dosurface:
 		OPENGL_ERROR("End of setsize");
 
 		retFlags = GFX_CAN_32 | GFX_SCALING;
-		if (sdl.opengl.pixel_buffer_object)
+		if (sdl.opengl.pixel_buffer_object) {
 			retFlags |= GFX_HARDWARE;
+			sdl.update_frame_buffer = UpdateGlPixelBuffer;
+		} else {
+			sdl.update_frame_buffer = UpdateGlFrameBuffer;
+		}
+		// Both update mechanisms use the same presentation call
+		sdl.present_frame = PresentGlBuffer;
 
 		sdl.desktop.type = SCREEN_OPENGL;
 		break; // SCREEN_OPENGL
