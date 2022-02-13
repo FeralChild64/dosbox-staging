@@ -229,6 +229,13 @@ enum SCREEN_TYPES	{
 #endif
 };
 
+// Refresh rate constants
+constexpr auto REFRESH_RATE_MIN          =  24;
+constexpr auto REFRESH_RATE_HOST_DEFAULT =  60;
+constexpr auto REFRESH_RATE_HOST_VRR_MIN =  75;
+constexpr auto REFRESH_RATE_DOS_DEFAULT  =  70;
+constexpr auto REFRESH_RATE_DOS_MAX      = 120;
+
 enum class SCALING_MODE { NONE, NEAREST, PERFECT };
 
 // Size and ratio constants
@@ -300,6 +307,11 @@ private:
 	int scale_y = 0;
 };
 
+constexpr int RateToPeriodUs(const int rate)
+{
+	return ceil_sdivide(1000000, rate);
+}
+
 /* Alias for indicating, that new window should not be user-resizable: */
 constexpr bool FIXED_SIZE = false;
 
@@ -314,6 +326,8 @@ struct SDL_Block {
 	struct {
 		int width = 0;
 		int height = 0;
+		// Will be populated with the actual DOS period at runtime
+		int dos_frame_period_us = RateToPeriodUs(REFRESH_RATE_DOS_DEFAULT);
 		double scalex = 1.0;
 		double scaley = 1.0;
 		double pixel_aspect = 1.0;
@@ -951,6 +965,12 @@ finish:
 
 	sdl.update_display_contents = true;
 	return sdl.window;
+}
+
+void GFX_SetSourceFPS(const double fps)
+{
+	assert(fps >= REFRESH_RATE_MIN && fps <= REFRESH_RATE_DOS_MAX);
+	sdl.draw.dos_frame_period_us = static_cast<int>(ceil(1000000.0 / fps));
 }
 
 // Used for the mapper UI and more: Creates a fullscreen window with desktop res

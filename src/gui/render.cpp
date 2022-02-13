@@ -591,6 +591,7 @@ void RENDER_SetSize(uint32_t width,
 	render.src.fps = fps;
 	render.src.ratio = ratio;
 	RENDER_Reset( );
+	GFX_SetSourceFPS(fps);
 }
 
 extern void GFX_SetTitle(Bit32s cycles, int frameskip,bool paused);

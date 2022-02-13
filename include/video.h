@@ -64,7 +64,7 @@ Bitu GFX_SetSize(int width, int height, Bitu flags,
                  double scalex, double scaley,
                  GFX_CallBack_t callback,
                  double pixel_aspect);
-
+void GFX_SetSourceFPS(double fps);
 void GFX_ResetScreen(void);
 void GFX_Start(void);
 void GFX_Stop(void);
