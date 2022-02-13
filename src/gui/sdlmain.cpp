@@ -1994,122 +1994,11 @@ void GFX_MaybePresentFrame(bool& frame_is_ready)
 	}
 }
 
-void GFX_EndUpdate(const Bit16u *changedLines)
+void GFX_EndUpdate(const uint16_t *changedLines)
 {
-	if (!sdl.update_display_contents)
-		return;
-#if C_OPENGL
-	const bool using_opengl = (sdl.desktop.type == SCREEN_OPENGL);
-#else
-	const bool using_opengl = false;
-#endif
-	if (!using_opengl && !sdl.updating)
-		return;
-	[[maybe_unused]] bool actually_updating = sdl.updating;
-	sdl.updating = false;
-	switch (sdl.desktop.type) {
-	case SCREEN_TEXTURE: {
-		assert(sdl.texture.texture);
-		assert(sdl.texture.input_surface);
-		if (render_pacer.CanRun()) {
-			SDL_UpdateTexture(sdl.texture.texture,
-			                  nullptr, // update entire texture
-			                  sdl.texture.input_surface->pixels,
-			                  sdl.texture.input_surface->pitch);
-			SDL_RenderClear(sdl.renderer);
-			SDL_RenderCopy(sdl.renderer, sdl.texture.texture,
-			               nullptr, &sdl.clip);
-			SDL_RenderPresent(sdl.renderer);
-		}
-		render_pacer.Checkpoint();
-	} break;
-#if C_OPENGL
-	case SCREEN_OPENGL:
-		// Clear drawing area. Some drivers (on Linux) have more than 2 buffers and the screen might
-		// be dirty because of other programs.
-		if (!actually_updating) {
-			/* Don't really update; Just increase the frame counter.
-			 * If we tried to update it may have not worked so well
-			 * with VSync...
-			 * (Think of 60Hz on the host with 70Hz on the client.)
-			 */
-			sdl.opengl.actual_frame_count++;
-			return;
-		}
-		glClearColor (0.0f, 0.0f, 0.0f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
-		if (sdl.opengl.pixel_buffer_object) {
-			glUnmapBufferARB(GL_PIXEL_UNPACK_BUFFER_EXT);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, sdl.draw.width,
-			                sdl.draw.height, GL_BGRA_EXT,
-			                GL_UNSIGNED_INT_8_8_8_8_REV, 0);
-			glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_EXT, 0);
-		} else if (changedLines) {
-			int y = 0;
-			size_t index = 0;
-			while (y < sdl.draw.height) {
-				if (!(index & 1)) {
-					y += changedLines[index];
-				} else {
-					Bit8u *pixels = (Bit8u *)sdl.opengl.framebuf + y * sdl.opengl.pitch;
-					int height = changedLines[index];
-					glTexSubImage2D(GL_TEXTURE_2D, 0, 0, y,
-					                sdl.draw.width, height,
-					                GL_BGRA_EXT,
-					                GL_UNSIGNED_INT_8_8_8_8_REV,
-					                pixels);
-					y += height;
-				}
-				index++;
-			}
-		} else {
-			return;
-		}
-
-		if (render_pacer.CanRun()) {
-			if (sdl.opengl.program_object) {
-				glUniform1i(sdl.opengl.ruby.frame_count,
-				            sdl.opengl.actual_frame_count++);
-				glDrawArrays(GL_TRIANGLES, 0, 3);
-			} else {
-				glCallList(sdl.opengl.displaylist);
-			}
-			SDL_GL_SwapWindow(sdl.window);
-		}
-		render_pacer.Checkpoint();
-		break;
-#endif
-	case SCREEN_SURFACE:
-		if (changedLines) {
-			int y = 0;
-			size_t index = 0;
-			size_t rect_count = 0;
-			while (y < sdl.draw.height) {
-				if (!(index & 1)) {
-					y += changedLines[index];
-				} else {
-					SDL_Rect *rect = &sdl.updateRects[rect_count++];
-					rect->x = sdl.clip.x;
-					rect->y = sdl.clip.y + y;
-					rect->w = sdl.draw.width;
-					rect->h = changedLines[index];
-					y += changedLines[index];
-				}
-				index++;
-			}
-			if (rect_count) {
-				if (render_pacer.CanRun()) {
-					SDL_UpdateWindowSurfaceRects(sdl.window,
-					                             sdl.updateRects,
-					                             rect_count);
-				}
-				render_pacer.Checkpoint();
-			}
-		}
-		break;
-	}
+	sdl.update_frame_buffer(changedLines);
+	GFX_MaybePresentFrame(sdl.updating);
 }
-
 
 // Texture update and presentation
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2287,6 +2176,7 @@ void GFX_Stop() {
 
 void GFX_Start() {
 	sdl.active=true;
+	DeterminePresentationMode(sdl.presentation_mode);
 }
 
 void GFX_ObtainDisplayDimensions() {
