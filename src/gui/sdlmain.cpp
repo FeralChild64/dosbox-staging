@@ -1480,8 +1480,19 @@ dosurface:
 			LOG_WARNING("SDL:OPENGL: Can't create OpenGL context, falling back to surface");
 			goto dosurface;
 		}
-		/* Sync to VBlank if desired */
-		SDL_GL_SetSwapInterval(sdl.desktop.vsync ? 1 : 0);
+
+		// Apply vsync starting with the users preference and working down.
+		const auto sync_intervals = sdl.desktop.vsync
+		                                    ? std::array<int, 3>{-1, 1, 0}
+		                                    : std::array<int, 3>{0, -1, 1};
+		// -1: on and adaptive, which is lower latency than the default.
+		//  1: on and standard, which is higher latency than adaptive.
+		//  0: off.
+		for (const auto interval : sync_intervals) {
+			if (SDL_GL_SetSwapInterval(interval) == 0) {
+				break;
+			}
+		}
 
 		if (sdl.opengl.use_shader) {
 			GLuint prog=0;
