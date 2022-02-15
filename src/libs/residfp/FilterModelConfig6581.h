@@ -23,6 +23,8 @@
 #ifndef FILTERMODELCONFIG6581_H
 #define FILTERMODELCONFIG6581_H
 
+#include "FilterModelConfig.h"
+
 #include <memory>
 
 #include "Dac.h"
@@ -36,7 +38,7 @@ class Integrator6581;
 /**
  * Calculate parameters for 6581 filter emulation.
  */
-class FilterModelConfig6581
+class FilterModelConfig6581 : public FilterModelConfig
 {
 private:
     static const unsigned int DAC_BITS = 11;
@@ -46,21 +48,11 @@ private:
     // This allows access to the private constructor
     friend std::unique_ptr<FilterModelConfig6581>::deleter_type;
 
-    const double voice_voltage_range = 0;
-    const double voice_DC_voltage = 0;
-
-    /// Capacitor value.
-    const double C = 0;
 
     /// Transistor parameters.
     //@{
-    const double Vdd = 0;
-    const double Vth = 0;           ///< Threshold voltage
-    const double Ut = 0;            ///< Thermal voltage: Ut = kT/q = 8.61734315e-5*T ~ 26mV
-    const double uCox = 0;          ///< Transconductance coefficient: u*Cox
     const double WL_vcr = 0;        ///< W/L for VCR
     const double WL_snake = 0;      ///< W/L for "snake"
-    const double Vddt = 0;          ///< Vdd - Vth
     //@}
 
     /// DAC parameters.
@@ -69,20 +61,6 @@ private:
     const double dac_scale = 0;
     //@}
 
-    // Derived stuff
-    const double vmin = 0, vmax = 0;
-    const double denorm = 0, norm = 0;
-
-    /// Fixed point scaling for 16 bit op-amp output.
-    const double N16 = 0;
-
-    /// Lookup tables for gain and summer op-amps in output stage / filter.
-    //@{
-    unsigned short* mixer[8] = {};
-    unsigned short* summer[5] = {};
-    unsigned short* gain_vol[16] = {};
-    unsigned short* gain_res[16] = {};
-    //@}
 
     /// DAC lookup table
     Dac dac;
@@ -93,37 +71,16 @@ private:
     unsigned short vcr_n_Ids_term[1 << 16] = {};
     //@}
 
-    /// Reverse op-amp transfer function.
-    unsigned short opamp_rev[1 << 16] = {};
-
 private:
     double getDacZero(double adjustment) const { return dac_zero + (1. - adjustment); }
 
     FilterModelConfig6581();
-    ~FilterModelConfig6581();
+    ~FilterModelConfig6581() {}
     FilterModelConfig6581(const FilterModelConfig6581&) = delete; // prevent copy
     FilterModelConfig6581 &operator=(const FilterModelConfig6581&) = delete; // prevent assignment
 
 public:
     static FilterModelConfig6581* getInstance();
-
-    /**
-     * The digital range of one voice is 20 bits; create a scaling term
-     * for multiplication which fits in 11 bits.
-     */
-    int getVoiceScaleS11() const { return static_cast<int>((norm * ((1 << 11) - 1)) * voice_voltage_range); }
-
-    /**
-     * The "zero" output level of the voices.
-     */
-    int getVoiceDC() const { return static_cast<int>(N16 * (voice_DC_voltage - vmin)); }
-
-    unsigned short** getGainVol() { return gain_vol; }
-    unsigned short** getGainRes() { return gain_res; }
-
-    unsigned short** getSummer() { return summer; }
-
-    unsigned short** getMixer() { return mixer; }
 
     /**
      * Construct an 11 bit cutoff frequency DAC output voltage table.
