@@ -135,9 +135,9 @@ sudo dnf install gmock-devel gtest-devel
 ```
 ``` shell
 # Debian, Ubuntu
-sudo apt install libgtest-dev
+sudo apt install libgtest-dev libgmock-dev
 ```
-If `gtest` is not available/installed on the OS, Meson will download it
+If GTest/GMock is not available/installed on the OS, Meson will download it
 automatically.
 
 Build and run tests:
