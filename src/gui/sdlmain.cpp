@@ -25,6 +25,7 @@
 #include <cassert>
 #include <cerrno>
 #include <cstdlib>
+#include <map>
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -1480,8 +1481,32 @@ dosurface:
 			LOG_WARNING("SDL:OPENGL: Can't create OpenGL context, falling back to surface");
 			goto dosurface;
 		}
-		/* Sync to VBlank if desired */
-		SDL_GL_SetSwapInterval(sdl.desktop.vsync ? 1 : 0);
+
+		// Apply vsync starting with the users preference and working down
+		enum VSYNC {
+			OFF = 0,
+			ON = 1,
+			ADAPTIVE = -1,
+			UNSET = -2,
+		};
+		const auto vsync_descriptions = std::map<int, std::string>{
+		        {ADAPTIVE, "Using adaptive vsync timing"},
+		        {ON, "Using standard vsync timing"},
+		        {OFF, "Disabled vsync"},
+		};
+		const auto vsync_preferences = sdl.desktop.vsync
+		                                    ? std::array<int, 3>{VSYNC::ADAPTIVE, VSYNC::ON, VSYNC::OFF}
+		                                    : std::array<int, 3>{VSYNC::OFF, VSYNC::ADAPTIVE, VSYNC::ON};
+		static int active_interval = VSYNC::UNSET;
+		for (const auto interval : vsync_preferences) {
+			if (SDL_GL_SetSwapInterval(interval) == 0) {
+				if (active_interval != interval) {
+					active_interval = interval;
+					LOG_MSG("OPENGL: %s", vsync_descriptions.at(interval).c_str());
+				}
+				break;
+			}
+		}
 
 		if (sdl.opengl.use_shader) {
 			GLuint prog=0;
