@@ -3701,7 +3701,7 @@ void Config_Add_SDL() {
 	Pint->Set_help("Set the transparency of the DOSBox Staging screen.\n"
 	               "From 0 (no transparency) to 90 (high transparency).");
 
-	Pbool = sdl_sec->Add_bool("vsync", on_start, false);
+	Pbool = sdl_sec->Add_bool("vsync", on_start, true);
 	Pbool->Set_help(
 	        "Synchronize with display refresh rate if supported. This can\n"
 	        "reduce flickering and tearing, but may also impact performance.");
