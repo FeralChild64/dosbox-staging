@@ -93,5 +93,6 @@ public:
 
 typedef void (PROGRAMS_Main)(Program * * make);
 void PROGRAMS_MakeFile(char const * const name,PROGRAMS_Main * main);
+void VFILE_RegisterBuiltinFileBlob(const struct BuiltinFileBlob &b);
 
 #endif

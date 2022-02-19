@@ -65,6 +65,10 @@ void VFILE_Remove(const char *name) {
 	}
 }
 
+void VFILE_RegisterBuiltinFileBlob(const struct BuiltinFileBlob &b) {
+	VFILE_Register(b.recommended_file_name, (uint8_t*)b.data, (uint32_t)b.length);
+}
+
 class Virtual_File final : public DOS_File {
 public:
 	Virtual_File(uint8_t *in_data, uint32_t in_size);

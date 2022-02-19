@@ -43,6 +43,12 @@ struct CommandTail{
 #pragma pack ()
 #endif
 
+struct BuiltinFileBlob {
+	const char *recommended_file_name;
+	const unsigned char *data;
+	size_t length;
+};
+
 struct DOS_Date {
 	Bit16u year;
 	Bit8u month;
