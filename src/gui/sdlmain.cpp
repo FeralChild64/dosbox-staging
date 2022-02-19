@@ -62,6 +62,7 @@
 #include "timer.h"
 #include "vga.h"
 #include "video.h"
+#include "vmware.h"
 
 #include "../libs/ppscale/ppscale.h"
 
@@ -1748,7 +1749,8 @@ static void FocusInput()
 /*
  *  Assesses the following:
  *   - current window size (full or not),
- *   - mouse capture state, (yes or no).
+ *   - mouse capture state (yes or no),
+ *   - if the mouse is controlled by a VMware compatible driver,
  *   - desired capture type (start, click, seamless), and
  *   - if we're starting up for the first time,
  *  to determine if the mouse-capture state should be toggled.
@@ -1776,10 +1778,10 @@ void GFX_UpdateMouseState()
 		/*
 		 * If we've switched-back from fullscreen, then release the
 		 * mouse if it's auto-captured (but not manually requested) and
-		 * in seamless-mode.
+		 * in seamless-mode. XXX
 		 */
 	} else if (!sdl.desktop.fullscreen && mouse_is_captured &&
-	           !mouse_capture_requested && sdl.mouse.control_choice == Seamless) {
+	           (vmware_mouse || (!mouse_capture_requested && sdl.mouse.control_choice == Seamless))) {
 		GFX_ToggleMouseCapture();
 		SDL_ShowCursor(SDL_DISABLE);
 
@@ -1787,13 +1789,13 @@ void GFX_UpdateMouseState()
 		 *  If none of the above are true /and/ we're starting
 		 *  up the first time, then:
 		 *  - Capture the mouse if configured onstart is set.
-		 *  - Hide the mouse if seamless or nomouse are set.
+		 *  - Hide the mouse if seamless or nomouse are set. XXX
 		 */
 	} else if (!has_run_once) {
 		if (sdl.mouse.control_choice == CaptureOnStart) {
 			SDL_RaiseWindow(sdl.window);
 			toggle_mouse_capture_from_user(true);
-		} else if (sdl.mouse.control_choice & (Seamless | NoMouse)) {
+		} else if (vmware_mouse || (sdl.mouse.control_choice & (Seamless | NoMouse))) {
 			SDL_ShowCursor(SDL_DISABLE);
 		}
 	}
@@ -3040,12 +3042,19 @@ static void GUI_StartUp(Section *sec)
 }
 
 static void HandleMouseMotion(SDL_MouseMotionEvent * motion) {
-	if (mouse_is_captured || sdl.mouse.control_choice == Seamless)
+	if (vmware_mouse || mouse_is_captured || sdl.mouse.control_choice == Seamless)
 		Mouse_CursorMoved((float)motion->xrel*sdl.mouse.xsensitivity/100.0f,
 						  (float)motion->yrel*sdl.mouse.ysensitivity/100.0f,
 						  (float)(motion->x-sdl.clip.x)/(sdl.clip.w-1)*sdl.mouse.xsensitivity/100.0f,
 						  (float)(motion->y-sdl.clip.y)/(sdl.clip.h-1)*sdl.mouse.ysensitivity/100.0f,
-						  mouse_is_captured);
+						  mouse_is_captured); // XXX
+
+	if (!sdl.desktop.switching_fullscreen)
+	{
+		VMware_MousePosition(std::max(std::min(motion->x-sdl.clip.x, sdl.clip.w-1), 0),
+			                 std::max(std::min(motion->y-sdl.clip.y, sdl.clip.h-1), 0),
+			                 sdl.clip.w, sdl.clip.h);
+	}
 }
 
 static void HandleMouseButton(SDL_MouseButtonEvent * button) {
@@ -3062,12 +3071,15 @@ static void HandleMouseButton(SDL_MouseButtonEvent * button) {
 		switch (button->button) {
 		case SDL_BUTTON_LEFT:
 			Mouse_ButtonPressed(0);
+			VMware_MouseButtonPressed(0);
 			break;
 		case SDL_BUTTON_RIGHT:
 			Mouse_ButtonPressed(1);
+			VMware_MouseButtonPressed(1);
 			break;
 		case SDL_BUTTON_MIDDLE:
 			Mouse_ButtonPressed(2);
+			VMware_MouseButtonPressed(2);
 			break;
 		}
 		break;
@@ -3075,12 +3087,15 @@ static void HandleMouseButton(SDL_MouseButtonEvent * button) {
 		switch (button->button) {
 		case SDL_BUTTON_LEFT:
 			Mouse_ButtonReleased(0);
+			VMware_MouseButtonReleased(0);
 			break;
 		case SDL_BUTTON_RIGHT:
 			Mouse_ButtonReleased(1);
+			VMware_MouseButtonReleased(1);
 			break;
 		case SDL_BUTTON_MIDDLE:
 			Mouse_ButtonReleased(2);
+			VMware_MouseButtonReleased(2);
 			break;
 		}
 		break;

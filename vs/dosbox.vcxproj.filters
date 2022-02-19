@@ -289,6 +289,9 @@
     <ClCompile Include="..\src\hardware\vga_xga.cpp">
       <Filter>src\hardware</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\hardware\vmware.cpp">
+      <Filter>src\hardware</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\ints\bios.cpp">
       <Filter>src\ints</Filter>
     </ClCompile>
