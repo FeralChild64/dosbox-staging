@@ -23,7 +23,7 @@
 #include "video.h"
 
 // Basic VMware tools support, based on documentation from https://wiki.osdev.org/VMware_tools
-// Mouse driver tested using unofficial Windows 3.1 driver https://github.com/NattyNarwhal/vmwmouse
+// Mouse support tested using unofficial Windows 3.1 driver from https://github.com/NattyNarwhal/vmwmouse
 
 static constexpr io_port_t VMWARE_PORT         = 0x5658u;        // communication port
 static constexpr io_port_t VMWARE_PORTHB       = 0x5659u;        // communication port, high bandwidth
@@ -48,6 +48,7 @@ volatile bool vmware_mouse  = false;  // if true, VMware compatible driver has t
 static Bit8u  mouse_buttons = 0;      // state of mouse buttons, in VMware format
 static Bit16u mouse_x = 0x8000;       // mouse position X, in VMware format (scaled from 0 to 0xFFFF)
 static Bit16u mouse_y = 0x8000;       // ditto
+static bool   mouse_updated = false;
 
 class Section;
 
@@ -69,7 +70,8 @@ static void VMWARE_CmdAbsPointerData() {
 
 static void VMWARE_CmdAbsPointerStatus() {
 
-        reg_eax = 4; // XXX do it only if there is a fake mouse event waiting
+        reg_eax = mouse_updated ? 4 : 0;
+        mouse_updated = false;
 }
 
 static void VMWARE_CmdAbsPointerCommand() {
@@ -129,12 +131,15 @@ void VMWARE_MouseButtonPressed(Bit8u button) {
         switch (button) {
         case 0:
                 mouse_buttons |= BUTTON_LEFT;
+                mouse_updated = true;
                 break;
         case 1:
                 mouse_buttons |= BUTTON_RIGHT;
+                mouse_updated = true;
                 break;
         case 2:
                 mouse_buttons |= BUTTON_MIDDLE;
+                mouse_updated = true;
                 break;
         default:
                 break;
@@ -146,12 +151,15 @@ void VMWARE_MouseButtonReleased(Bit8u button) {
         switch (button) {
         case 0:
                 mouse_buttons &= ~BUTTON_LEFT;
+                mouse_updated = true;
                 break;
         case 1:
                 mouse_buttons &= ~BUTTON_RIGHT;
+                mouse_updated = true;
                 break;
         case 2:
                 mouse_buttons &= ~BUTTON_MIDDLE;
+                mouse_updated = true;
                 break;
         default:
                 break;
@@ -162,12 +170,12 @@ void VMWARE_MousePosition(Bit32u pos_x, Bit32u pos_y, Bit32u res_x, Bit32u res_y
 
         mouse_x = std::min(0xFFFFu, static_cast<unsigned int>(static_cast<float>(pos_x) / (res_x - 1) * 0xFFFF + 0.499));
         mouse_y = std::min(0xFFFFu, static_cast<unsigned int>(static_cast<float>(pos_y) / (res_y - 1) * 0xFFFF + 0.499));
+        mouse_updated = true;
 }
 
 // Lifecycle
 
 void VMWARE_Init(Section *) {
 
-        vmware_mouse = false;
         IO_RegisterReadHandler(VMWARE_PORT, VMWARE_PortRead, io_width_t::word, 1);
 }
