@@ -25,14 +25,15 @@
 // Basic VMware tools support, based on documentation from https://wiki.osdev.org/VMware_tools
 // Mouse driver tested using unofficial Windows 3.1 driver https://github.com/NattyNarwhal/vmwmouse
 
-static constexpr Bit32u VMWARE_MAGIC           = 0x564D5868u;    // magic number for all VMware calls
-static constexpr Bit32u VMWARE_PORT            = 0x5658u;        // communication port
-static constexpr Bit32u VMWARE_PORTHB          = 0x5659u;        // communication port, high bandwidth
+static constexpr io_port_t VMWARE_PORT         = 0x5658u;        // communication port
+static constexpr io_port_t VMWARE_PORTHB       = 0x5659u;        // communication port, high bandwidth
 
-static constexpr Bit32u CMD_GETVERSION         = 10u;
-static constexpr Bit32u CMD_ABSPOINTER_DATA    = 39u;
-static constexpr Bit32u CMD_ABSPOINTER_STATUS  = 40u;
-static constexpr Bit32u CMD_ABSPOINTER_COMMAND = 41u;
+static constexpr Bit32u VMWARE_MAGIC           = 0x564D5868u;    // magic number for all VMware calls
+
+static constexpr Bit16u CMD_GETVERSION         = 10u;
+static constexpr Bit16u CMD_ABSPOINTER_DATA    = 39u;
+static constexpr Bit16u CMD_ABSPOINTER_STATUS  = 40u;
+static constexpr Bit16u CMD_ABSPOINTER_COMMAND = 41u;
 
 static constexpr Bit32u ABSPOINTER_ENABLE      = 0x45414552u;
 static constexpr Bit32u ABSPOINTER_RELATIVE    = 0xF5u;
@@ -42,162 +43,131 @@ static constexpr Bit8u  BUTTON_LEFT            = 0x20u;
 static constexpr Bit8u  BUTTON_RIGHT           = 0x10u;
 static constexpr Bit8u  BUTTON_MIDDLE          = 0x08u;
 
+volatile bool vmware_mouse  = false;  // if true, VMware compatible driver has taken over the mouse
+
+static Bit8u  mouse_buttons = 0;      // state of mouse buttons, in VMware format
+static Bit16u mouse_x = 0x8000;       // mouse position X, in VMware format (scaled from 0 to 0xFFFF)
+static Bit16u mouse_y = 0x8000;       // ditto
+
 class Section;
 
-class VMware final {
+// Commands (requests) to the VMware hypervisor
 
-private:
+static void VMWARE_CmdGetVersion() {
 
-	IO_ReadHandleObject ReadHandler = {};
+        reg_eax = 0; // FIXME: should we respond with something resembling VMware?
+        reg_ebx = VMWARE_MAGIC;
+}
 
-	static Bit8u  mouseButtons;   // state of mouse buttons, in VMware format
-	static Bit16u mousePosX;      // mouse position X, in VMware format (scaled from 0 to 0xFFFF)
-	static Bit16u mousePosY;      // ditto
+static void VMWARE_CmdAbsPointerData() {
 
-	static void CmdGetVersion() {
-		reg_eax = 0; // FIXME: respond with something resembling VMware
-		reg_ebx = VMWARE_MAGIC;
-	}
+        reg_eax = mouse_buttons;
+        reg_ebx = mouse_x;
+        reg_ecx = mouse_y;
+        reg_edx = 0; // FIXME: in the future implement scroll wheel
+}
 
-	static void AbsPointerData() {
-		reg_eax = mouseButtons;
-		reg_ebx = mousePosX;
-		reg_ecx = mousePosY;
-		reg_edx = 0; // FIXME: implement scroll wheel
-	}
+static void VMWARE_CmdAbsPointerStatus() {
 
-	static void AbsPointerStatus() {
-		reg_eax = 4; // XXX do it only if there is a fake mouse event waiting
-	}
+        reg_eax = 4; // XXX do it only if there is a fake mouse event waiting
+}
 
-	static void AbsPointerCommand() {
-		switch (reg_ebx) {
-			case ABSPOINTER_ENABLE:
-				// can be safely ignored
-				break;
-			case ABSPOINTER_RELATIVE:
-				vmware_mouse = false;
-				GFX_UpdateMouseState();
-				break;
-			case ABSPOINTER_ABSOLUTE:
-				vmware_mouse = true;
-				GFX_UpdateMouseState();
-				// XXX from now on, only send fake events to PS/2 queue
-				// XXX implement Mouse_DumyEvent();
-				break;
-			default:
-				LOG_WARNING("VMWARE: unknown mouse subcommand 0x%08x", reg_ebx);
-				break;
-		}
-	}
+static void VMWARE_CmdAbsPointerCommand() {
 
-	static Bit16u PortRead(io_port_t, io_width_t) {
-		if (reg_eax != VMWARE_MAGIC) {
-			return 0;
-		}
+        switch (reg_ebx) {
+        case ABSPOINTER_ENABLE:
+                // can be safely ignored
+                break;
+        case ABSPOINTER_RELATIVE:
+                vmware_mouse = false;
+                GFX_UpdateMouseState();
+                break;
+        case ABSPOINTER_ABSOLUTE:
+                vmware_mouse = true;
+                GFX_UpdateMouseState();
+                break;
+        default:
+                LOG_WARNING("VMWARE: unknown mouse subcommand 0x%08x", reg_ebx);
+                break;
+        }
+}
 
-		// LOG_MSG("VMWARE: called with EBX 0x%08x, ECX 0x%08x", reg_ebx, reg_ecx);
+// IO port handling
 
-		switch (reg_ecx) {
-			case CMD_GETVERSION:
-				CmdGetVersion();
-				break;
-			case CMD_ABSPOINTER_DATA:
-				AbsPointerData();
-				break;
-			case CMD_ABSPOINTER_STATUS:
-				AbsPointerStatus();
-				break;
-			case CMD_ABSPOINTER_COMMAND:
-				AbsPointerCommand();
-				break;
-			default:
-				LOG_WARNING("VMWARE: unknown command 0x%08x", reg_ecx);
-				break;
-		}
+static Bit16u VMWARE_PortRead(io_port_t, io_width_t) {
 
-		return reg_ax;
-	}
+        if (reg_eax != VMWARE_MAGIC)
+                return 0;
 
-public:
+        // LOG_MSG("VMWARE: called with EBX 0x%08x, ECX 0x%08x", reg_ebx, reg_ecx);
 
-	VMware() {
-		vmware_mouse = false;
-		ReadHandler.Install(static_cast<io_port_t>(VMWARE_PORT), PortRead, io_width_t::word);
-	}
+        switch (reg_cx) {
+        case CMD_GETVERSION:
+                VMWARE_CmdGetVersion();
+                break;
+        case CMD_ABSPOINTER_DATA:
+                VMWARE_CmdAbsPointerData();
+                break;
+        case CMD_ABSPOINTER_STATUS:
+                VMWARE_CmdAbsPointerStatus();
+                break;
+        case CMD_ABSPOINTER_COMMAND:
+                VMWARE_CmdAbsPointerCommand();
+                break;
+        default:
+                LOG_WARNING("VMWARE: unknown command 0x%08x", reg_ecx);
+                break;
+        }
 
-	void MouseButtonPressed(Bit8u button) {
-		switch (button) {
-			case 0:
-				mouseButtons |= BUTTON_LEFT;
-				break;
-			case 1:
-				mouseButtons |= BUTTON_RIGHT;
-				break;
-			case 2:
-				mouseButtons |= BUTTON_MIDDLE;
-				break;
-			default:
-				break;
-		}
-	}
+        return reg_ax;
+}
 
-	void MouseButtonReleased(Bit8u button)  {
-		switch (button) {
-			case 0:
-				mouseButtons &= ~BUTTON_LEFT;
-				break;
-			case 1:
-				mouseButtons &= ~BUTTON_RIGHT;
-				break;
-			case 2:
-				mouseButtons &= ~BUTTON_MIDDLE;
-				break;
-			default:
-				break;
-		}
-	}
+// Notifications from external subsystems
 
-	void MousePosition(Bit32u posX, Bit32u posY, Bit32u resX, Bit32u resY) {
-		mousePosX = std::min(0xFFFFu, static_cast<unsigned int>(static_cast<float>(posX) / (resX - 1) * 0xFFFF + 0.499));
-		mousePosY = std::min(0xFFFFu, static_cast<unsigned int>(static_cast<float>(posY) / (resY - 1) * 0xFFFF + 0.499));
-	}
-};
+void VMWARE_MouseButtonPressed(Bit8u button) {
 
-Bit8u  VMware::mouseButtons   = 0;
-Bit16u VMware::mousePosX      = 0x8000;
-Bit16u VMware::mousePosY      = 0x8000;
+        switch (button) {
+        case 0:
+                mouse_buttons |= BUTTON_LEFT;
+                break;
+        case 1:
+                mouse_buttons |= BUTTON_RIGHT;
+                break;
+        case 2:
+                mouse_buttons |= BUTTON_MIDDLE;
+                break;
+        default:
+                break;
+        }
+}
 
-volatile bool vmware_mouse    = false;
+void VMWARE_MouseButtonReleased(Bit8u button) {
 
-static VMware *vmware         = nullptr;
+        switch (button) {
+        case 0:
+                mouse_buttons &= ~BUTTON_LEFT;
+                break;
+        case 1:
+                mouse_buttons &= ~BUTTON_RIGHT;
+                break;
+        case 2:
+                mouse_buttons &= ~BUTTON_MIDDLE;
+                break;
+        default:
+                break;
+        }
+}
+
+void VMWARE_MousePosition(Bit32u pos_x, Bit32u pos_y, Bit32u res_x, Bit32u res_y) {
+
+        mouse_x = std::min(0xFFFFu, static_cast<unsigned int>(static_cast<float>(pos_x) / (res_x - 1) * 0xFFFF + 0.499));
+        mouse_y = std::min(0xFFFFu, static_cast<unsigned int>(static_cast<float>(pos_y) / (res_y - 1) * 0xFFFF + 0.499));
+}
+
+// Lifecycle
 
 void VMWARE_Init(Section *) {
-	delete vmware;
-	vmware = new VMware();
-}
 
-void VMWARE_ShutDown(Section *) {
-	delete vmware;
-	vmware = nullptr;
-}
-
-void VMware_MouseButtonPressed(Bit8u button)
-{
-	if (vmware)
-		vmware->MouseButtonPressed(button);
-}
-
-void VMware_MouseButtonReleased(Bit8u button)
-{
-	if (vmware)
-		vmware->MouseButtonReleased(button);
-}
-
-void VMware_MousePosition(Bit32u posX, Bit32u posY, Bit32u resX, Bit32u resY)
-{
-	if (vmware)
-	{
-		vmware->MousePosition(posX, posY, resX, resY);
-	}
+        vmware_mouse = false;
+        IO_RegisterReadHandler(VMWARE_PORT, VMWARE_PortRead, io_width_t::word, 1);
 }

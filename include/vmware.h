@@ -23,8 +23,8 @@
 
 extern volatile bool vmware_mouse;
 
-void VMware_MouseButtonPressed(Bit8u button);
-void VMware_MouseButtonReleased(Bit8u button);
-void VMware_MousePosition(Bit32u posX, Bit32u posY, Bit32u resX, Bit32u resY);
+void VMWARE_MouseButtonPressed(Bit8u button);
+void VMWARE_MouseButtonReleased(Bit8u button);
+void VMWARE_MousePosition(Bit32u pos_x, Bit32u pos_y, Bit32u res_x, Bit32u res_y);
 
 #endif
