@@ -3056,6 +3056,18 @@ static void HandleMouseMotion(SDL_MouseMotionEvent * motion) {
 		                 sdl.clip.w, sdl.clip.h);
 }
 
+static void HandleMouseWheel(SDL_MouseWheelEvent * wheel) { // FIXME: implement wheel support for PS/2 mice too
+	if (vmware_mouse && wheel->y != 0) {
+
+		Mouse_CursorMoved(0.0, 0.0, 0.0, 0.0, false); // dummy, just to trigger some PS/2 activity
+
+		if (wheel->direction == SDL_MOUSEWHEEL_NORMAL)
+		    VMWARE_MouseWheel(-wheel->y);
+		else
+		    VMWARE_MouseWheel(wheel->y);
+	}
+}
+
 static void HandleMouseButton(SDL_MouseButtonEvent * button) {
 	switch (button->state) {
 	case SDL_PRESSED:
@@ -3418,6 +3430,9 @@ bool GFX_Events()
 
 		case SDL_MOUSEMOTION:
 			HandleMouseMotion(&event.motion);
+			break;
+		case SDL_MOUSEWHEEL:
+			HandleMouseWheel(&event.wheel);
 			break;
 		case SDL_MOUSEBUTTONDOWN:
 		case SDL_MOUSEBUTTONUP:

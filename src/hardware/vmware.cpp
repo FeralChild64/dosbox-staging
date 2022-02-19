@@ -46,8 +46,9 @@ static constexpr Bit8u  BUTTON_MIDDLE          = 0x08u;
 volatile bool vmware_mouse  = false;  // if true, VMware compatible driver has taken over the mouse
 
 static Bit8u  mouse_buttons = 0;      // state of mouse buttons, in VMware format
-static Bit16u mouse_x = 0x8000;       // mouse position X, in VMware format (scaled from 0 to 0xFFFF)
-static Bit16u mouse_y = 0x8000;       // ditto
+static Bit16u mouse_x       = 0x8000; // mouse position X, in VMware format (scaled from 0 to 0xFFFF)
+static Bit16u mouse_y       = 0x8000; // ditto
+static Bit8s  mouse_wheel   = 0;
 static bool   mouse_updated = false;
 
 class Section;
@@ -65,7 +66,9 @@ static void VMWARE_CmdAbsPointerData() {
         reg_eax = mouse_buttons;
         reg_ebx = mouse_x;
         reg_ecx = mouse_y;
-        reg_edx = 0; // FIXME: in the future implement scroll wheel
+        reg_edx = (mouse_wheel >= 0) ? mouse_wheel : 256 + mouse_wheel;
+
+        mouse_wheel = 0;
 }
 
 static void VMWARE_CmdAbsPointerStatus() {
@@ -171,6 +174,18 @@ void VMWARE_MousePosition(Bit32u pos_x, Bit32u pos_y, Bit32u res_x, Bit32u res_y
         mouse_x = std::min(0xFFFFu, static_cast<unsigned int>(static_cast<float>(pos_x) / (res_x - 1) * 0xFFFF + 0.499));
         mouse_y = std::min(0xFFFFu, static_cast<unsigned int>(static_cast<float>(pos_y) / (res_y - 1) * 0xFFFF + 0.499));
         mouse_updated = true;
+}
+
+void VMWARE_MouseWheel(Bit32s scroll) {
+
+        if (scroll >= 255 || scroll + mouse_wheel >= 127)
+                mouse_wheel = 127;
+        else if (scroll <= -255 || scroll + mouse_wheel <= -127)
+                mouse_wheel = -127;
+        else
+                mouse_wheel += scroll;
+
+        mouse_updated = true;       
 }
 
 // Lifecycle
