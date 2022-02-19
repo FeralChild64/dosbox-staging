@@ -24,6 +24,7 @@
 #include "program_autotype.h"
 #include "program_boot.h"
 #include "program_choice.h"
+#include "program_devload.h"
 #include "program_help.h"
 #include "program_imgmount.h"
 #include "program_intro.h"
@@ -572,4 +573,5 @@ void DOS_SetupPrograms(void)
 	PROGRAMS_MakeFile("MOUNT.COM", MOUNT_ProgramStart);
 	PROGRAMS_MakeFile("RESCAN.COM", RESCAN_ProgramStart);
 	PROGRAMS_MakeFile("SERIAL.COM", SERIAL_ProgramStart);
+	VFILE_RegisterBuiltinFileBlob(bfb_DEVLOAD_COM);
 }

@@ -314,6 +314,7 @@
     <ClCompile Include="..\src\dos\program_biostest.cpp" />
     <ClCompile Include="..\src\dos\program_boot.cpp" />
     <ClCompile Include="..\src\dos\program_choice.cpp" />
+    <ClCompile Include="..\src\dos\program_devload.cpp" />
     <ClCompile Include="..\src\dos\program_help.cpp" />
     <ClCompile Include="..\src\dos\program_imgmount.cpp" />
     <ClCompile Include="..\src\dos\program_intro.cpp" />
