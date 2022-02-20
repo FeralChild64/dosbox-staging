@@ -65,13 +65,13 @@ class Section;
 
 // Commands (requests) to the VMware hypervisor
 
-static inline void VMWARE_CmdGetVersion() {
+static inline void CmdGetVersion() {
 
         reg_eax = 0; // FIXME: should we respond with something resembling VMware?
         reg_ebx = VMWARE_MAGIC;
 }
 
-static inline void VMWARE_CmdAbsPointerData() {
+static inline void CmdAbsPointerData() {
 
         reg_eax = mouse_buttons;
         reg_ebx = mouse_x;
@@ -81,13 +81,13 @@ static inline void VMWARE_CmdAbsPointerData() {
         mouse_wheel = 0;
 }
 
-static inline void VMWARE_CmdAbsPointerStatus() {
+static inline void CmdAbsPointerStatus() {
 
         reg_eax = mouse_updated ? 4 : 0;
         mouse_updated = false;
 }
 
-static inline void VMWARE_CmdAbsPointerCommand() {
+static inline void CmdAbsPointerCommand() {
 
         switch (reg_ebx) {
         case ABSPOINTER_ENABLE:
@@ -109,7 +109,7 @@ static inline void VMWARE_CmdAbsPointerCommand() {
 
 // IO port handling
 
-static Bit16u VMWARE_PortRead(io_port_t, io_width_t) {
+static Bit16u PortRead(io_port_t, io_width_t) {
 
         if (reg_eax != VMWARE_MAGIC)
                 return 0;
@@ -118,16 +118,16 @@ static Bit16u VMWARE_PortRead(io_port_t, io_width_t) {
 
         switch (reg_cx) {
         case CMD_GETVERSION:
-                VMWARE_CmdGetVersion();
+                CmdGetVersion();
                 break;
         case CMD_ABSPOINTER_DATA:
-                VMWARE_CmdAbsPointerData();
+                CmdAbsPointerData();
                 break;
         case CMD_ABSPOINTER_STATUS:
-                VMWARE_CmdAbsPointerStatus();
+                CmdAbsPointerStatus();
                 break;
         case CMD_ABSPOINTER_COMMAND:
-                VMWARE_CmdAbsPointerCommand();
+                CmdAbsPointerCommand();
                 break;
         default:
                 LOG_WARNING("VMWARE: unknown command 0x%08x", reg_ecx);
@@ -250,5 +250,5 @@ void VMWARE_ScreenParams(Bit16u clip_x, Bit16u clip_y,
 // Lifecycle
 
 void VMWARE_Init(Section *) {
-        IO_RegisterReadHandler(VMWARE_PORT, VMWARE_PortRead, io_width_t::word, 1);
+        IO_RegisterReadHandler(VMWARE_PORT, PortRead, io_width_t::word, 1);
 }
