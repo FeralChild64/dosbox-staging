@@ -43,25 +43,35 @@ static constexpr Bit8u  BUTTON_LEFT            = 0x20u;
 static constexpr Bit8u  BUTTON_RIGHT           = 0x10u;
 static constexpr Bit8u  BUTTON_MIDDLE          = 0x08u;
 
-volatile bool vmware_mouse  = false;  // if true, VMware compatible driver has taken over the mouse
+volatile bool vmware_mouse     = false;  // if true, VMware compatible driver has taken over the mouse
 
-static Bit8u  mouse_buttons = 0;      // state of mouse buttons, in VMware format
-static Bit16u mouse_x       = 0x8000; // mouse position X, in VMware format (scaled from 0 to 0xFFFF)
-static Bit16u mouse_y       = 0x8000; // ditto
-static Bit8s  mouse_wheel   = 0;
-static bool   mouse_updated = false;
+static Bit8u  mouse_buttons    = 0;      // state of mouse buttons, in VMware format
+static Bit16u mouse_x          = 0x8000; // mouse position X, in VMware format (scaled from 0 to 0xFFFF)
+static Bit16u mouse_y          = 0x8000; // ditto
+static Bit8s  mouse_wheel      = 0;
+static bool   mouse_updated    = false;
+
+static Bit16s mouse_diff_x     = 0;      // difference between host and guest mouse x coordinate (in host pixels)
+static Bit16s mouse_diff_y     = 0;      // ditto
+
+static bool   video_fullscreen = false;
+static Bit16u video_res_x      = 1;      // resolution to which guest image is scaled, excluding black borders
+static Bit16u video_res_y      = 1;
+static Bit16u video_clip_x     = 0;      // clipping value - size of black border (one side)
+static Bit16u video_clip_y     = 0;
+
 
 class Section;
 
 // Commands (requests) to the VMware hypervisor
 
-static void VMWARE_CmdGetVersion() {
+static inline void VMWARE_CmdGetVersion() {
 
         reg_eax = 0; // FIXME: should we respond with something resembling VMware?
         reg_ebx = VMWARE_MAGIC;
 }
 
-static void VMWARE_CmdAbsPointerData() {
+static inline void VMWARE_CmdAbsPointerData() {
 
         reg_eax = mouse_buttons;
         reg_ebx = mouse_x;
@@ -71,13 +81,13 @@ static void VMWARE_CmdAbsPointerData() {
         mouse_wheel = 0;
 }
 
-static void VMWARE_CmdAbsPointerStatus() {
+static inline void VMWARE_CmdAbsPointerStatus() {
 
         reg_eax = mouse_updated ? 4 : 0;
         mouse_updated = false;
 }
 
-static void VMWARE_CmdAbsPointerCommand() {
+static inline void VMWARE_CmdAbsPointerCommand() {
 
         switch (reg_ebx) {
         case ABSPOINTER_ENABLE:
@@ -169,10 +179,41 @@ void VMWARE_MouseButtonReleased(Bit8u button) {
         }
 }
 
-void VMWARE_MousePosition(Bit32u pos_x, Bit32u pos_y, Bit32u res_x, Bit32u res_y) {
+void VMWARE_MousePosition(Bit16u pos_x,  Bit16u pos_y) {
+     
+        float tmp_x;
+        float tmp_y;
 
-        mouse_x = std::min(0xFFFFu, static_cast<unsigned int>(static_cast<float>(pos_x) / (res_x - 1) * 0xFFFF + 0.499));
-        mouse_y = std::min(0xFFFFu, static_cast<unsigned int>(static_cast<float>(pos_y) / (res_y - 1) * 0xFFFF + 0.499));
+        if (video_fullscreen)
+        {
+                // We have to maintain the diffs (offsets) between host and guest
+                // mouse positions; otherwise in case of clipped picture (like
+                // 4:3 screen displayed on 16:9 fullscreen mode) we could have
+                // an effect of 'sticky' borders if the user moves mouse outside
+                // of the guest display area
+
+                if (pos_x + mouse_diff_x < video_clip_x)
+                        mouse_diff_x = video_clip_x - pos_x;
+                else if (pos_x + mouse_diff_x >= video_res_x + video_clip_x)
+                        mouse_diff_x = video_res_x + video_clip_x - pos_x - 1;
+
+                if (pos_y + mouse_diff_y < video_clip_y)
+                        mouse_diff_y = video_clip_y - pos_y;
+                else if (pos_y + mouse_diff_y >= video_res_y + video_clip_y)
+                        mouse_diff_y = video_res_y + video_clip_y - pos_y - 1;
+
+                tmp_x = pos_x + mouse_diff_x - video_clip_x;
+                tmp_y = pos_y + mouse_diff_y - video_clip_y;
+        }
+        else
+        {
+                tmp_x = std::max(pos_x - video_clip_x, 0);
+                tmp_y = std::max(pos_y - video_clip_y, 0);
+        }
+
+        mouse_x = std::min(0xFFFFu, static_cast<Bit32u>(tmp_x * 0xFFFF / (video_res_x - 1) + 0.499));
+        mouse_y = std::min(0xFFFFu, static_cast<Bit32u>(tmp_y * 0xFFFF / (video_res_y - 1) + 0.499));
+
         mouse_updated = true;
 }
 
@@ -188,9 +229,26 @@ void VMWARE_MouseWheel(Bit32s scroll) {
         mouse_updated = true;       
 }
 
+void VMWARE_ScreenParams(Bit16u clip_x, Bit16u clip_y,
+                         Bit16u res_x,  Bit16u res_y,
+                         bool fullscreen) {
+
+        video_clip_x     = clip_x;
+        video_clip_y     = clip_y;
+        video_res_x      = res_x;
+        video_res_y      = res_y;
+        video_fullscreen = fullscreen;
+
+        // Unfortunately, with seamless driver changing the window size can cause
+        // mouse movement as a side-effect, this is not fun for games. Let's try
+        // to at least minimize the effect.
+
+        mouse_diff_x = std::clamp(static_cast<Bit32s>(mouse_diff_x), -video_clip_x, static_cast<Bit32s>(video_clip_x));
+        mouse_diff_y = std::clamp(static_cast<Bit32s>(mouse_diff_y), -video_clip_y, static_cast<Bit32s>(video_clip_y));
+}
+
 // Lifecycle
 
 void VMWARE_Init(Section *) {
-
         IO_RegisterReadHandler(VMWARE_PORT, VMWARE_PortRead, io_width_t::word, 1);
 }

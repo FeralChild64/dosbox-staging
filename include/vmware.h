@@ -25,7 +25,10 @@ extern volatile bool vmware_mouse;
 
 void VMWARE_MouseButtonPressed(Bit8u button);
 void VMWARE_MouseButtonReleased(Bit8u button);
-void VMWARE_MousePosition(Bit32u pos_x, Bit32u pos_y, Bit32u res_x, Bit32u res_y);
+void VMWARE_MousePosition(Bit16u pos_x, Bit16u pos_y);
 void VMWARE_MouseWheel(Bit32s scroll);
+void VMWARE_ScreenParams(Bit16u clip_x, Bit16u clip_y,
+                         Bit16u res_x,  Bit16u res_y,
+                         bool fullscreen);
 
 #endif

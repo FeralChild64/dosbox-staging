@@ -939,10 +939,14 @@ finish:
 		SDL_SetWindowMinimumSize(sdl.window, w, h);
 	}
 
-	if (sdl.draw.has_changed)
+	if (sdl.draw.has_changed){
 		log_display_properties(sdl.draw.width, sdl.draw.height,
 		                       sdl.draw.pixel_aspect, sdl.scaling_mode,
 		                       sdl.pp_scale, fullscreen, width, height);
+	}
+
+	// Ensure VMware mouse support knows the current parameters
+	VMWARE_ScreenParams(sdl.clip.x, sdl.clip.y, sdl.clip.w, sdl.clip.h, sdl.desktop.fullscreen);
 
 	// Force redraw after changing the window
 	if (sdl.draw.callback)
@@ -3044,6 +3048,7 @@ static void GUI_StartUp(Section *sec)
 }
 
 static void HandleMouseMotion(SDL_MouseMotionEvent * motion) {
+
 	if (vmware_mouse || mouse_is_captured || sdl.mouse.control_choice == Seamless)
 		Mouse_CursorMoved((float)motion->xrel*sdl.mouse.xsensitivity/100.0f,
 						  (float)motion->yrel*sdl.mouse.ysensitivity/100.0f,
@@ -3051,14 +3056,11 @@ static void HandleMouseMotion(SDL_MouseMotionEvent * motion) {
 						  (float)(motion->y-sdl.clip.y)/(sdl.clip.h-1)*sdl.mouse.ysensitivity/100.0f,
 						  mouse_is_captured);
 
-	VMWARE_MousePosition(std::max(std::min(motion->x-sdl.clip.x, sdl.clip.w-1), 0),
-		                 std::max(std::min(motion->y-sdl.clip.y, sdl.clip.h-1), 0),
-		                 sdl.clip.w, sdl.clip.h);
+	VMWARE_MousePosition(motion->x, motion->y);
 }
 
 static void HandleMouseWheel(SDL_MouseWheelEvent * wheel) { // FIXME: implement wheel support for PS/2 mice too
 	if (vmware_mouse && wheel->y != 0) {
-
 		Mouse_CursorMoved(0.0, 0.0, 0.0, 0.0, false); // dummy, just to trigger some PS/2 activity
 
 		if (wheel->direction == SDL_MOUSEWHEEL_NORMAL)
