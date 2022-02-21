@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2002-2021  The DOSBox Team
+ *  Copyright (C) 2022  The DOSBox Staging Team
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -16,27 +16,19 @@
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
-#ifndef DOSBOX_MOUSE_H
-#define DOSBOX_MOUSE_H
+#ifndef DOSBOX_VMWARE_H
+#define DOSBOX_VMWARE_H
 
 #include "dosbox.h"
 
-void Mouse_ShowCursor(void);
-void Mouse_HideCursor(void);
+extern volatile bool vmware_mouse;
 
-bool Mouse_SetPS2State(bool use);
-
-void Mouse_ChangePS2Callback(Bit16u pseg, Bit16u pofs);
-
-
-void Mouse_CursorMoved(float xrel,float yrel,float x,float y,bool emulate);
-void Mouse_CursorSet(float x,float y);
-void Mouse_ButtonPressed(Bit8u button);
-void Mouse_ButtonReleased(Bit8u button);
-void Mouse_WheelMovedDummy();
-
-void Mouse_AutoLock(bool enable);
-void Mouse_BeforeNewVideoMode();
-void Mouse_AfterNewVideoMode(bool setmode);
+void VMWARE_MouseButtonPressed(Bit8u button);
+void VMWARE_MouseButtonReleased(Bit8u button);
+void VMWARE_MousePosition(Bit16u pos_x, Bit16u pos_y);
+void VMWARE_MouseWheel(Bit32s scroll);
+void VMWARE_ScreenParams(Bit16u clip_x, Bit16u clip_y,
+                         Bit16u res_x,  Bit16u res_y,
+                         bool fullscreen);
 
 #endif

@@ -54,6 +54,7 @@ libhardware_sources = files([
   'vga_seq.cpp',
   'vga_tseng.cpp',
   'vga_xga.cpp',
+  'vmware.cpp',
 ])
 
 libhardware = static_library('hardware', libhardware_sources,
