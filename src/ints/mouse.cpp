@@ -30,7 +30,6 @@
 #include "int10.h"
 #include "bios.h"
 #include "dos_inc.h"
-#include "vmware.h"
 
 static Bitu call_int33,call_int74,int74_ret_callback,call_mouse_bd;
 static Bit16u ps2cbseg,ps2cbofs;
@@ -208,10 +207,7 @@ void MOUSE_Limit_Events(uint32_t /*val*/)
 
 inline void Mouse_AddEvent(Bit8u type) {
 	if (mouse.events<QUEUE_SIZE) {
-		if (vmware_mouse) {
-			/* For VMware mouse one dummy event in the queue is enough */
-			mouse.events = 0;
-		} else if (mouse.events>0) {
+		if (mouse.events>0) {
 			/* Skip duplicate events */
 			if (type==MOUSE_HAS_MOVED) return;
 			/* Always put the newest element in the front as that the events are 
@@ -583,6 +579,13 @@ void Mouse_ButtonReleased(Bit8u button) {
 	mouse.times_released[button]++;	
 	mouse.last_released_x[button]=POS_X;
 	mouse.last_released_y[button]=POS_Y;
+}
+
+void Mouse_WheelMovedDummy() {
+	// for now just trigger any PS/2 event, so that
+	// VMware mouse protocol driver knows
+	// it has to query the mouse state 
+	Mouse_AddEvent(MOUSE_HAS_MOVED);
 }
 
 static void Mouse_SetMickeyPixelRate(Bit16s px, Bit16s py){
