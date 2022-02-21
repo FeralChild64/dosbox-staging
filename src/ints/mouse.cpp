@@ -581,6 +581,13 @@ void Mouse_ButtonReleased(Bit8u button) {
 	mouse.last_released_y[button]=POS_Y;
 }
 
+void Mouse_WheelMovedDummy() {
+	// for now just trigger any PS/2 event, so that
+	// VMware mouse protocol driver knows
+	// it has to query the mouse state 
+	Mouse_AddEvent(MOUSE_HAS_MOVED);
+}
+
 static void Mouse_SetMickeyPixelRate(Bit16s px, Bit16s py){
 	if ((px!=0) && (py!=0)) {
 		mouse.mickeysPerPixel_x	 = (float)px/X_MICKEY;
