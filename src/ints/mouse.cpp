@@ -20,6 +20,7 @@
 
 #include <string.h>
 #include <math.h>
+#include <vector>
 
 #include "callback.h"
 #include "mem.h"
@@ -30,6 +31,24 @@
 #include "int10.h"
 #include "bios.h"
 #include "dos_inc.h"
+
+static constexpr Bit8u TYPE_STANDARD     = 0;
+static constexpr Bit8u TYPE_INTELLIMOUSE = 3;
+// static constexpr Bit8u TYPE_EXPLORER = 4;
+// static constexpr Bit8u TYPE_TYPHOON  = 8;
+
+static constexpr Bit8u RATE_10  = 0; // sample rate 10 Hz
+static constexpr Bit8u RATE_20  = 1;
+static constexpr Bit8u RATE_40  = 2;
+static constexpr Bit8u RATE_60  = 3;
+static constexpr Bit8u RATE_80  = 4;
+static constexpr Bit8u RATE_100 = 5;
+static constexpr Bit8u RATE_200 = 6;
+
+// Unlock sequences taken from https://www.scs.stanford.edu/10wi-cs140/pintos/specs/kbd/scancodes-12.html
+static const std::vector<Bit8u> UNLOCK_SEQ_INTELLIMOUSE = { RATE_200, RATE_100, RATE_80 };
+// static const std::vector<Bit8u> UNLOCK_SEQ_EXPLORER = { RATE_200, RATE_200, RATE_80 };
+// static const std::vector<Bit8u> UNLOCK_SEQ_TYPHOON = { RATE_200, RATE_100, RATE_80, RATE_60, RATE_40, RATE_20 };
 
 static Bitu call_int33,call_int74,int74_ret_callback,call_mouse_bd;
 static Bit16u ps2cbseg,ps2cbofs;
@@ -76,13 +95,16 @@ static Bit16u userdefScreenMask[CURSORY];
 static Bit16u userdefCursorMask[CURSORY];
 
 static struct {
-	Bit8u buttons;
+	Bit8u  buttons;
+	Bit16s wheel;
 	Bit16u times_pressed[MOUSE_BUTTONS];
 	Bit16u times_released[MOUSE_BUTTONS];
 	Bit16u last_released_x[MOUSE_BUTTONS];
 	Bit16u last_released_y[MOUSE_BUTTONS];
 	Bit16u last_pressed_x[MOUSE_BUTTONS];
 	Bit16u last_pressed_y[MOUSE_BUTTONS];
+	Bit16u last_scrolled_x;
+	Bit16u last_scrolled_y;
 	Bit16u hidden;
 	float add_x,add_y;
 	Bit16s min_x,max_x,min_y,max_y;
@@ -124,7 +146,25 @@ static struct {
 	bool in_UIR;
 	Bit8u mode;
 	Bit16s gran_x,gran_y;
+
+	Bit8u ps2_type;
+	Bit8u ps2_rate; // sampling rate is not really emulated, but needed for switching between protocols
+	Bit8u ps2_packet_size;
+	Bit8u ps2_unlock_idx;
 } mouse;
+
+inline Bit8u GetWheel8bit() {
+	/* CuteMouse wheel extension allows for -0x80,0x7F range, but let's keep it symmetric */
+	Bit8s tmp=std::clamp(mouse.wheel, static_cast<Bit16s>(-0x7F), static_cast<Bit16s>(0x7F));
+	mouse.wheel=0;
+	return (tmp >= 0) ? tmp : 0x100 + tmp;
+}
+
+inline Bit8u GetWheel16bit() {
+	Bit16s tmp= (mouse.wheel >= 0) ? mouse.wheel : 0x10000 + mouse.wheel;
+	mouse.wheel=0;
+	return tmp;
+}
 
 bool Mouse_SetPS2State(bool use) {
 	if (use && (!ps2callbackinit)) {
@@ -147,9 +187,38 @@ void Mouse_ChangePS2Callback(Bit16u pseg, Bit16u pofs) {
 	}
 }
 
+void Mouse_PS2Reset(void) {
+	mouse.ps2_type       = TYPE_STANDARD;
+	mouse.ps2_rate       = RATE_100;
+	mouse.ps2_unlock_idx = 0;
+}
+
+bool Mouse_PS2SetPacketSize(Bit8u packet_size) {
+	if ((packet_size==0x03) ||
+		(packet_size==0x04 && mouse.ps2_type==TYPE_INTELLIMOUSE)) {
+		mouse.ps2_packet_size = packet_size;
+	    return true;
+	}
+	return false;
+}
+
+void Mouse_PS2SetSamplingRate(Bit8u rate) {
+	mouse.ps2_rate = rate;
+	if (UNLOCK_SEQ_INTELLIMOUSE[mouse.ps2_unlock_idx]!=rate)
+		mouse.ps2_unlock_idx = 0;
+	else if (UNLOCK_SEQ_INTELLIMOUSE.size()==++mouse.ps2_unlock_idx) {
+			mouse.ps2_type=TYPE_INTELLIMOUSE;
+			mouse.ps2_unlock_idx=0;
+	}
+}
+
+Bit8u Mouse_PS2GetType(void) {
+	return mouse.ps2_type;
+}
+
 void DoPS2Callback(Bit16u data, Bit16s mouseX, Bit16s mouseY) {
 	if (useps2callback) {
-		Bit16u mdat = (data & 0x03) | 0x08;
+		Bit16u mdat = (data & 0x03) | 0x08;                     // buttons
 		Bit16s xdiff = mouseX-oldmouseX;
 		Bit16s ydiff = oldmouseY-mouseY;
 		oldmouseX = mouseX;
@@ -166,10 +235,22 @@ void DoPS2Callback(Bit16u data, Bit16s mouseX, Bit16s mouseY) {
 			ydiff = (0x100+ydiff);
 			mdat |= 0x20;
 		}
-		CPU_Push16((Bit16u)mdat); 
-		CPU_Push16((Bit16u)(xdiff % 256)); 
-		CPU_Push16((Bit16u)(ydiff % 256)); 
-		CPU_Push16((Bit16u)0); 
+
+		switch (mouse.ps2_packet_size) {
+			case 0x04: // IntelliMouse protocol
+				CPU_Push16((Bit16u)(mdat + (xdiff % 256) * 256));
+				CPU_Push16((Bit16u)(ydiff % 256)); 
+				CPU_Push16((Bit16u)GetWheel8bit());
+				CPU_Push16((Bit16u)0);
+				break;
+			default:   // Standard protocol
+				CPU_Push16((Bit16u)mdat); 
+				CPU_Push16((Bit16u)(xdiff % 256));
+				CPU_Push16((Bit16u)(ydiff % 256)); 
+				CPU_Push16((Bit16u)0);
+				break;
+		}
+
 		CPU_Push16(RealSeg(ps2_callback));
 		CPU_Push16(RealOff(ps2_callback));
 		SegSet16(cs, ps2cbseg);
@@ -178,7 +259,7 @@ void DoPS2Callback(Bit16u data, Bit16s mouseX, Bit16s mouseY) {
 }
 
 Bitu PS2_Handler(void) {
-	CPU_Pop16();CPU_Pop16();CPU_Pop16();CPU_Pop16();// remove the 4 words
+	CPU_Pop16();CPU_Pop16();CPU_Pop16();CPU_Pop16(); // remove the 4 words
 	return CBRET_NONE;
 }
 
@@ -193,6 +274,7 @@ Bitu PS2_Handler(void) {
 #define MOUSE_RIGHT_RELEASED 16
 #define MOUSE_MIDDLE_PRESSED 32
 #define MOUSE_MIDDLE_RELEASED 64
+#define MOUSE_WHEEL_MOVED 128
 #define MOUSE_DELAY 5.0
 
 void MOUSE_Limit_Events(uint32_t /*val*/)
@@ -209,7 +291,7 @@ inline void Mouse_AddEvent(Bit8u type) {
 	if (mouse.events<QUEUE_SIZE) {
 		if (mouse.events>0) {
 			/* Skip duplicate events */
-			if (type==MOUSE_HAS_MOVED) return;
+			if (type==MOUSE_HAS_MOVED || type==MOUSE_WHEEL_MOVED) return;
 			/* Always put the newest element in the front as that the events are 
 			 * handled backwards (prevents doubleclicks while moving)
 			 */
@@ -581,11 +663,11 @@ void Mouse_ButtonReleased(Bit8u button) {
 	mouse.last_released_y[button]=POS_Y;
 }
 
-void Mouse_WheelMovedDummy() {
-	// for now just trigger any PS/2 event, so that
-	// VMware mouse protocol driver knows
-	// it has to query the mouse state 
-	Mouse_AddEvent(MOUSE_HAS_MOVED);
+void Mouse_WheelMoved(Bit32s scroll) {
+	mouse.wheel = std::clamp(scroll + mouse.wheel, -0x7FFF, 0x7FFF); /* limit is -0x8000,0x7FFF, but let's keep it symmetric */
+	Mouse_AddEvent(MOUSE_WHEEL_MOVED);
+	mouse.last_scrolled_x=POS_X;
+	mouse.last_scrolled_y=POS_Y;
 }
 
 static void Mouse_SetMickeyPixelRate(Bit16s px, Bit16s py){
@@ -606,7 +688,7 @@ static void Mouse_SetSensitivity(Bit16u px, Bit16u py, Bit16u dspeed){
 	mouse.senv_y_val=py;
 	mouse.dspeed_val=dspeed;
 	if ((px!=0) && (py!=0)) {
-		px--;  //Inspired by cutemouse 
+		px--;  //Inspired by CuteMouse 
 		py--;  //Although their cursor update routine is far more complex then ours
 		mouse.senv_x=(static_cast<float>(px)*px)/3600.0f +1.0f/3.0f;
 		mouse.senv_y=(static_cast<float>(py)*py)/3600.0f +1.0f/3.0f;
@@ -711,7 +793,11 @@ static void Mouse_Reset()
 	mouse.mickey_x = 0;
 	mouse.mickey_y = 0;
 
-	mouse.buttons = 0;
+	mouse.buttons  = 0;
+
+	mouse.wheel           = 0; /* CuteMouse wheel extension */
+	mouse.last_scrolled_x = 0;
+	mouse.last_scrolled_y = 0;
 
 	for (Bit16u but=0; but<MOUSE_BUTTONS; but++) {
 		mouse.times_pressed[but] = 0;
@@ -753,9 +839,12 @@ static Bitu INT33_Handler(void) {
 		}
 		break;
 	case 0x03:	/* Return position and Button Status */
-		reg_bx=mouse.buttons;
-		reg_cx=POS_X;
-		reg_dx=POS_Y;
+		{
+			reg_bl=mouse.buttons;
+			reg_bh=GetWheel8bit(); /* CuteMouse wheel extension */
+			reg_cx=POS_X;
+			reg_dx=POS_Y;
+		}
 		break;
 	case 0x04:	/* Position Mouse */
 		/* If position isn't different from current position
@@ -773,23 +862,38 @@ static Bitu INT33_Handler(void) {
 	case 0x05:	/* Return Button Press Data */
 		{
 			Bit16u but=reg_bx;
-			reg_ax=mouse.buttons;
-			if (but>=MOUSE_BUTTONS) but = MOUSE_BUTTONS - 1;
-			reg_cx=mouse.last_pressed_x[but];
-			reg_dx=mouse.last_pressed_y[but];
-			reg_bx=mouse.times_pressed[but];
-			mouse.times_pressed[but]=0;
+			if (but==0xFFFF){
+			    /* CuteMouse wheel extension */
+			    reg_bx=GetWheel16bit();
+			    reg_cx=mouse.last_scrolled_x;
+			    reg_dx=mouse.last_scrolled_y;
+			} else {
+				reg_ax=mouse.buttons;
+				if (but>=MOUSE_BUTTONS) but = MOUSE_BUTTONS - 1;
+				reg_cx=mouse.last_pressed_x[but];
+				reg_dx=mouse.last_pressed_y[but];
+				reg_bx=mouse.times_pressed[but];
+				mouse.times_pressed[but]=0;
+			}
 		}
 		break;
 	case 0x06:	/* Return Button Release Data */
 		{
 			Bit16u but=reg_bx;
-			reg_ax=mouse.buttons;
-			if (but>=MOUSE_BUTTONS) but = MOUSE_BUTTONS - 1;
-			reg_cx=mouse.last_released_x[but];
-			reg_dx=mouse.last_released_y[but];
-			reg_bx=mouse.times_released[but];
-			mouse.times_released[but]=0;
+			if (but==0xFFFF){
+			    /* CuteMouse wheel extension */
+			    reg_bx=(mouse.wheel >= 0) ? mouse.wheel : (0x10000 + mouse.wheel);
+			    reg_cx=mouse.last_scrolled_x;
+			    reg_dx=mouse.last_scrolled_y;
+			    mouse.wheel=0;
+			} else {
+				reg_ax=mouse.buttons;
+				if (but>=MOUSE_BUTTONS) but = MOUSE_BUTTONS - 1;
+				reg_cx=mouse.last_released_x[but];
+				reg_dx=mouse.last_released_y[but];
+				reg_bx=mouse.times_released[but];
+				mouse.times_released[but]=0;
+			}
 		}
 		break;
 	case 0x07:	/* Define horizontal cursor range */
@@ -874,9 +978,14 @@ static Bitu INT33_Handler(void) {
 		mouse.updateRegion_y[1]=(Bit16s)reg_di;
 		DrawCursor();
 		break;
-	case 0x11:      /* Get number of buttons */
-		reg_ax=0xffff;
-		reg_bx=MOUSE_BUTTONS;
+	case 0x11:	/* Get mouse capabilities - CuteMouse wheel extension*/
+		reg_ax = 0x574D; /* Identifier for detection purposes */
+		reg_bx = 0;      /* Reserved capabilities flags */
+		reg_cx = 1;      /* Wheel is supported */
+		/* Previous implementation provided Genius mouse-specific function to get
+		   number of buttons (https://sourceforge.net/p/dosbox/patches/32/), it was
+		   returning 0xffff in reg_ax and number of buttons in reg_bx; I suppose
+		   the CuteMouse extensions are more useful */
 		break;
 	case 0x13:      /* Set double-speed threshold */
 		mouse.doubleSpeedThreshold=(reg_bx ? reg_bx : 64);
@@ -1061,7 +1170,8 @@ static Bitu INT74_Handler(void) {
 		/* Check for an active Interrupt Handler that will get called */
 		if (mouse.sub_mask & mouse.event_queue[mouse.events].type) {
 			reg_ax=mouse.event_queue[mouse.events].type;
-			reg_bx=mouse.event_queue[mouse.events].buttons;
+			reg_bl=mouse.event_queue[mouse.events].buttons;
+			reg_bh=GetWheel8bit(); /* CuteMouse wheel extension */
 			reg_cx=POS_X;
 			reg_dx=POS_Y;
 			reg_si=static_cast<Bit16s>(mouse.mickey_x);

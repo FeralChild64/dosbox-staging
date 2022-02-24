@@ -3060,12 +3060,12 @@ static void HandleMouseMotion(SDL_MouseMotionEvent * motion) {
 }
 
 static void HandleMouseWheel(SDL_MouseWheelEvent * wheel) {
-	if (vmware_mouse && wheel->y != 0) {
-		Mouse_WheelMovedDummy(); // Needed until wheel support via PS/2 is implemented
-		if (wheel->direction == SDL_MOUSEWHEEL_NORMAL)
-		    VMWARE_MouseWheel(-wheel->y);
-		else
-		    VMWARE_MouseWheel(wheel->y);
+	if (wheel->y != 0) {
+		Bit32s scroll = (wheel->direction == SDL_MOUSEWHEEL_NORMAL) ? -wheel->y : wheel->y;
+		Mouse_WheelMoved(scroll);
+
+		if (vmware_mouse)
+			    VMWARE_MouseWheel(scroll);
 	}
 }
 

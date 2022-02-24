@@ -21,22 +21,25 @@
 
 #include "dosbox.h"
 
-void Mouse_ShowCursor(void);
-void Mouse_HideCursor(void);
+void  Mouse_ShowCursor(void);
+void  Mouse_HideCursor(void);
 
-bool Mouse_SetPS2State(bool use);
+bool  Mouse_SetPS2State(bool use);
+void  Mouse_ChangePS2Callback(Bit16u pseg, Bit16u pofs);
 
-void Mouse_ChangePS2Callback(Bit16u pseg, Bit16u pofs);
+void  Mouse_PS2Reset(void);
+bool  Mouse_PS2SetPacketSize(Bit8u packet_size);
+void  Mouse_PS2SetSamplingRate(Bit8u rate);
+Bit8u Mouse_PS2GetType(void);
 
+void  Mouse_CursorMoved(float xrel,float yrel,float x,float y,bool emulate);
+void  Mouse_CursorSet(float x,float y);
+void  Mouse_ButtonPressed(Bit8u button);
+void  Mouse_ButtonReleased(Bit8u button);
+void  Mouse_WheelMoved(Bit32s scroll);
 
-void Mouse_CursorMoved(float xrel,float yrel,float x,float y,bool emulate);
-void Mouse_CursorSet(float x,float y);
-void Mouse_ButtonPressed(Bit8u button);
-void Mouse_ButtonReleased(Bit8u button);
-void Mouse_WheelMovedDummy();
-
-void Mouse_AutoLock(bool enable);
-void Mouse_BeforeNewVideoMode();
-void Mouse_AfterNewVideoMode(bool setmode);
+void  Mouse_AutoLock(bool enable);
+void  Mouse_BeforeNewVideoMode();
+void  Mouse_AfterNewVideoMode(bool setmode);
 
 #endif
