@@ -964,11 +964,12 @@ static Bitu INT15_Handler(void) {
 			}
 			break;
 		case 0x01:               // reset
+			Mouse_PS2Reset();
 			reg_bx = 0x00aa; // mouse
 			[[fallthrough]];
 		case 0x05:		// initialize
-			if ((reg_al==0x05) && (reg_bh!=0x03)) {
-				// non-standard data packet sizes not supported
+			if ((reg_al==0x05) && !Mouse_PS2SetPacketSize(reg_bh)) {
+				// not all data packet sizes are valid/supported
 				CALLBACK_SCF(true);
 				reg_ah=2;
 				break;
@@ -978,12 +979,14 @@ static Bitu INT15_Handler(void) {
 			reg_ah=0;
 			break;
 		case 0x02:		// set sampling rate
+		    Mouse_PS2SetSamplingRate(reg_bh);
+			[[fallthrough]];	
 		case 0x03:		// set resolution
 			CALLBACK_SCF(false);
 			reg_ah=0;
 			break;
 		case 0x04:		// get type
-			reg_bh=0;	// ID
+			reg_bh=Mouse_PS2GetType();
 			CALLBACK_SCF(false);
 			reg_ah=0;
 			break;

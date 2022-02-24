@@ -222,7 +222,7 @@ void VMWARE_MouseWheel(Bit32s scroll) {
         if (scroll >= 255 || scroll + mouse_wheel >= 127)
                 mouse_wheel = 127;
         else if (scroll <= -255 || scroll + mouse_wheel <= -127)
-                mouse_wheel = -127;
+                mouse_wheel = -127; // protocol limit is -128,127 - but let's keep it symmetric
         else
                 mouse_wheel += scroll;
 
