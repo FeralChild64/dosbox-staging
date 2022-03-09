@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2022       The DOSBox Staging Team
  *  Copyright (C) 2002-2021  The DOSBox Team
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -947,11 +948,11 @@ static Bitu INT15_Handler(void) {
 		switch (reg_al) {
 		case 0x00:                      // enable/disable
 			if (reg_bh==0) {	// disable
-				Mouse_SetPS2State(false);
+				MouseBIOS_SetState(false);
 				reg_ah=0;
 				CALLBACK_SCF(false);
 			} else if (reg_bh==0x01) {	//enable
-				if (!Mouse_SetPS2State(true)) {
+				if (!MouseBIOS_SetState(true)) {
 					reg_ah=5;
 					CALLBACK_SCF(true);
 					break;
@@ -964,29 +965,29 @@ static Bitu INT15_Handler(void) {
 			}
 			break;
 		case 0x01:               // reset
-			Mouse_PS2Reset();
+			MouseBIOS_Reset();
 			reg_bx = 0x00aa; // mouse
 			[[fallthrough]];
 		case 0x05:		// initialize
-			if ((reg_al==0x05) && !Mouse_PS2SetPacketSize(reg_bh)) {
+			if ((reg_al==0x05) && !MouseBIOS_SetPacketSize(reg_bh)) {
 				// not all data packet sizes are valid/supported
 				CALLBACK_SCF(true);
 				reg_ah=2;
 				break;
 			}
-			Mouse_SetPS2State(false);
+			MouseBIOS_SetState(false);
 			CALLBACK_SCF(false);
 			reg_ah=0;
 			break;
 		case 0x02:		// set sampling rate
-		    Mouse_PS2SetSamplingRate(reg_bh);
+		    MouseBIOS_SetSamplingRate(reg_bh);
 			[[fallthrough]];	
 		case 0x03:		// set resolution
 			CALLBACK_SCF(false);
 			reg_ah=0;
 			break;
 		case 0x04:		// get type
-			reg_bh=Mouse_PS2GetType();
+			reg_bh=MouseBIOS_GetType();
 			CALLBACK_SCF(false);
 			reg_ah=0;
 			break;
@@ -1000,7 +1001,7 @@ static Bitu INT15_Handler(void) {
 			}
 			break;
 		case 0x07:		// set callback
-			Mouse_ChangePS2Callback(SegValue(es),reg_bx);
+			MouseBIOS_ChangeCallback(SegValue(es),reg_bx);
 			CALLBACK_SCF(false);
 			reg_ah=0;
 			break;

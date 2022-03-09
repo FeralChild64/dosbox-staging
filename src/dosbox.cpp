@@ -128,7 +128,6 @@ void AUTOEXEC_Init(Section*);
 void SHELL_Init();
 
 void INT10_Init(Section*);
-void VMWARE_Init(Section*);
 
 static LoopHandler * loop;
 
@@ -963,9 +962,6 @@ void DOSBOX_Init() {
 
 	pstring = secprop->Add_path("phonebookfile", only_at_start, "phonebook.txt");
 	pstring->Set_help("File used to map fake phone numbers to addresses.");
-
-	/* Limited VMware Tools support */
-	secprop->AddInitFunction(&VMWARE_Init);
 
 	/* All the DOS Related stuff, which will eventually start up in the shell */
 	secprop=control->AddSection_prop("dos",&DOS_Init,false);//done

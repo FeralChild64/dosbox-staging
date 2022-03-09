@@ -21,25 +21,28 @@
 
 #include "dosbox.h"
 
-void  Mouse_ShowCursor(void);
-void  Mouse_HideCursor(void);
+void  MousePS2_PortWrite(Bit8u byte);
 
-bool  Mouse_SetPS2State(bool use);
-void  Mouse_ChangePS2Callback(Bit16u pseg, Bit16u pofs);
+bool  MouseBIOS_SetState(bool use);
+void  MouseBIOS_ChangeCallback(Bit16u pseg, Bit16u pofs);
 
-void  Mouse_PS2Reset(void);
-bool  Mouse_PS2SetPacketSize(Bit8u packet_size);
-void  Mouse_PS2SetSamplingRate(Bit8u rate);
-Bit8u Mouse_PS2GetType(void);
+void  MouseBIOS_Reset(void);
+bool  MouseBIOS_SetPacketSize(Bit8u packet_size);
+void  MouseBIOS_SetSamplingRate(Bit8u rate);
+Bit8u MouseBIOS_GetType(void);
 
-void  Mouse_CursorMoved(float xrel,float yrel,float x,float y,bool emulate);
-void  Mouse_CursorSet(float x,float y);
+void  MouseDOS_BeforeNewVideoMode();
+void  MouseDOS_AfterNewVideoMode(bool setmode);
+
+extern volatile bool mouse_vmware;
+
+void  Mouse_SetSensitivity(int sensitivity_x, int sensitivity_y);
+void  Mouse_NewScreenParams(Bit16u clip_x, Bit16u clip_y, Bit16u res_x, Bit16u res_y, bool fullscreen, Bit32s x_abs, Bit32s y_abs);
+
+void  Mouse_CursorMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bool is_captured);
+void  Mouse_CursorSet(float x, float y);
 void  Mouse_ButtonPressed(Bit8u button);
 void  Mouse_ButtonReleased(Bit8u button);
 void  Mouse_WheelMoved(Bit32s scroll);
-
-void  Mouse_AutoLock(bool enable);
-void  Mouse_BeforeNewVideoMode();
-void  Mouse_AfterNewVideoMode(bool setmode);
 
 #endif

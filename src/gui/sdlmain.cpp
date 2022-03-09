@@ -1,7 +1,7 @@
 /*
  *  SPDX-License-Identifier: GPL-2.0-or-later
  *
- *  Copyright (C) 2020-2021  The DOSBox Staging Team
+ *  Copyright (C) 2020-2022  The DOSBox Staging Team
  *  Copyright (C) 2002-2021  The DOSBox Team
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -62,7 +62,6 @@
 #include "timer.h"
 #include "vga.h"
 #include "video.h"
-#include "vmware.h"
 
 #include "../libs/ppscale/ppscale.h"
 
@@ -945,8 +944,10 @@ finish:
 		                       sdl.pp_scale, fullscreen, width, height);
 	}
 
-	// Ensure VMware mouse support knows the current parameters
-	VMWARE_ScreenParams(sdl.clip.x, sdl.clip.y, sdl.clip.w, sdl.clip.h, sdl.desktop.fullscreen);
+    // Ensure mouse enumation knows the current parameters
+    int abs_x, abs_y;
+    SDL_GetMouseState(&abs_x, &abs_y);
+	Mouse_NewScreenParams(sdl.clip.x, sdl.clip.y, sdl.clip.w, sdl.clip.h, sdl.desktop.fullscreen, abs_x, abs_y);
 
 	// Force redraw after changing the window
 	if (sdl.draw.callback)
@@ -1786,7 +1787,7 @@ void GFX_UpdateMouseState()
 		 * in seamless-mode.
 		 */
 	} else if (!sdl.desktop.fullscreen && mouse_is_captured &&
-	           (vmware_mouse || (!mouse_capture_requested && sdl.mouse.control_choice == Seamless))) {
+	           (mouse_vmware || (!mouse_capture_requested && sdl.mouse.control_choice == Seamless))) {
 		GFX_ToggleMouseCapture();
 		SDL_ShowCursor(SDL_DISABLE);
 
@@ -1801,7 +1802,7 @@ void GFX_UpdateMouseState()
 		if (sdl.mouse.control_choice == CaptureOnStart) {
 			SDL_RaiseWindow(sdl.window);
 			toggle_mouse_capture_from_user(true);
-		} else if (vmware_mouse || (sdl.mouse.control_choice & (Seamless | NoMouse))) {
+		} else if (mouse_vmware || (sdl.mouse.control_choice & (Seamless | NoMouse))) {
 			SDL_ShowCursor(SDL_DISABLE);
 		}
 	}
@@ -3016,6 +3017,7 @@ static void GUI_StartUp(Section *sec)
 		Prop_multival *p3 = section->Get_multival("sensitivity");
 		sdl.mouse.xsensitivity = p3->GetSection()->Get_int("xsens");
 		sdl.mouse.ysensitivity = p3->GetSection()->Get_int("ysens");
+		Mouse_SetSensitivity(sdl.mouse.xsensitivity, sdl.mouse.ysensitivity);
 
 		// Apply raw mouse input setting
 		SDL_SetHintWithPriority(SDL_HINT_MOUSE_RELATIVE_MODE_WARP,
@@ -3049,30 +3051,20 @@ static void GUI_StartUp(Section *sec)
 
 static void HandleMouseMotion(SDL_MouseMotionEvent * motion) {
 
-	if (vmware_mouse || mouse_is_captured || sdl.mouse.control_choice == Seamless)
-		Mouse_CursorMoved((float)motion->xrel*sdl.mouse.xsensitivity/100.0f,
-						  (float)motion->yrel*sdl.mouse.ysensitivity/100.0f,
-						  (float)(motion->x-sdl.clip.x)/(sdl.clip.w-1)*sdl.mouse.xsensitivity/100.0f,
-						  (float)(motion->y-sdl.clip.y)/(sdl.clip.h-1)*sdl.mouse.ysensitivity/100.0f,
-						  mouse_is_captured);
-
-	VMWARE_MousePosition(motion->x, motion->y);
+	if (mouse_vmware || mouse_is_captured || sdl.mouse.control_choice == Seamless)
+    	Mouse_CursorMoved(motion->xrel, motion->yrel, motion->x, motion->y,
+    	    	          mouse_is_captured);
 }
 
 static void HandleMouseWheel(SDL_MouseWheelEvent * wheel) {
-	if (wheel->y != 0) {
-		Bit32s scroll = (wheel->direction == SDL_MOUSEWHEEL_NORMAL) ? -wheel->y : wheel->y;
-		Mouse_WheelMoved(scroll);
-
-		if (vmware_mouse)
-			    VMWARE_MouseWheel(scroll);
-	}
+	if (wheel->y != 0)
+		Mouse_WheelMoved((wheel->direction == SDL_MOUSEWHEEL_NORMAL) ? -wheel->y : wheel->y);
 }
 
 static void HandleMouseButton(SDL_MouseButtonEvent * button) {
 	switch (button->state) {
 	case SDL_PRESSED:
-		if (!sdl.desktop.fullscreen && !vmware_mouse &&
+		if (!sdl.desktop.fullscreen && !mouse_vmware &&
 		    ((sdl.mouse.control_choice & (CaptureOnStart | CaptureOnClick) &&
 		      !mouse_is_captured) ||
 		     (sdl.mouse.control_choice != NoMouse && sdl.mouse.middle_will_release &&
@@ -3083,15 +3075,18 @@ static void HandleMouseButton(SDL_MouseButtonEvent * button) {
 		switch (button->button) {
 		case SDL_BUTTON_LEFT:
 			Mouse_ButtonPressed(0);
-			VMWARE_MouseButtonPressed(0);
 			break;
 		case SDL_BUTTON_RIGHT:
 			Mouse_ButtonPressed(1);
-			VMWARE_MouseButtonPressed(1);
 			break;
 		case SDL_BUTTON_MIDDLE:
 			Mouse_ButtonPressed(2);
-			VMWARE_MouseButtonPressed(2);
+			break;
+		case SDL_BUTTON_X1:
+			Mouse_ButtonPressed(3);
+			break;
+		case SDL_BUTTON_X2:
+			Mouse_ButtonPressed(4);
 			break;
 		}
 		break;
@@ -3099,15 +3094,18 @@ static void HandleMouseButton(SDL_MouseButtonEvent * button) {
 		switch (button->button) {
 		case SDL_BUTTON_LEFT:
 			Mouse_ButtonReleased(0);
-			VMWARE_MouseButtonReleased(0);
 			break;
 		case SDL_BUTTON_RIGHT:
 			Mouse_ButtonReleased(1);
-			VMWARE_MouseButtonReleased(1);
 			break;
 		case SDL_BUTTON_MIDDLE:
 			Mouse_ButtonReleased(2);
-			VMWARE_MouseButtonReleased(2);
+			break;
+		case SDL_BUTTON_X1:
+			Mouse_ButtonReleased(3);
+			break;
+		case SDL_BUTTON_X2:
+			Mouse_ButtonReleased(4);
 			break;
 		}
 		break;

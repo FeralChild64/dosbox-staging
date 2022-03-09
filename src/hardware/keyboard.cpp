@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2002-2021  The DOSBox Team
+ *  Copyright (C) 2002-2022  The DOSBox Team
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -24,11 +24,14 @@
 #include "pic.h"
 #include "mem.h"
 #include "mixer.h"
+#include "mouse.h"
 #include "timer.h"
 #include "support.h"
 
 #define KEYBUFSIZE 32
 #define KEYDELAY   0.300 // Considering 20-30 khz serial clock and 11 bits/char
+
+#define AUX        0x100 // Marker for bytes coming from AUX (mouse) PS/2 port
 
 using namespace bit::literals;
 
@@ -36,11 +39,12 @@ enum KeyCommands {
 	CMD_NONE,
 	CMD_SETLEDS,
 	CMD_SETTYPERATE,
-	CMD_SETOUTPORT
+	CMD_SETOUTPORT,
+	CMD_MOUSEOUT
 };
 
 static struct {
-	Bit8u buffer[KEYBUFSIZE];
+    Bit16u buffer[KEYBUFSIZE];
 	Bitu used;
 	Bitu pos;
 	struct {
@@ -51,16 +55,23 @@ static struct {
 	KeyCommands command;
 	Bit8u p60data;
 	bool p60changed;
+	bool auxchanged;
 	bool active;
 	bool scanning;
 	bool scheduled;
 } keyb;
 
-static void KEYBOARD_SetPort60(Bit8u val) {
+static void KEYBOARD_SetPort60(Bit16u val) {
+	keyb.auxchanged=(val&AUX)>0;
 	keyb.p60changed=true;
-	keyb.p60data=val;
-	if (machine==MCH_PCJR) PIC_ActivateIRQ(6);
-	else PIC_ActivateIRQ(1);
+	keyb.p60data=val&0xff;
+    if (keyb.auxchanged) {
+        PIC_ActivateIRQ(12);
+    }
+    else {
+		if (machine==MCH_PCJR) PIC_ActivateIRQ(6);
+		else PIC_ActivateIRQ(1);
+    }
 }
 
 static void KEYBOARD_TransferBuffer(uint32_t /*val*/)
@@ -82,9 +93,10 @@ void KEYBOARD_ClrBuffer(void) {
 	keyb.scheduled=false;
 }
 
-static void KEYBOARD_AddBuffer(Bit8u data) {
+void KEYBOARD_AddBuffer(Bit16u data) {
 	if (keyb.used>=KEYBUFSIZE) {
-		LOG(LOG_KEYBOARD,LOG_NORMAL)("Buffer full, dropping code");
+		LOG(LOG_KEYBOARD,LOG_NORMAL)("Buffer full, dropping all codes");
+		KEYBOARD_ClrBuffer();
 		return;
 	}
 	Bitu start=keyb.pos+keyb.used;
@@ -100,6 +112,7 @@ static void KEYBOARD_AddBuffer(Bit8u data) {
 
 static uint8_t read_p60(io_port_t, io_width_t)
 {
+	keyb.auxchanged = false;
 	keyb.p60changed = false;
 	if (!keyb.scheduled && keyb.used) {
 		keyb.scheduled = true;
@@ -173,6 +186,10 @@ static void write_p60(io_port_t, io_val_t value, io_width_t)
 		KEYBOARD_ClrBuffer();
 		KEYBOARD_AddBuffer(0xfa);	/* Acknowledge */
 		break;
+    case CMD_MOUSEOUT:
+        keyb.command=CMD_NONE;
+        MousePS2_PortWrite(val);
+        break;
 	}
 }
 
@@ -287,6 +304,9 @@ static void write_p64(io_port_t, io_val_t value, io_width_t)
 	case 0xd1:		/* Write to outport */
 		keyb.command=CMD_SETOUTPORT;
 		break;
+	case 0xd4:		/* Address the mouse with the next byte */
+		keyb.command=CMD_MOUSEOUT;
+		break;
 	default:
 		LOG(LOG_KEYBOARD, LOG_ERROR)("Port 64 write with val %x", val);
 		break;
@@ -295,7 +315,7 @@ static void write_p64(io_port_t, io_val_t value, io_width_t)
 
 static uint8_t read_p64(io_port_t, io_width_t)
 {
-	Bit8u status = 0x1c | (keyb.p60changed ? 0x1 : 0x0);
+    Bit8u status = 0x1c | (keyb.p60changed ? 0x1 : 0x0) | (keyb.auxchanged ? 0x20 : 0x00);
 	return status;
 }
 
@@ -474,6 +494,7 @@ void KEYBOARD_Init(Section* /*sec*/) {
 	keyb.active = true;
 	keyb.scanning = true;
 	keyb.command = CMD_NONE;
+	keyb.auxchanged = false;
 	keyb.p60changed = false;
 	keyb.repeat.key = KBD_NONE;
 	keyb.repeat.pause = 500;
