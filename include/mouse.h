@@ -21,6 +21,11 @@
 
 #include "dosbox.h"
 
+class CSerialMouse;
+
+void  MouseSERIAL_Register(CSerialMouse *listener);
+void  MouseSERIAL_UnRegister(CSerialMouse *listener);
+
 void  MousePS2_PortWrite(Bit8u byte);
 
 bool  MouseBIOS_SetState(bool use);
@@ -36,7 +41,7 @@ void  MouseDOS_AfterNewVideoMode(bool setmode);
 
 extern volatile bool mouse_vmware;
 
-void  Mouse_SetSensitivity(int sensitivity_x, int sensitivity_y);
+void  Mouse_SetSensitivity(Bit32s sensitivity_x, Bit32s sensitivity_y);
 void  Mouse_NewScreenParams(Bit16u clip_x, Bit16u clip_y, Bit16u res_x, Bit16u res_y, bool fullscreen, Bit32s x_abs, Bit32s y_abs);
 
 void  Mouse_CursorMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bool is_captured);

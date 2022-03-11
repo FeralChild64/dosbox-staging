@@ -235,6 +235,9 @@
     <ClCompile Include="..\src\hardware\serialport\serialdummy.cpp">
       <Filter>src\hardware\serialport</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\hardware\serialport\serialmouse.cpp">
+      <Filter>src\hardware\serialport</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\hardware\serialport\serialport.cpp">
       <Filter>src\hardware\serialport</Filter>
     </ClCompile>
@@ -838,6 +841,9 @@
       <Filter>src\hardware\serialport</Filter>
     </ClInclude>
     <ClInclude Include="..\src\hardware\serialport\serialdummy.h">
+      <Filter>src\hardware\serialport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\hardware\serialport\serialmouse.h">
       <Filter>src\hardware\serialport</Filter>
     </ClInclude>
     <ClInclude Include="..\src\hardware\serialport\softmodem.h">

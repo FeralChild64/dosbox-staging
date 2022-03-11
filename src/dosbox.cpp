@@ -918,7 +918,7 @@ void DOSBOX_Init() {
 
 	secprop=control->AddSection_prop("serial",&SERIAL_Init,true);
 	const char* serials[] = { "dummy", "disabled", "modem", "nullmodem",
-	                          "directserial",0 };
+	                          "serialmouse", "directserial", 0 };
 
 	Pmulti_remain = secprop->Add_multiremain("serial1", when_idle, " ");
 	Pstring = Pmulti_remain->GetSection()->Add_string("type", when_idle, "dummy");
@@ -927,7 +927,7 @@ void DOSBOX_Init() {
 	Pmulti_remain->GetSection()->Add_string("parameters", when_idle, "");
 	Pmulti_remain->Set_help(
 	        "set type of device connected to com port.\n"
-	        "Can be disabled, dummy, modem, nullmodem, directserial.\n"
+	        "Can be disabled, dummy, modem, nullmodem, serialmouse, directserial.\n"
 	        "Additional parameters must be in the same line in the form of\n"
 	        "parameter:value. Parameter for all types is irq (optional).\n"
 	        "for directserial: realport (required), rxdelay (optional).\n"

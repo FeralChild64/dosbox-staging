@@ -35,6 +35,8 @@
 #include "keyboard.h"
 #include "video.h"
 
+#include "../hardware/serialport/serialmouse.h"
+
 // Reference:
 // - https://www.digchip.com/datasheets/parts/datasheet/196/HT82M30A-pdf.php
 // - https://isdaman.com/alsos/hardware/mouse/ps2interface.htm
@@ -87,7 +89,6 @@ enum PS2_MODE:Bit8u { // mouse mode visible via PS/2 interface
 // BIOS interface specific definitions
 // ***************************************************************************
 
-#define BIOS_QUEUE_SIZE 32 // if over 255, increase mouse_bios.events size
 #define BIOS_MOUSE_IRQ  12
 
 // ***************************************************************************
@@ -136,23 +137,49 @@ volatile bool mouse_vmware = false;  // if true, VMware compatible driver has ta
 #define DOS_EVENTS_MASK  0xff // to limit the number of buttons reported
 
 enum DOS_EV:Bit16u {
-    MOUSE_MOVED       =  0x01,
-    PRESSED_LEFT      =  0x02,
-    RELEASED_LEFT     =  0x04,
-    PRESSED_RIGHT     =  0x08,
-    RELEASED_RIGHT    =  0x10,
-    PRESSED_MIDDLE    =  0x20,
-    RELEASED_MIDDLE   =  0x40,
-    WHEEL_MOVED       =  0x80,
-    PRESSED_X1        = 0x100, // FIXME: there seems to be no documentation how to handle
-    RELEASED_X1       = 0x200, // 5 buttons in DOS; if a DOS program/driver with 5 button
-    PRESSED_X2        = 0x400, // support is found, try to check if INT 0x33 function 0x0C
-    RELEASED_X2       = 0x800, // can be somehow used to get notification about extra buttons
+    MOUSE_MOVED       =   0x01,
+    PRESSED_LEFT      =   0x02,
+    RELEASED_LEFT     =   0x04,
+    PRESSED_RIGHT     =   0x08,
+    RELEASED_RIGHT    =   0x10,
+    PRESSED_MIDDLE    =   0x20,
+    RELEASED_MIDDLE   =   0x40,
+    WHEEL_MOVED       =   0x80,
+    PRESSED_X1        =  0x100, // FIXME: there seems to be no documentation how to handle
+    RELEASED_X1       =  0x200, // 5 buttons in DOS; if a DOS program/driver with 5 button
+    PRESSED_X2        =  0x400, // support is found, try to check if INT 0x33 function 0x0C
+    RELEASED_X2       =  0x800, // can be somehow used to get notification about extra buttons
 };
+
+// ***************************************************************************
+// Other definitions
+// ***************************************************************************
+
+#define GEN_QUEUE_SIZE  32 // if over 255, increase mouse_gen.events size
 
 // ***************************************************************************
 // Internal data
 // ***************************************************************************
+
+static struct MouseSerialStruct { // Serial port mouse data
+
+    std::vector<CSerialMouse*> listeners;  // never clean this up manually!
+
+    Bit8u    buttons;
+    float    x, y;
+    Bit16s   x_int, y_int;
+    Bit16s   wheel;
+
+    MouseSerialStruct() : // XXX rework - other structures - they should have constructors too
+        listeners(),
+        buttons(0),
+        x(0.0f),
+        y(0.0f),
+        x_int(0),
+        y_int(0),
+        wheel(0) {}
+
+} mouse_serial;
 
 static struct { // PS/2 hardware mouse data
 
@@ -194,10 +221,6 @@ static struct { // BIOS PS/2 interface mouse data
     Bit16s   wheel;
     float    x, y;
     Bit16s   oldmouseX, oldmouseY;
-
-    struct { Bit16u type; Bit8u buttons; } event_queue[BIOS_QUEUE_SIZE];
-    Bit8u    events;
-    bool     timer_in_progress;
 
     bool     callback_init;
     Bit16u   callback_seg, callback_ofs;
@@ -293,6 +316,10 @@ static struct {
 
     Bit8u    buttons_extra;                // state of mouse buttons 3 (middle), 4, and 5 as visible on host side
 
+    struct { Bit16u type; Bit8u buttons; } event_queue[GEN_QUEUE_SIZE];
+    Bit8u    events;
+    bool     timer_in_progress;
+
     void Init() {
         memset(this, 0, sizeof(*this));
     }
@@ -320,6 +347,9 @@ static struct {
 
 } video;
 
+static void MouseGEN_AddEvent(Bit16u type);
+static void MouseGEN_EventHandler(uint32_t);
+
 // ***************************************************************************
 // Data - cursor/mask
 // ***************************************************************************
@@ -345,6 +375,46 @@ static Bit16u userdefScreenMask[DOS_Y_CURSOR];
 static Bit16u userdefCursorMask[DOS_Y_CURSOR];
 
 // ***************************************************************************
+// Serial port interface implementation
+// ***************************************************************************
+
+void MouseSERIAL_Register(CSerialMouse *listener) {
+    if (listener)
+        mouse_serial.listeners.push_back(listener);
+}
+
+void MouseSERIAL_UnRegister(CSerialMouse *listener) {
+    auto iter = std::find(mouse_serial.listeners.begin(), mouse_serial.listeners.end(), listener);
+    if (iter != mouse_serial.listeners.end())
+        mouse_serial.listeners.erase(iter);
+}
+
+static void MouseSERIAL_Notify() {
+    for (auto listener : mouse_serial.listeners)
+        listener->onMouseEvent(mouse_serial.x_int,
+                               mouse_serial.y_int,
+                               mouse_serial.wheel,
+                               mouse_serial.buttons);
+
+    mouse_serial.x       = 0.0f;
+    mouse_serial.y       = 0.0f;
+    mouse_serial.x_int   = 0;
+    mouse_serial.x_int   = 0;
+    mouse_serial.wheel   = 0;
+}
+
+static void MouseSERIAL_CursorMoved(Bit32s x_rel, Bit32s y_rel) {
+    mouse_serial.x += x_rel * config.sensitivity_x;
+    mouse_serial.y += y_rel * config.sensitivity_y;
+
+    mouse_serial.x_int = static_cast<Bit16s>(mouse_serial.x);
+    mouse_serial.y_int = static_cast<Bit16s>(mouse_serial.y);
+
+    if (mouse_serial.x_int  != 0 || mouse_serial.y_int != 0)
+        MouseSERIAL_Notify();
+}
+
+// ***************************************************************************
 // PS/2 interface implementation
 // ***************************************************************************
 
@@ -364,7 +434,11 @@ static inline void MousePS2_AddBuffer(Bit8u byte) {
 }
 
 static void MousePS2_SendPacket() {
-    // XXX implement this!
+    // XXX provide real implementation, this is a dummy one
+    MousePS2_AddBuffer(8); // bit 3 has to be set
+    MousePS2_AddBuffer(2); // some movement
+    MousePS2_AddBuffer(2);
+    MousePS2_AddBuffer(0);
     return;
 }
 
@@ -581,7 +655,7 @@ static void MouseBIOS_DoPS2Callback(Bit16u buttons, Bit16s mouseX, Bit16s mouseY
                 // IntelliMouse Explorer - wheel + 2 extra buttons
                 CPU_Push16((Bit16u) MouseBIOS_GetResetWheel4bit() | ((buttons & 0x18) << 1));
             } else {
-                // standard IntelliMouse - wheel
+                // Standard IntelliMouse - wheel
                 CPU_Push16((Bit16u) MouseBIOS_GetResetWheel8bit());       
             }
         } else {
@@ -602,37 +676,6 @@ static void MouseBIOS_DoPS2Callback(Bit16u buttons, Bit16s mouseX, Bit16s mouseY
 static Bitu MouseBIOS_PS2_DummyHandler(void) {
     CPU_Pop16(); CPU_Pop16(); CPU_Pop16(); CPU_Pop16(); // remove 4 words
     return CBRET_NONE;
-}
-
-static void MouseBIOS_EventHandler(uint32_t /*val*/)
-{
-    mouse_bios.timer_in_progress = false;
-    if (mouse_bios.events) {
-        mouse_bios.timer_in_progress = true;
-        PIC_AddEvent(MouseBIOS_EventHandler, mouse_ps2.delay);
-        PIC_ActivateIRQ(BIOS_MOUSE_IRQ);
-    }
-}
-
-static void MouseBIOS_AddEvent(Bit16u type) {
-    if (mouse_bios.events < BIOS_QUEUE_SIZE) {
-        if (mouse_bios.events > 0) {
-            // Skip duplicate events
-            if (type == DOS_EV::MOUSE_MOVED || type == DOS_EV::WHEEL_MOVED) return;
-            // Always put the newest element in the front as that the events are 
-            // handled backwards (prevents doubleclicks while moving)
-            for(Bitu i = mouse_bios.events ; i ; i--)
-                mouse_bios.event_queue[i] = mouse_bios.event_queue[i - 1];
-        }
-        mouse_bios.event_queue[0].type    = type;
-        mouse_bios.event_queue[0].buttons = mouse_ps2.buttons;
-        mouse_bios.events++;
-    }
-    if (!mouse_bios.timer_in_progress) {
-        mouse_bios.timer_in_progress = true;
-        PIC_AddEvent(MouseBIOS_EventHandler, mouse_ps2.delay);
-        PIC_ActivateIRQ(BIOS_MOUSE_IRQ);
-    }
 }
 
 // ***************************************************************************
@@ -1068,14 +1111,14 @@ void MouseDOS_AfterNewVideoMode(bool setmode) {
         mouse_dos.inhibit_draw = true;
         return;
     }
-    mouse_dos.mode   = mode;
-    mouse_dos.max_x  = 639;
-    mouse_dos.min_x  = 0;
-    mouse_dos.min_y  = 0;
+    mouse_dos.mode                 = mode;
+    mouse_dos.max_x                = 639;
+    mouse_dos.min_x                = 0;
+    mouse_dos.min_y                = 0;
 
-    mouse_bios.events = 0;
-    mouse_bios.timer_in_progress   = false;
-    PIC_RemoveEvents(MouseBIOS_EventHandler);
+    mouse_gen.events               = 0;
+    mouse_gen.timer_in_progress    = false;
+    PIC_RemoveEvents(MouseGEN_EventHandler);
 
     mouse_dos.hotx                 = 0;
     mouse_dos.hoty                 = 0;
@@ -1553,12 +1596,12 @@ static Bitu MOUSE_BD_Handler(void) {
 }
 
 static Bitu INT74_Handler(void) {
-    if (mouse_bios.events > 0 && !mouse_dos.in_UIR) {
-        mouse_bios.events--;
-        if (mouse_dos.sub_mask & mouse_bios.event_queue[mouse_bios.events].type) {
+    if (mouse_gen.events > 0 && !mouse_dos.in_UIR) {
+        mouse_gen.events--;
+        if (mouse_dos.sub_mask & mouse_gen.event_queue[mouse_gen.events].type) {
             // DOS interrupt handler is installed - call it
-            reg_ax = mouse_bios.event_queue[mouse_bios.events].type;
-            reg_bl = mouse_bios.event_queue[mouse_bios.events].buttons;
+            reg_ax = mouse_gen.event_queue[mouse_gen.events].type;
+            reg_bl = mouse_gen.event_queue[mouse_gen.events].buttons;
             reg_bh = MouseBIOS_GetResetWheel8bit();
             reg_cx = DOS_GETPOS_X;
             reg_dx = DOS_GETPOS_Y;
@@ -1571,11 +1614,11 @@ static Bitu INT74_Handler(void) {
             CPU_Push16(mouse_dos.sub_seg);
             CPU_Push16(mouse_dos.sub_ofs);
             mouse_dos.in_UIR = true;
-            //LOG(LOG_MOUSE,LOG_ERROR)("INT 74 %X",mouse_bios.event_queue[mouse_bios.events].type );
+            //LOG(LOG_MOUSE,LOG_ERROR)("INT 74 %X",mouse_gen.event_queue[mouse_gen.events].type );
         } else if (mouse_bios.useps2callback) {
             CPU_Push16(RealSeg(CALLBACK_RealPointer(mouse_nosave.int74_ret_callback)));
             CPU_Push16(RealOff(CALLBACK_RealPointer(mouse_nosave.int74_ret_callback)));
-            MouseBIOS_DoPS2Callback(mouse_bios.event_queue[mouse_bios.events].buttons,
+            MouseBIOS_DoPS2Callback(mouse_gen.event_queue[mouse_gen.events].buttons,
                                     static_cast<Bit16s>(mouse_bios.x),
                                     static_cast<Bit16s>(mouse_bios.y));
         } else {
@@ -1592,10 +1635,10 @@ static Bitu INT74_Handler(void) {
 }
 
 Bitu INT74_Ret_Handler(void) {
-    if (mouse_bios.events) {
-        if (!mouse_bios.timer_in_progress) {
-            mouse_bios.timer_in_progress = true;
-            PIC_AddEvent(MouseBIOS_EventHandler, mouse_ps2.delay);
+    if (mouse_gen.events) {
+        if (!mouse_gen.timer_in_progress) {
+            mouse_gen.timer_in_progress = true;
+            PIC_AddEvent(MouseGEN_EventHandler, mouse_ps2.delay);
         }
     }
     return CBRET_NONE;
@@ -1609,6 +1652,37 @@ Bitu UIR_Handler(void) {
 // ***************************************************************************
 // Generic functionality, related to multiple protocols
 // ***************************************************************************
+
+static void MouseGEN_EventHandler(uint32_t /*val*/)
+{
+    mouse_gen.timer_in_progress = false;
+    if (mouse_gen.events) {
+        mouse_gen.timer_in_progress = true;
+        PIC_AddEvent(MouseGEN_EventHandler, mouse_ps2.delay);
+        PIC_ActivateIRQ(BIOS_MOUSE_IRQ);
+    }
+}
+
+static void MouseGEN_AddEvent(Bit16u type) {
+    if (mouse_gen.events < GEN_QUEUE_SIZE) {
+        if (mouse_gen.events > 0) {
+            // Skip duplicate events
+            if (type == DOS_EV::MOUSE_MOVED || type == DOS_EV::WHEEL_MOVED) return;
+            // Always put the newest element in the front as that the events are 
+            // handled backwards (prevents doubleclicks while moving)
+            for(Bitu i = mouse_gen.events ; i ; i--)
+                mouse_gen.event_queue[i] = mouse_gen.event_queue[i - 1];
+        }
+        mouse_gen.event_queue[0].type    = type;
+        mouse_gen.event_queue[0].buttons = mouse_ps2.buttons;
+        mouse_gen.events++;
+    }
+    if (!mouse_gen.timer_in_progress) {
+        mouse_gen.timer_in_progress = true;
+        PIC_AddEvent(MouseGEN_EventHandler, mouse_ps2.delay);
+        PIC_ActivateIRQ(BIOS_MOUSE_IRQ);
+    }
+}
 
 static void MouseGEN_CursorMoved(Bit32s x_rel, Bit32s y_rel, bool is_captured) {
 
@@ -1666,7 +1740,7 @@ static void MouseGEN_CursorMoved(Bit32s x_rel, Bit32s y_rel, bool is_captured) {
         else if (mouse_bios.y <= -32769.0) mouse_bios.y += 65536.0;
     }
 
-    MouseBIOS_AddEvent(DOS_EV::MOUSE_MOVED);
+    MouseGEN_AddEvent(DOS_EV::MOUSE_MOVED);
     DrawCursor();
 }
 
@@ -1674,7 +1748,7 @@ static void MouseGEN_CursorMoved(Bit32s x_rel, Bit32s y_rel, bool is_captured) {
 // External notifications
 // ***************************************************************************
 
-void Mouse_SetSensitivity(int sensitivity_x, int sensitivity_y) {
+void Mouse_SetSensitivity(Bit32s sensitivity_x, Bit32s sensitivity_y) {
     static constexpr float MIN = 0.01f;
     static constexpr float MAX = 100.0f;
 
@@ -1709,21 +1783,24 @@ void Mouse_NewScreenParams(Bit16u clip_x, Bit16u clip_y,
 
     MouseVMW_CursorMoved(x_abs, y_abs);
     if (mouse_vmware)
-        MouseBIOS_AddEvent(DOS_EV::MOUSE_MOVED);
+        MouseGEN_AddEvent(DOS_EV::MOUSE_MOVED);
 }
 
 void Mouse_CursorMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bool is_captured) {
     MouseVMW_CursorMoved(x_abs, y_abs);
     MouseGEN_CursorMoved(x_rel, y_rel, is_captured);
+    MouseSERIAL_CursorMoved(x_rel, y_rel);
 }
 
 void Mouse_ButtonPressed(Bit8u button) {
     if (button >= 5) return; // absolutely no support for buttons above 5
 
-    bool ps2_updated = false;
-    bool ps2_squish  = MousePS2_IsButtonSquishMode();
+    bool ps2_updated        = false;
+    bool ps2_squish         = MousePS2_IsButtonSquishMode();
+    auto old_serial_buttons = mouse_serial.buttons;
     switch (button) {
     case 0:
+        mouse_serial.buttons |= 1;
         if (!(mouse_vmw.buttons & VMW_BUTTON::LEFT)) {
             mouse_vmw.buttons |= VMW_BUTTON::LEFT;
             mouse_vmw.updated  = true;
@@ -1731,10 +1808,11 @@ void Mouse_ButtonPressed(Bit8u button) {
         if (!(mouse_ps2.buttons & 1)) {
             mouse_ps2.buttons |= 1;
             ps2_updated        = true;
-            MouseBIOS_AddEvent(DOS_EV::PRESSED_LEFT);
+            MouseGEN_AddEvent(DOS_EV::PRESSED_LEFT);
         }
         break;
     case 1:
+        mouse_serial.buttons |= 2;
         if (!(mouse_vmw.buttons & VMW_BUTTON::RIGHT)) {
             mouse_vmw.buttons |= VMW_BUTTON::RIGHT;
             mouse_vmw.updated  = true;
@@ -1742,7 +1820,7 @@ void Mouse_ButtonPressed(Bit8u button) {
         if (!(mouse_ps2.buttons & 2)) {
             mouse_ps2.buttons |= 2;
             ps2_updated        = true;
-            MouseBIOS_AddEvent(DOS_EV::PRESSED_RIGHT);
+            MouseGEN_AddEvent(DOS_EV::PRESSED_RIGHT);
         }
         break;
     case 2:
@@ -1750,7 +1828,7 @@ void Mouse_ButtonPressed(Bit8u button) {
         if (!ps2_squish && !(mouse_ps2.buttons & 4)) {
             mouse_ps2.buttons |= 4;
             ps2_updated        = true;
-            MouseBIOS_AddEvent(DOS_EV::PRESSED_MIDDLE);
+            MouseGEN_AddEvent(DOS_EV::PRESSED_MIDDLE);
         }
         break;
     case 3:
@@ -1758,7 +1836,7 @@ void Mouse_ButtonPressed(Bit8u button) {
         if (!ps2_squish && !(mouse_ps2.buttons & 8)) {
             mouse_ps2.buttons |= 8;
             ps2_updated        = true;
-            MouseBIOS_AddEvent(DOS_EV::PRESSED_X1);
+            MouseGEN_AddEvent(DOS_EV::PRESSED_X1);
         }
         break;
     case 4:
@@ -1766,13 +1844,14 @@ void Mouse_ButtonPressed(Bit8u button) {
         if (!ps2_squish && !(mouse_ps2.buttons & 16)) {
             mouse_ps2.buttons |= 16;
             ps2_updated        = true;
-            MouseBIOS_AddEvent(DOS_EV::PRESSED_X2);
+            MouseGEN_AddEvent(DOS_EV::PRESSED_X2);
         }
         break;
     }
 
     // If the interface does not support buttons 3/4/5, squish them all into button 3
     if ((button >= 2) && mouse_gen.buttons_extra) {
+        mouse_serial.buttons |= 4;
         if (!(mouse_vmw.buttons & VMW_BUTTON::MIDDLE)) {
             mouse_vmw.buttons |= VMW_BUTTON::MIDDLE;
             mouse_vmw.updated  = true;
@@ -1780,7 +1859,7 @@ void Mouse_ButtonPressed(Bit8u button) {
         if (ps2_squish && !(mouse_ps2.buttons & 4)) {
             mouse_ps2.buttons |= 4;
             ps2_updated        = true;
-            MouseBIOS_AddEvent(DOS_EV::PRESSED_MIDDLE);
+            MouseGEN_AddEvent(DOS_EV::PRESSED_MIDDLE);
         }
     }
 
@@ -1789,6 +1868,9 @@ void Mouse_ButtonPressed(Bit8u button) {
         mouse_dos.last_pressed_x[button] = DOS_GETPOS_X;
         mouse_dos.last_pressed_y[button] = DOS_GETPOS_Y;      
     }
+
+    if (old_serial_buttons != mouse_serial.buttons)
+        MouseSERIAL_Notify();
 }
 
 void Mouse_ButtonReleased(Bit8u button) {
@@ -1796,8 +1878,10 @@ void Mouse_ButtonReleased(Bit8u button) {
 
     bool ps2_updated = false;
     bool ps2_squish  = MousePS2_IsButtonSquishMode();
+    auto old_serial_buttons = mouse_serial.buttons;
     switch (button) {
     case 0:
+        mouse_serial.buttons &= ~1;
         if (mouse_vmw.buttons & VMW_BUTTON::LEFT) {
             mouse_vmw.buttons &= ~VMW_BUTTON::LEFT;
             mouse_vmw.updated  = true;
@@ -1805,10 +1889,11 @@ void Mouse_ButtonReleased(Bit8u button) {
         if (mouse_ps2.buttons & 1) {
             mouse_ps2.buttons &= ~1;
             ps2_updated        = true;
-            MouseBIOS_AddEvent(DOS_EV::RELEASED_LEFT);
+            MouseGEN_AddEvent(DOS_EV::RELEASED_LEFT);
         }
         break;
     case 1:
+        mouse_serial.buttons &= ~2;
         if (mouse_vmw.buttons & VMW_BUTTON::RIGHT) {
             mouse_vmw.buttons &= ~VMW_BUTTON::RIGHT;
             mouse_vmw.updated  = true;
@@ -1816,7 +1901,7 @@ void Mouse_ButtonReleased(Bit8u button) {
         if (mouse_ps2.buttons & 2) {
             mouse_ps2.buttons &= ~2;
             ps2_updated        = true;
-            MouseBIOS_AddEvent(DOS_EV::RELEASED_RIGHT);
+            MouseGEN_AddEvent(DOS_EV::RELEASED_RIGHT);
         }
         break;
     case 2:
@@ -1824,7 +1909,7 @@ void Mouse_ButtonReleased(Bit8u button) {
         if (!ps2_squish && (mouse_ps2.buttons & 4)) {
             mouse_ps2.buttons &= ~4;
             ps2_updated        = true;
-            MouseBIOS_AddEvent(DOS_EV::RELEASED_MIDDLE);
+            MouseGEN_AddEvent(DOS_EV::RELEASED_MIDDLE);
         }
         break;
     case 3:
@@ -1832,7 +1917,7 @@ void Mouse_ButtonReleased(Bit8u button) {
         if (!ps2_squish && (mouse_ps2.buttons & 8)) {
             mouse_ps2.buttons &= ~8;
             ps2_updated        = true;
-            MouseBIOS_AddEvent(DOS_EV::RELEASED_X1);
+            MouseGEN_AddEvent(DOS_EV::RELEASED_X1);
         }
         break;
     case 4:
@@ -1840,13 +1925,14 @@ void Mouse_ButtonReleased(Bit8u button) {
         if (!ps2_squish && (mouse_ps2.buttons & 16)) {
             mouse_ps2.buttons &= ~16;
             ps2_updated        = true;
-            MouseBIOS_AddEvent(DOS_EV::RELEASED_X2);
+            MouseGEN_AddEvent(DOS_EV::RELEASED_X2);
         }
         break;
     }
 
     // If the interface does not support buttons 3/4/5, squish them all into button 3
     if ((button >= 2) && !mouse_gen.buttons_extra) {
+        mouse_serial.buttons &= ~4;
         if (mouse_vmw.buttons & VMW_BUTTON::MIDDLE) {
             mouse_vmw.buttons &= ~VMW_BUTTON::MIDDLE;
             mouse_vmw.updated  = true;
@@ -1854,7 +1940,7 @@ void Mouse_ButtonReleased(Bit8u button) {
         if (ps2_squish && (mouse_ps2.buttons & 4)) {
             mouse_ps2.buttons &= ~4;
             ps2_updated        = true;
-            MouseBIOS_AddEvent(DOS_EV::RELEASED_MIDDLE);
+            MouseGEN_AddEvent(DOS_EV::RELEASED_MIDDLE);
         }
     }
 
@@ -1863,17 +1949,25 @@ void Mouse_ButtonReleased(Bit8u button) {
         mouse_dos.last_released_x[button] = DOS_GETPOS_X;
         mouse_dos.last_released_y[button] = DOS_GETPOS_Y;
     }
+
+    if (old_serial_buttons != mouse_serial.buttons)
+        MouseSERIAL_Notify();
 }
 
 void Mouse_WheelMoved(Bit32s scroll) {
+    // API limits are -0x8000,0x7FFF - but let's keep it symmetric
+    mouse_serial.wheel = std::clamp(scroll + mouse_serial.wheel, -0x7FFF, 0x7FFF);
+    MouseSERIAL_Notify();
+
     if (mouse_vmware) {
         // API limits are -128,127 - but let's keep it symmetric
         mouse_vmw.wheel   = std::clamp(scroll + mouse_vmw.wheel, -127, 127);
         mouse_vmw.updated = true;
     }
+
     // API limits are -0x8000,0x7FFF - but let's keep it symmetric
     mouse_bios.wheel = std::clamp(scroll + mouse_bios.wheel, -0x7FFF, 0x7FFF);
-    MouseBIOS_AddEvent(DOS_EV::WHEEL_MOVED);
+    MouseGEN_AddEvent(DOS_EV::WHEEL_MOVED);
     mouse_dos.last_wheel_moved_x = DOS_GETPOS_X;
     mouse_dos.last_wheel_moved_y = DOS_GETPOS_Y;
 }
