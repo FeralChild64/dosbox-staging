@@ -167,17 +167,12 @@ static struct MouseSerialStruct { // Serial port mouse data
 
     Bit8u    buttons;
     float    x, y;
-    Bit16s   x_int, y_int;
-    Bit16s   wheel;
 
     MouseSerialStruct() : // XXX rework - other structures - they should have constructors too
         listeners(),
         buttons(0),
         x(0.0f),
-        y(0.0f),
-        x_int(0),
-        y_int(0),
-        wheel(0) {}
+        y(0.0f) {}
 
 } mouse_serial;
 
@@ -389,29 +384,34 @@ void MouseSERIAL_UnRegister(CSerialMouse *listener) {
         mouse_serial.listeners.erase(iter);
 }
 
-static void MouseSERIAL_Notify() {
-    for (auto listener : mouse_serial.listeners)
-        listener->onMouseEvent(mouse_serial.x_int,
-                               mouse_serial.y_int,
-                               mouse_serial.wheel,
-                               mouse_serial.buttons);
-
-    mouse_serial.x       = 0.0f;
-    mouse_serial.y       = 0.0f;
-    mouse_serial.x_int   = 0;
-    mouse_serial.x_int   = 0;
-    mouse_serial.wheel   = 0;
+inline void MouseSERIAL_Button(Bit8u button_id) {
+    if (button_id < 2) {
+        for (auto listener : mouse_serial.listeners)
+            listener->onMouseEventButtons(mouse_serial.buttons);
+    } else {
+        for (auto listener : mouse_serial.listeners)
+            listener->onMouseEventButton3(mouse_serial.buttons);
+    }
 }
 
-static void MouseSERIAL_CursorMoved(Bit32s x_rel, Bit32s y_rel) {
+inline void MouseSERIAL_WheelMoved(Bit8s wheel) {
+    for (auto listener : mouse_serial.listeners)
+        listener->onMouseEventWheel(wheel);
+}
+
+inline void MouseSERIAL_CursorMoved(Bit32s x_rel, Bit32s y_rel) {
     mouse_serial.x += x_rel * config.sensitivity_x;
     mouse_serial.y += y_rel * config.sensitivity_y;
 
-    mouse_serial.x_int = static_cast<Bit16s>(mouse_serial.x);
-    mouse_serial.y_int = static_cast<Bit16s>(mouse_serial.y);
+    Bit16s x_int = static_cast<Bit16s>(mouse_serial.x);
+    Bit16s y_int = static_cast<Bit16s>(mouse_serial.y);
 
-    if (mouse_serial.x_int  != 0 || mouse_serial.y_int != 0)
-        MouseSERIAL_Notify();
+    if (x_int != 0 || y_int != 0) {
+        for (auto listener : mouse_serial.listeners)
+            listener->onMouseEventMoved(x_int, y_int);
+        mouse_serial.x = 0.0f;
+        mouse_serial.y = 0.0f;
+    }
 }
 
 // ***************************************************************************
@@ -1870,7 +1870,7 @@ void Mouse_ButtonPressed(Bit8u button) {
     }
 
     if (old_serial_buttons != mouse_serial.buttons)
-        MouseSERIAL_Notify();
+            MouseSERIAL_Button(button);
 }
 
 void Mouse_ButtonReleased(Bit8u button) {
@@ -1951,13 +1951,12 @@ void Mouse_ButtonReleased(Bit8u button) {
     }
 
     if (old_serial_buttons != mouse_serial.buttons)
-        MouseSERIAL_Notify();
+            MouseSERIAL_Button(button);
 }
 
 void Mouse_WheelMoved(Bit32s scroll) {
-    // API limits are -0x8000,0x7FFF - but let's keep it symmetric
-    mouse_serial.wheel = std::clamp(scroll + mouse_serial.wheel, -0x7FFF, 0x7FFF);
-    MouseSERIAL_Notify();
+    // API limits are -0x80,0x7F - but let's keep it symmetric
+    MouseSERIAL_WheelMoved(std::clamp(scroll, -0x7F, 0x7F));
 
     if (mouse_vmware) {
         // API limits are -128,127 - but let's keep it symmetric

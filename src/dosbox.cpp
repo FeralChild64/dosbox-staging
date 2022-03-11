@@ -927,9 +927,15 @@ void DOSBOX_Init() {
 	Pmulti_remain->GetSection()->Add_string("parameters", when_idle, "");
 	Pmulti_remain->Set_help(
 	        "set type of device connected to com port.\n"
-	        "Can be disabled, dummy, modem, nullmodem, serialmouse, directserial.\n"
+	        "Can be disabled, dummy, serialmouse, modem, nullmodem, directserial.\n"
 	        "Additional parameters must be in the same line in the form of\n"
 	        "parameter:value. Parameter for all types is irq (optional).\n"
+	        "for serialmouse: type (default is type:wheel+msm), can be one of:\n"
+	        "                 msft  : 2 buttons, Microsoft serial mouse\n"
+	        "                 logi  : 3 buttons, Logitech serial mouse\n"
+	        "                 wheel : 3 buttons + wheel serial mouse\n"
+	        "                 msm   : 3 buttons, Mouse Systems Mouse\n"
+	        "                 msft+msm, logi+msm, wheel+msm (autoselection)\n"
 	        "for directserial: realport (required), rxdelay (optional).\n"
 	        "                 (realport:COM1 realport:ttyS0).\n"
 	        "for modem: listenport sock (all optional).\n"

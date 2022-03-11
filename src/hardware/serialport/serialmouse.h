@@ -28,7 +28,10 @@ public:
     CSerialMouse(Bitu id, CommandLine* cmd);
     virtual ~CSerialMouse();
 
-    void onMouseEvent(Bit16s delta_x, Bit16s delta_y, Bit16s delta_w, Bit8u buttons);
+    void onMouseEventMoved(Bit16s delta_x, Bit16s delta_y);
+    void onMouseEventButtons(Bit8u buttons);
+    void onMouseEventButton3(Bit8u buttons);
+    void onMouseEventWheel(Bit8s delta_w);
 
     void setRTSDTR(bool rts, bool dtr);
     void setRTS(bool val);
@@ -42,15 +45,41 @@ public:
 
 private:
 
-    void onMouseReset();
-    void startPacket();
+    enum MouseType {
+        NONE,
+        MICROSOFT,
+        LOGITECH,
+        WHEEL,
+        MOUSE_SYSTEMS
+    };
 
-    bool   send_ack;
-    Bit8u  packet[3] = {};
-    Bit8u  packet_xmit;
-    bool   xmit_another_packet;
-    Bit8u  mouse_buttons;  // bit 0 = left, bit 1 = right, bit 2 = middle
-    Bit32s mouse_delta_x, mouse_delta_y, mouse_delta_w;
+    void applyType(MouseType type);
+    void abortPacket();
+    void clearCounters();
+    void mouseReset();
+    void startPacketId();
+    void startPacketData(bool extended = false);
+    void startPacketData2();
+    void unimplemented();
+
+    MouseType config_type;         // mouse type as in the configuration file
+    bool      config_auto;         // true = autoswitch between config_type and Mouse Systems Mouse
+
+    MouseType mouse_type;          // currently emulated mouse type
+    Bit8u     mouse_bytelen;
+    bool      mouse_has_3rd_button;
+    bool      mouse_has_wheel;
+    bool      mouse_port_valid;    // false = port settings incompatible with selected mouse
+
+    bool      send_ack;
+    Bit8u     packet[6] = {};
+    Bit8u     packet_len;
+    Bit8u     xmit_idx;            // index of byte to send, if >= packet_len it means transmission ended
+    bool      xmit_2part;          // true = packet has a second part, which could not be evaluated yet
+    bool      xmit_another_move;   // true = while transmitting a packet we received mouse move event
+    bool      xmit_another_button; // true = while transmitting a packet we received mouse button event
+    Bit8u     mouse_buttons;       // bit 0 = left, bit 1 = right, bit 2 = middle
+    Bit32s    mouse_delta_x, mouse_delta_y, mouse_delta_w;
 };
 
 #endif // DOSBOX_SERIALMOUSE_H
