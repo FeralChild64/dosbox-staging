@@ -99,11 +99,11 @@ CSerialMouse::CSerialMouse(Bitu id, CommandLine* cmd): CSerial(id, cmd),
 
     InstallationSuccessful = true;
 
-    MouseSERIAL_Register(this);
+    MouseSER_Register(this);
 }
 
 CSerialMouse::~CSerialMouse() {
-    MouseSERIAL_UnRegister(this);
+    MouseSER_UnRegister(this);
     removeEvent(SERIAL_TX_EVENT); // clear events
 }
 
@@ -182,22 +182,13 @@ void CSerialMouse::onMouseEventMoved(Bit16s delta_x, Bit16s delta_y) {
         xmit_another_move = true;
 }
 
-void CSerialMouse::onMouseEventButtons(Bit8u buttons_all) {
-    mouse_buttons = buttons_all;
+void CSerialMouse::onMouseEventButton(Bit8u buttons, Bit8u idx) {
+    mouse_buttons = buttons;
+
+    if (!mouse_has_3rd_button && idx > 1) return;
 
     if (xmit_idx >= packet_len)
-        startPacketData();
-    else
-        xmit_another_button = true;
-}
-
-void CSerialMouse::onMouseEventButton3(Bit8u buttons_all) {
-    mouse_buttons = buttons_all;
-
-    if (!mouse_has_3rd_button) return;
-
-    if (xmit_idx >= packet_len)
-        startPacketData(true);
+        startPacketData(idx > 1);
     else
         xmit_another_button = true;
 }

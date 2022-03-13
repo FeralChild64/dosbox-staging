@@ -3052,13 +3052,12 @@ static void GUI_StartUp(Section *sec)
 static void HandleMouseMotion(SDL_MouseMotionEvent * motion) {
 
 	if (mouse_vmware || mouse_is_captured || sdl.mouse.control_choice == Seamless)
-    	Mouse_CursorMoved(motion->xrel, motion->yrel, motion->x, motion->y,
-    	    	          mouse_is_captured);
+    	Mouse_EventMoved(motion->xrel, motion->yrel, motion->x, motion->y, mouse_is_captured);
 }
 
 static void HandleMouseWheel(SDL_MouseWheelEvent * wheel) {
 	if (wheel->y != 0)
-		Mouse_WheelMoved((wheel->direction == SDL_MOUSEWHEEL_NORMAL) ? -wheel->y : wheel->y);
+		Mouse_EventWheel((wheel->direction == SDL_MOUSEWHEEL_NORMAL) ? -wheel->y : wheel->y);
 }
 
 static void HandleMouseButton(SDL_MouseButtonEvent * button) {
@@ -3073,40 +3072,20 @@ static void HandleMouseButton(SDL_MouseButtonEvent * button) {
 			break; // Don't pass click to mouse handler
 		}
 		switch (button->button) {
-		case SDL_BUTTON_LEFT:
-			Mouse_ButtonPressed(0);
-			break;
-		case SDL_BUTTON_RIGHT:
-			Mouse_ButtonPressed(1);
-			break;
-		case SDL_BUTTON_MIDDLE:
-			Mouse_ButtonPressed(2);
-			break;
-		case SDL_BUTTON_X1:
-			Mouse_ButtonPressed(3);
-			break;
-		case SDL_BUTTON_X2:
-			Mouse_ButtonPressed(4);
-			break;
+		case SDL_BUTTON_LEFT:   Mouse_EventPressed(0); break;
+		case SDL_BUTTON_RIGHT:  Mouse_EventPressed(1); break;
+		case SDL_BUTTON_MIDDLE: Mouse_EventPressed(2); break;
+		case SDL_BUTTON_X1:     Mouse_EventPressed(3); break;
+		case SDL_BUTTON_X2:     Mouse_EventPressed(4); break;
 		}
 		break;
 	case SDL_RELEASED:
 		switch (button->button) {
-		case SDL_BUTTON_LEFT:
-			Mouse_ButtonReleased(0);
-			break;
-		case SDL_BUTTON_RIGHT:
-			Mouse_ButtonReleased(1);
-			break;
-		case SDL_BUTTON_MIDDLE:
-			Mouse_ButtonReleased(2);
-			break;
-		case SDL_BUTTON_X1:
-			Mouse_ButtonReleased(3);
-			break;
-		case SDL_BUTTON_X2:
-			Mouse_ButtonReleased(4);
-			break;
+		case SDL_BUTTON_LEFT:   Mouse_EventReleased(0); break;
+		case SDL_BUTTON_RIGHT:  Mouse_EventReleased(1); break;
+		case SDL_BUTTON_MIDDLE: Mouse_EventReleased(2); break;
+		case SDL_BUTTON_X1:     Mouse_EventReleased(3); break;
+		case SDL_BUTTON_X2:     Mouse_EventReleased(4); break;
 		}
 		break;
 	}

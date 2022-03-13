@@ -23,8 +23,8 @@
 
 class CSerialMouse;
 
-void  MouseSERIAL_Register(CSerialMouse *listener);
-void  MouseSERIAL_UnRegister(CSerialMouse *listener);
+void  MouseSER_Register(CSerialMouse *listener);
+void  MouseSER_UnRegister(CSerialMouse *listener);
 
 void  MousePS2_PortWrite(Bit8u byte);
 
@@ -44,10 +44,9 @@ extern volatile bool mouse_vmware;
 void  Mouse_SetSensitivity(Bit32s sensitivity_x, Bit32s sensitivity_y);
 void  Mouse_NewScreenParams(Bit16u clip_x, Bit16u clip_y, Bit16u res_x, Bit16u res_y, bool fullscreen, Bit32s x_abs, Bit32s y_abs);
 
-void  Mouse_CursorMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bool is_captured);
-void  Mouse_CursorSet(float x, float y);
-void  Mouse_ButtonPressed(Bit8u button);
-void  Mouse_ButtonReleased(Bit8u button);
-void  Mouse_WheelMoved(Bit32s scroll);
+void  Mouse_EventMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bool is_captured);
+void  Mouse_EventPressed(Bit8u idx);
+void  Mouse_EventReleased(Bit8u idx); 
+void  Mouse_EventWheel(Bit32s w_rel);
 
 #endif
