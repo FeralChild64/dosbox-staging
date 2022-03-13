@@ -81,10 +81,14 @@ CSerialMouse::CSerialMouse(Bitu id, CommandLine* cmd): CSerial(id, cmd),
     std::string rate_string;
     use_default = !cmd->FindStringBegin("rate:", rate_string, false);
 
-    if (rate_string == "normal") {
-    } else if (rate_string == "smooth" || use_default) {
+    if (rate_string == "smooth" || use_default)
+        // This is roughly equivalent of PS/2 mouse with sampling rate between 120 and 250 Hz,
+        // depends on mouse protocol, concrete events (reporting middle button state change or
+        // wheel movement needs more bandwidth for Logitech and wheel mice), and sometimes even
+        // driver sophistication (for Mouse Systems mouse a badly written driver can waste half
+        // of the movement sampling rate)
         smooth_div = 5;
-    } else {
+    else if (rate_string != "normal") {
         LOG_ERR("MOUSE (COM%d): Invalid rate '%s'", port_num, rate_string.c_str());
         return;
     }

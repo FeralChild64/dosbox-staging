@@ -970,7 +970,6 @@ static Bitu INT15_Handler(void) {
 			[[fallthrough]];
 		case 0x05:		// initialize
 			if ((reg_al==0x05) && !MouseBIOS_SetPacketSize(reg_bh)) {
-				// not all data packet sizes are valid/supported
 				CALLBACK_SCF(true);
 				reg_ah=2;
 				break;
@@ -980,9 +979,20 @@ static Bitu INT15_Handler(void) {
 			reg_ah=0;
 			break;
 		case 0x02:		// set sampling rate
-		    MouseBIOS_SetRate(reg_bh);
-			[[fallthrough]];	
+		    if (!MouseBIOS_SetRate(reg_bh)) {
+		    	CALLBACK_SCF(true);
+				reg_ah=2;
+				break;
+		    }
+			CALLBACK_SCF(false);
+			reg_ah=0;
+			break;
 		case 0x03:		// set resolution
+		    if (!MouseBIOS_SetResolution(reg_bh)) {
+		    	CALLBACK_SCF(true);
+				reg_ah=2;
+				break;
+		    }
 			CALLBACK_SCF(false);
 			reg_ah=0;
 			break;
