@@ -29,8 +29,8 @@ public:
     virtual ~CSerialMouse();
 
     void onMouseEventMoved(Bit16s delta_x, Bit16s delta_y);
-    void onMouseEventButtons(Bit8u buttons); // call if button left/right changed state
-    void onMouseEventButton3(Bit8u buttons); // call if button 3 (middle) changed state
+    void onMouseEventButtons(Bit8u buttons_all); // call if button left/right changed state
+    void onMouseEventButton3(Bit8u buttons_all); // call if button 3 (middle) changed state
     void onMouseEventWheel(Bit8s delta_w);
 
     void setRTSDTR(bool rts, bool dtr);
@@ -72,6 +72,7 @@ private:
     bool      mouse_has_3rd_button;
     bool      mouse_has_wheel;
     bool      mouse_port_valid;    // false = port settings incompatible with selected mouse
+    Bit8u     smooth_div;
 
     bool      send_ack;
     Bit8u     packet[6] = {};

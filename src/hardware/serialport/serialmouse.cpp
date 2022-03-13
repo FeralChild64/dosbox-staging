@@ -37,6 +37,7 @@ CSerialMouse::CSerialMouse(Bitu id, CommandLine* cmd): CSerial(id, cmd),
     mouse_has_3rd_button(false),
     mouse_has_wheel(false),
     mouse_port_valid(false),
+    smooth_div(1),
     send_ack(true),
     packet_len(0),
     xmit_idx(0xff),
@@ -51,16 +52,16 @@ CSerialMouse::CSerialMouse(Bitu id, CommandLine* cmd): CSerial(id, cmd),
     std::string type_string;
     bool use_default = !cmd->FindStringBegin("type:", type_string, false);
 
-    if (type_string == "msft") {
+    if (type_string == "2btn") {
         config_type = MouseType::MICROSOFT;
         config_auto = false;
-    } else if (type_string == "msft+msm") {
+    } else if (type_string == "2btn+msm") {
         config_type = MouseType::MICROSOFT;
         config_auto = true;
-    } else if (type_string == "logi") {
+    } else if (type_string == "3btn") {
         config_type = MouseType::LOGITECH;
         config_auto = false;
-    } else if (type_string == "logi+msm") {
+    } else if (type_string == "3btn+msm") {
         config_type = MouseType::LOGITECH;
         config_auto = true;
     } else if (type_string == "wheel") {
@@ -73,8 +74,19 @@ CSerialMouse::CSerialMouse(Bitu id, CommandLine* cmd): CSerial(id, cmd),
         config_type = MouseType::MOUSE_SYSTEMS;
         config_auto = false;
     } else {
-        LOG_ERR("MOUSE (COM%d): Invalid serial mouse type '%s'", port_num, type_string.c_str());
-        return; // invalid type
+        LOG_ERR("MOUSE (COM%d): Invalid type '%s'", port_num, type_string.c_str());
+        return;
+    }
+
+    std::string rate_string;
+    use_default = !cmd->FindStringBegin("rate:", rate_string, false);
+
+    if (rate_string == "normal") {
+    } else if (rate_string == "smooth" || use_default) {
+        smooth_div = 5;
+    } else {
+        LOG_ERR("MOUSE (COM%d): Invalid rate '%s'", port_num, rate_string.c_str());
+        return;
     }
 
     setType(config_type);
@@ -153,7 +165,7 @@ void CSerialMouse::mouseReset() {
     clearCounters();
     send_ack = true;
 
-    setEvent(SERIAL_RX_EVENT, bytetime);
+    setEvent(SERIAL_RX_EVENT, bytetime / smooth_div);
 }
 
 void CSerialMouse::onMouseEventMoved(Bit16s delta_x, Bit16s delta_y) {
@@ -170,8 +182,8 @@ void CSerialMouse::onMouseEventMoved(Bit16s delta_x, Bit16s delta_y) {
         xmit_another_move = true;
 }
 
-void CSerialMouse::onMouseEventButtons(Bit8u buttons) {
-    mouse_buttons = buttons;
+void CSerialMouse::onMouseEventButtons(Bit8u buttons_all) {
+    mouse_buttons = buttons_all;
 
     if (xmit_idx >= packet_len)
         startPacketData();
@@ -179,8 +191,8 @@ void CSerialMouse::onMouseEventButtons(Bit8u buttons) {
         xmit_another_button = true;
 }
 
-void CSerialMouse::onMouseEventButton3(Bit8u buttons) {
-    mouse_buttons = buttons;
+void CSerialMouse::onMouseEventButton3(Bit8u buttons_all) {
+    mouse_buttons = buttons_all;
 
     if (!mouse_has_3rd_button) return;
 
@@ -236,7 +248,7 @@ void CSerialMouse::startPacketId() { // send the mouse identifier
 
     // send packet
     xmit_idx = 0;
-    setEvent(SERIAL_RX_EVENT, bytetime);
+    setEvent(SERIAL_RX_EVENT, bytetime / smooth_div);
 }
 
 void CSerialMouse::startPacketData(bool extended) {
@@ -297,7 +309,7 @@ void CSerialMouse::startPacketData(bool extended) {
     xmit_idx            = 0;
     xmit_another_button = false;
     xmit_another_move   = false;
-    setEvent(SERIAL_RX_EVENT, bytetime);
+    setEvent(SERIAL_RX_EVENT, bytetime / smooth_div);
 }
 
 void CSerialMouse::startPacketPart2() {
@@ -325,7 +337,7 @@ void CSerialMouse::startPacketPart2() {
     // send packet
     xmit_idx            = 0;
     xmit_another_move   = false;
-    setEvent(SERIAL_RX_EVENT, bytetime);
+    setEvent(SERIAL_RX_EVENT, bytetime / smooth_div);
 }
 
 void CSerialMouse::unimplemented() {
@@ -337,7 +349,7 @@ void CSerialMouse::handleUpperEvent(Bit16u type) {
         ByteTransmitted(); // tx timeout
     } else if (type == SERIAL_THR_EVENT) {
         ByteTransmitting();
-        setEvent(SERIAL_TX_EVENT, bytetime);
+        setEvent(SERIAL_TX_EVENT, bytetime / smooth_div);
     }
     else if (type == SERIAL_RX_EVENT) {
         // check for bytes to be sent to port
@@ -352,10 +364,10 @@ void CSerialMouse::handleUpperEvent(Bit16u type) {
                 else if (xmit_idx >= packet_len && (xmit_another_move || xmit_another_button))
                     startPacketData();
                 else
-                    setEvent(SERIAL_RX_EVENT, bytetime);
+                    setEvent(SERIAL_RX_EVENT, bytetime / smooth_div);
             }
         } else {
-            setEvent(SERIAL_RX_EVENT, bytetime);
+            setEvent(SERIAL_RX_EVENT, bytetime / smooth_div);
         }
     }
 }
@@ -393,9 +405,9 @@ void CSerialMouse::updateMSR() {
 
 void CSerialMouse::transmitByte(uint8_t, bool first) {
     if (first)
-        setEvent(SERIAL_THR_EVENT, bytetime / 10); 
+        setEvent(SERIAL_THR_EVENT, bytetime / 10);
     else
-        setEvent(SERIAL_TX_EVENT, bytetime);
+        setEvent(SERIAL_TX_EVENT, bytetime / smooth_div);
 }
 
 void CSerialMouse::setBreak(bool) {
