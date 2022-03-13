@@ -29,9 +29,10 @@
 #include "mouse.h"
 
 CSerialMouse::CSerialMouse(Bitu id, CommandLine* cmd): CSerial(id, cmd),
-    config_type(MouseType::NONE),
+    port_num(id + 1), 
+    config_type(MouseType::NO_MOUSE),
     config_auto(false),
-    mouse_type(MouseType::NONE),
+    mouse_type(MouseType::NO_MOUSE),
     mouse_bytelen(0),
     mouse_has_3rd_button(false),
     mouse_has_wheel(false),
@@ -72,11 +73,11 @@ CSerialMouse::CSerialMouse(Bitu id, CommandLine* cmd): CSerial(id, cmd),
         config_type = MouseType::MOUSE_SYSTEMS;
         config_auto = false;
     } else {
-        LOG_ERR("Invalid serial mouse type '%s'", type_string.c_str());
+        LOG_ERR("MOUSE (COM%d): Invalid serial mouse type '%s'", port_num, type_string.c_str());
         return; // invalid type
     }
 
-    applyType(config_type);
+    setType(config_type);
 
     CSerial::Init_Registers();
     setRI(false);
@@ -94,32 +95,42 @@ CSerialMouse::~CSerialMouse() {
     removeEvent(SERIAL_TX_EVENT); // clear events
 }
 
-void CSerialMouse::applyType(MouseType type) {
-    mouse_type = type;
-    switch (type) {
-    case MouseType::MICROSOFT:
-        mouse_bytelen        = 7;
-        mouse_has_3rd_button = false;
-        mouse_has_wheel      = false;
-        break;
-    case MouseType::LOGITECH:
-        mouse_bytelen        = 7;
-        mouse_has_3rd_button = true;
-        mouse_has_wheel      = false;
-        break;
-    case MouseType::WHEEL:
-        mouse_bytelen        = 7;
-        mouse_has_3rd_button = true;
-        mouse_has_wheel      = true;
-        break;
-    case MouseType::MOUSE_SYSTEMS:
-        mouse_bytelen        = 8;
-        mouse_has_3rd_button = true;
-        mouse_has_wheel      = false;
-        break;
-    default:
-        unimplemented();
-        break;
+void CSerialMouse::setType(MouseType type) {
+    if (type != mouse_type) {
+        mouse_type = type;
+        const char* type_name = nullptr;
+        switch (type) {
+        case MouseType::MICROSOFT:
+            type_name            = "Microsoft, 2 buttons";
+            mouse_bytelen        = 7;
+            mouse_has_3rd_button = false;
+            mouse_has_wheel      = false;
+            break;
+        case MouseType::LOGITECH:
+            type_name            = "Logitech, 3 buttons";
+            mouse_bytelen        = 7;
+            mouse_has_3rd_button = true;
+            mouse_has_wheel      = false;
+            break;
+        case MouseType::WHEEL:
+            type_name            = "wheel, 3 buttons";
+            mouse_bytelen        = 7;
+            mouse_has_3rd_button = true;
+            mouse_has_wheel      = true;
+            break;
+        case MouseType::MOUSE_SYSTEMS:
+            type_name            = "Mouse Systems, 3 buttons";
+            mouse_bytelen        = 8;
+            mouse_has_3rd_button = true;
+            mouse_has_wheel      = false;
+            break;
+        default:
+            unimplemented();
+            break;
+        }
+
+        if (type_name)
+            LOG_MSG("MOUSE (COM%d): %s", port_num, type_name);
     }
 }
 
@@ -289,7 +300,7 @@ void CSerialMouse::startPacketData(bool extended) {
     setEvent(SERIAL_RX_EVENT, bytetime);
 }
 
-void CSerialMouse::startPacketData2() {
+void CSerialMouse::startPacketPart2() {
     // port settings are valid at this point
 
     if (mouse_type == MouseType::MOUSE_SYSTEMS) {
@@ -318,7 +329,7 @@ void CSerialMouse::startPacketData2() {
 }
 
 void CSerialMouse::unimplemented() {
-    LOG_ERR("Missing implementation in serial mouse");
+    LOG_ERR("MOUSE (COM%d): Missing implementation", port_num);
 }
 
 void CSerialMouse::handleUpperEvent(Bit16u type) {
@@ -337,7 +348,7 @@ void CSerialMouse::handleUpperEvent(Bit16u type) {
             } else if (xmit_idx < packet_len) {
                 CSerial::receiveByte(packet[xmit_idx++]);
                 if (xmit_idx >= packet_len && xmit_2part)
-                    startPacketData2();
+                    startPacketPart2();
                 else if (xmit_idx >= packet_len && (xmit_another_move || xmit_another_button))
                     startPacketData();
                 else
@@ -367,9 +378,9 @@ void CSerialMouse::updatePortConfig(uint16_t divider, uint8_t lcr) {
 
     if (mouse_port_valid && config_auto) { // auto select mouse type to emulate
         if (bytelen == 7) {
-            applyType(config_type);
+            setType(config_type);
         } else if (bytelen == 8) {
-            applyType(MouseType::MOUSE_SYSTEMS);           
+            setType(MouseType::MOUSE_SYSTEMS);           
         } else
             mouse_port_valid = false;
     }

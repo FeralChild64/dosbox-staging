@@ -33,7 +33,7 @@ void  MouseBIOS_ChangeCallback(Bit16u pseg, Bit16u pofs);
 
 void  MouseBIOS_Reset(void);
 bool  MouseBIOS_SetPacketSize(Bit8u packet_size);
-void  MouseBIOS_SetSamplingRate(Bit8u rate);
+void  MouseBIOS_SetRate(Bit8u rate_id);
 Bit8u MouseBIOS_GetType(void);
 
 void  MouseDOS_BeforeNewVideoMode();

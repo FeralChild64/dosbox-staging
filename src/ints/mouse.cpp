@@ -65,7 +65,7 @@ enum PS2_CMD:Bit8u { // commands that can be received from PS/2 port
     SET_WRAP_MODE     = 0xee,
     SET_REMOTE_MODE   = 0xf0,
     GET_DEV_ID        = 0xf2,
-    SET_SAMPLING_RATE = 0xf3,
+    SET_RATE          = 0xf3,
     ENABLE_DEV        = 0xf4,
     DISABLE_DEV       = 0xf5,
     SET_DEFAULTS      = 0xf6,
@@ -74,13 +74,14 @@ enum PS2_CMD:Bit8u { // commands that can be received from PS/2 port
 };
 
 enum PS2_TYPE:Bit8u { // mouse type visible via PS/2 interface
+    NO_MOUSE          = 0xff,
     STD               = 0x00, // standard 2 or 3 button mouse
     IM                = 0x03, // Microsoft IntelliMouse (3 buttons + wheel)
     XP                = 0x04, // Microsoft IntelliMouse Explorer (5 buttons + wheel)
 };
 
 enum PS2_MODE:Bit8u { // mouse mode visible via PS/2 interface
-    STREAM, // default one
+    STREAM, // default
     REMOTE,
     WRAP
 };
@@ -89,16 +90,16 @@ enum PS2_MODE:Bit8u { // mouse mode visible via PS/2 interface
 // BIOS interface specific definitions
 // ***************************************************************************
 
-#define BIOS_MOUSE_IRQ  12
+static constexpr Bit8u BIOS_MOUSE_IRQ = 12;
 
 // ***************************************************************************
 // VMware interface specific definitions
 // ***************************************************************************
 
-static constexpr io_port_t VMW_PORT   = 0x5658u;        // communication port
-static constexpr io_port_t VMW_PORTHB = 0x5659u;        // communication port, high bandwidth
+static constexpr io_port_t VMW_PORT   = 0x5658u;     // communication port
+static constexpr io_port_t VMW_PORTHB = 0x5659u;     // communication port, high bandwidth
 
-static constexpr Bit32u    VMW_MAGIC  = 0x564D5868u;    // magic number for all VMware calls
+static constexpr Bit32u    VMW_MAGIC  = 0x564D5868u; // magic number for all VMware calls
 
 enum VMW_CMD:Bit16u {
     GETVERSION         = 10,
@@ -125,8 +126,8 @@ volatile bool mouse_vmware = false;  // if true, VMware compatible driver has ta
 // DOS driver interface specific definitions
 // ***************************************************************************
 
-#define DOS_GETPOS_X        (static_cast<Bit16s>(mouse_bios.x) & mouse_dos.gran_x)
-#define DOS_GETPOS_Y        (static_cast<Bit16s>(mouse_bios.y) & mouse_dos.gran_y)
+#define DOS_GETPOS_X        (static_cast<Bit16s>(mouse_dos.x) & mouse_dos.gran_x)
+#define DOS_GETPOS_Y        (static_cast<Bit16s>(mouse_dos.y) & mouse_dos.gran_y)
 #define DOS_X_CURSOR        16
 #define DOS_Y_CURSOR        16
 #define DOS_X_MICKEY        8
@@ -165,31 +166,39 @@ static struct MouseSerialStruct { // Serial port mouse data
 
     std::vector<CSerialMouse*> listeners;  // never clean this up manually!
 
-    Bit8u    buttons;
-    float    x, y;
+    Bit8u    buttons;                      // bit 0 = left, bit 1 = right, bit 2 = middle
+    float    delta_x, delta_y;             // accumulated mouse movement since last reported
 
-    MouseSerialStruct() : // XXX rework - other structures - they should have constructors too
+    MouseSerialStruct() : // XXX rework other structures - they should have constructors too
         listeners(),
         buttons(0),
-        x(0.0f),
-        y(0.0f) {}
+        delta_x(0.0f),
+        delta_y(0.0f) {}
 
 } mouse_serial;
 
-static struct { // PS/2 hardware mouse data
+static struct { // PS/2 mouse data
 
     Bit8u    buttons;
+    float    delta_x, delta_y;             // accumulated mouse movement since last reported
+    Bit16s   wheel;                        // NOTE: only fetch this via 'MousePS2_GetResetWheel*' calls!
 
-    Bit8u    packet_size;
+    PS2_TYPE type;                         // NOTE: only change this via 'MousePS2_SetType' call!
     Bit8u    unlock_idx_im, unlock_idx_xp; // sequence index for unlocking extended protocols
-    Bit8u    sampling_rate;                // in Hz
-    bool     scaling_21;                   // FIXME: this should affect reported mouse movement
-    PS2_TYPE type;
+
     PS2_CMD  command;                      // command waiting for a parameter
+    Bit8u    packet_size;
+    Bit8u    packet[4];                    // packet to be transferred via hardware port or BIOS interface
+    bool     reporting;
+
+    Bit8u    rate_hz;                      // how often (maximum) the mouse event listener can be updated
     float    delay;                        // minimum time between interrupts [ms]
+    bool     scaling_21;
+    PS2_MODE mode; // XXX use it
 
     void Init() {
         memset(this, 0, sizeof(*this));
+        type = PS2_TYPE::NO_MOUSE;
     }
 
 } mouse_ps2;
@@ -197,11 +206,11 @@ static struct { // PS/2 hardware mouse data
 static struct { // VMware interface mouse data
 
     Bit8u    buttons;                      // state of mouse buttons, in VMware format
-    Bit16u   x, y;                         // mouse position, in VMware/VirtualBox format (scaled from 0 to 0xffff)
+    Bit16u   x, y;                         // absolute mouse position in VMware/VirtualBox format (scaled from 0 to 0xffff)
     Bit8s    wheel;
     bool     updated;
 
-    Bit16s offset_x, offset_y;             // difference between host and guest mouse x coordinate (in host pixels)
+    Bit16s   offset_x, offset_y;           // offset between host and guest mouse coordinates (in host pixels)
 
     void Init() {
         memset(this, 0, sizeof(*this));
@@ -212,10 +221,6 @@ static struct { // VMware interface mouse data
 } mouse_vmw;
 
 static struct { // BIOS PS/2 interface mouse data
-
-    Bit16s   wheel;
-    float    x, y;
-    Bit16s   oldmouseX, oldmouseY;
 
     bool     callback_init;
     Bit16u   callback_seg, callback_ofs;
@@ -232,6 +237,9 @@ static struct { // BIOS PS/2 interface mouse data
 static struct { // DOS driver interface mouse data
 
     bool     enabled;
+
+    float    x, y;
+    Bit16s   wheel;                        // NOTE: only fetch this via 'MouseDOS_GetResetWheel*' calls!
 
     float    mickey_x, mickey_y;
 
@@ -384,7 +392,7 @@ void MouseSERIAL_UnRegister(CSerialMouse *listener) {
         mouse_serial.listeners.erase(iter);
 }
 
-inline void MouseSERIAL_Button(Bit8u button_id) {
+static inline void MouseSERIAL_Button(Bit8u button_id) {
     if (button_id < 2) {
         for (auto listener : mouse_serial.listeners)
             listener->onMouseEventButtons(mouse_serial.buttons);
@@ -394,23 +402,25 @@ inline void MouseSERIAL_Button(Bit8u button_id) {
     }
 }
 
-inline void MouseSERIAL_WheelMoved(Bit8s wheel) {
+static inline void MouseSERIAL_WheelMoved(Bit8s wheel) {
     for (auto listener : mouse_serial.listeners)
         listener->onMouseEventWheel(wheel);
 }
 
-inline void MouseSERIAL_CursorMoved(Bit32s x_rel, Bit32s y_rel) {
-    mouse_serial.x += x_rel * config.sensitivity_x;
-    mouse_serial.y += y_rel * config.sensitivity_y;
+static inline void MouseSERIAL_CursorMoved(Bit32s x_rel, Bit32s y_rel) {
+    static constexpr float MAX = 16384.0f;
 
-    Bit16s x_int = static_cast<Bit16s>(mouse_serial.x);
-    Bit16s y_int = static_cast<Bit16s>(mouse_serial.y);
+    mouse_serial.delta_x += std::clamp(x_rel * config.sensitivity_x, -MAX, MAX);
+    mouse_serial.delta_y += std::clamp(y_rel * config.sensitivity_y, -MAX, MAX);
 
-    if (x_int != 0 || y_int != 0) {
+    Bit16s dx = static_cast<Bit16s>(mouse_serial.delta_x);
+    Bit16s dy = static_cast<Bit16s>(mouse_serial.delta_y);
+
+    if (dx != 0 || dy != 0) {
         for (auto listener : mouse_serial.listeners)
-            listener->onMouseEventMoved(x_int, y_int);
-        mouse_serial.x = 0.0f;
-        mouse_serial.y = 0.0f;
+            listener->onMouseEventMoved(dx, dy);
+        mouse_serial.delta_x -= dx;
+        mouse_serial.delta_y -= dy;
     }
 }
 
@@ -418,37 +428,13 @@ inline void MouseSERIAL_CursorMoved(Bit32s x_rel, Bit32s y_rel) {
 // PS/2 interface implementation
 // ***************************************************************************
 
-static void MousePS2_Reset() {
-
-	mouse_ps2.type          = PS2_TYPE::STD;
-    mouse_ps2.packet_size   = 3;
-    mouse_ps2.sampling_rate = 100;
-    mouse_ps2.delay         = 10.0f;
-
-	mouse_ps2.unlock_idx_im = 0;
-	mouse_ps2.unlock_idx_xp = 0;
-}
-
-static inline void MousePS2_AddBuffer(Bit8u byte) {
-    KEYBOARD_AddBuffer(byte | 0x100);
-}
-
-static void MousePS2_SendPacket() {
-    // XXX provide real implementation, this is a dummy one
-    MousePS2_AddBuffer(8); // bit 3 has to be set
-    MousePS2_AddBuffer(2); // some movement
-    MousePS2_AddBuffer(2);
-    MousePS2_AddBuffer(0);
-    return;
-}
-
-inline bool MousePS2_IsButtonSquishMode() {
+static inline bool MousePS2_IsButtonSquishMode() {
     // - if VMware compatible driver is enabled, never try to report mouse buttons 4 and 5, this would be asking for trouble
     // - for PS/2 modes other than IntelliMouse Explorer there is no standard way to report buttons 4 and 5
     return mouse_vmware || (mouse_ps2.type != PS2_TYPE::XP) || (mouse_ps2.packet_size != 4);
 }
 
-static void MousePS2_ButtonSquishRefresh() {
+static void MousePS2_UpdateButtonSquishMode() {
     // possibly entering or leaving mouse extra button squish mode
     mouse_ps2.buttons = (mouse_ps2.buttons & 7);
     if (MousePS2_IsButtonSquishMode()) {
@@ -461,40 +447,188 @@ static void MousePS2_ButtonSquishRefresh() {
     }
 }
 
+static inline void MousePS2_AddBuffer(Bit8u byte) {
+    KEYBOARD_AddBuffer(byte | 0x100);
+}
+
+static void MousePS2_SetType(PS2_TYPE type) {
+    mouse_ps2.unlock_idx_im = 0;
+    mouse_ps2.unlock_idx_xp = 0;
+
+    if (mouse_ps2.type != type) {
+        mouse_ps2.type = type;
+        const char *type_name = nullptr;
+        switch (type) {
+        case PS2_TYPE::STD:
+            type_name = "3 buttons";
+            mouse_ps2.packet_size = 3;
+            break;
+        case PS2_TYPE::IM:
+            type_name = "IntelliMouse, wheel, 3 buttons";
+            break;
+        case PS2_TYPE::XP:
+            type_name = "IntelliMouse Explorer, wheel, 5 buttons";
+            break;
+        default:
+            type_name = "???";
+            break;
+        }
+
+        MousePS2_UpdateButtonSquishMode();
+
+        LOG_MSG("MOUSE (PS/2): %s", type_name);
+    }
+}
+
+static void MousePS2_Reset() {
+
+	MousePS2_SetType(PS2_TYPE::STD);
+
+    // Keep button state intact!
+
+    mouse_ps2.delta_x    = 0.0f;
+    mouse_ps2.delta_y    = 0.0f;
+    mouse_ps2.wheel      = 0;
+
+    mouse_ps2.rate_hz    = 100;
+    mouse_ps2.delay      = 10.0f;
+
+    mouse_ps2.scaling_21 = false;
+    mouse_ps2.mode       = PS2_MODE::STREAM;
+}
+
+static inline Bit8u MousePS2_GetResetWheel4bit() {
+    Bit8s tmp = std::clamp(mouse_ps2.wheel, static_cast<Bit16s>(-0x08), static_cast<Bit16s>(0x07));
+    mouse_ps2.wheel = 0;
+    return (tmp >= 0) ? tmp : 0x08 + tmp;
+}
+
+static inline Bit8u MousePS2_GetResetWheel8bit() {
+    Bit8s tmp = std::clamp(mouse_ps2.wheel, static_cast<Bit16s>(-0x80), static_cast<Bit16s>(0x7F));
+    mouse_ps2.wheel = 0;
+    return (tmp >= 0) ? tmp : 0x100 + tmp;
+}
+
+static Bit16s MousePS2_ApplyScaling(Bit16s d) {
+    if (!mouse_ps2.scaling_21)
+        return d;
+
+    switch (d) {
+    case 0:
+    case 1:
+    case 3:
+    case -1:
+    case -3:
+        return d;
+    case 2:
+        return 1;
+    case 4:
+        return 6;
+    case 5:
+        return 9;
+    case -2:
+        return -1;
+    case -4:
+        return -6;
+    case -5:
+        return -9;
+    default:
+        break;
+    }
+
+    return static_cast<Bit16s>(std::clamp(2 * d, -0x8000, 0x7fff));
+}
+
+static inline void MousePS2_PreparePacket() {
+
+    const auto &buttons = mouse_gen.event_queue[mouse_gen.events - 1].buttons;
+
+    Bit8u  mdat = (buttons & 0x03) | 0x08;
+    Bit16s dx   = static_cast<Bit16s>(mouse_ps2.delta_x);
+    Bit16s dy   = static_cast<Bit16s>(mouse_ps2.delta_y);
+
+    mouse_ps2.delta_x -= dx;
+    mouse_ps2.delta_y -= dy;
+
+    dx = MousePS2_ApplyScaling(dx);
+    dy = MousePS2_ApplyScaling(-dy);
+
+    if (mouse_ps2.packet_size == 4 && mouse_ps2.type == PS2_TYPE::XP) {
+        // There is no overflow for 5-button mouse protocol, see HT82M30A datasheet
+        dx = std::clamp(dx, static_cast<Bit16s>(-0xff), static_cast<Bit16s>(0xff));
+        dy = std::clamp(dy, static_cast<Bit16s>(-0xff), static_cast<Bit16s>(0xff));       
+    } else {
+        if ((dx > 0xff) || (dx < -0xff)) mdat |= 0x40; // x overflow
+        if ((dy > 0xff) || (dy < -0xff)) mdat |= 0x80; // y overflow
+    }
+
+    dx %= 0x100;
+    dy %= 0x100;
+
+    if (dx < 0) {
+        dx   += 0x100;
+        mdat |= 0x10;
+    }
+    if (dy < 0) {
+        dy   += 0x100;
+        mdat |= 0x20;
+    }
+
+    mouse_ps2.packet[0] = static_cast<Bit8u>(mdat);
+    mouse_ps2.packet[1] = static_cast<Bit8u>(dx % 0x100);
+    mouse_ps2.packet[2] = static_cast<Bit8u>(dy % 0x100);
+
+    if (mouse_ps2.packet_size == 4) {
+        if (mouse_ps2.type == PS2_TYPE::XP) {
+            // IntelliMouse Explorer - wheel + 2 extra buttons
+            mouse_ps2.packet[3] = MousePS2_GetResetWheel4bit() | ((buttons & 0x18) << 1);
+        } else {
+            // Standard IntelliMouse - wheel
+            mouse_ps2.packet[3] = MousePS2_GetResetWheel8bit();
+        }
+    }
+}
+
+static inline void MousePS2_SendPacket() {
+    if (mouse_ps2.reporting) {
+        MousePS2_AddBuffer(mouse_ps2.packet[0]);
+        MousePS2_AddBuffer(mouse_ps2.packet[1]);
+        MousePS2_AddBuffer(mouse_ps2.packet[2]);
+        if (mouse_ps2.packet_size == 4)
+            MousePS2_AddBuffer(mouse_ps2.packet[3]);
+    }
+}
+
 static bool MousePS2_SetPacketSize(Bit8u packet_size) {
     if ((packet_size == 3) ||
         (packet_size == 4 && (mouse_ps2.type == PS2_TYPE::IM || mouse_ps2.type == PS2_TYPE::XP))) {
         mouse_ps2.packet_size = packet_size;
 
-        MousePS2_ButtonSquishRefresh();
+        MousePS2_UpdateButtonSquishMode();
         return true;
     }
     return false;
 }
 
-static void MousePS2_SetSamplingRate(Bit8u rate_hz) {
+static void MousePS2_SetRate(Bit8u rate_hz) {
     // enforce the minimum allowed value
-    mouse_ps2.sampling_rate = rate_hz > 10 ? rate_hz : 10;
-    mouse_ps2.delay = 1000.0 / mouse_ps2.sampling_rate;
+    mouse_ps2.rate_hz = rate_hz > 10 ? rate_hz : 10;
+    mouse_ps2.delay   = 1000.0 / mouse_ps2.rate_hz;
 
     // handle IntelliMouse protocol unlock sequence
-    static const std::vector<Bit8u> SEQ_IM = { 200, 100, 80 };
-    if (SEQ_IM[mouse_ps2.unlock_idx_im]!=mouse_ps2.sampling_rate)
+    static const std::vector<Bit8u> SEQ_IM = { 200, 100, 80 };  // XXX add function to terminate it, call it from several places
+    if (SEQ_IM[mouse_ps2.unlock_idx_im]!=mouse_ps2.rate_hz)
         mouse_ps2.unlock_idx_im = 0;
     else if (SEQ_IM.size() == ++mouse_ps2.unlock_idx_im) {
-        mouse_ps2.type = PS2_TYPE::IM;
-        mouse_ps2.unlock_idx_im = 0;
-        MousePS2_ButtonSquishRefresh();
+        MousePS2_SetType(PS2_TYPE::IM);
     }
 
     // handle IntelliMouse Explorer protocol unlock sequence
     static const std::vector<Bit8u> SEQ_XP = { 200, 200, 80 };
-    if (SEQ_XP[mouse_ps2.unlock_idx_xp]!=mouse_ps2.sampling_rate)
+    if (SEQ_XP[mouse_ps2.unlock_idx_xp]!=mouse_ps2.rate_hz)
         mouse_ps2.unlock_idx_xp = 0;
     else if (SEQ_XP.size() == ++mouse_ps2.unlock_idx_xp) {
-        mouse_ps2.type = PS2_TYPE::XP;
-        mouse_ps2.unlock_idx_xp = 0;
-        MousePS2_ButtonSquishRefresh();
+        MousePS2_SetType(PS2_TYPE::XP);
     }
 }
 
@@ -509,8 +643,8 @@ void MousePS2_PortWrite(Bit8u byte) { // value received from PS/2 port
             // XXX implement
             MousePS2_AddBuffer(0xfa); // acknowledge
             break;
-        case PS2_CMD::SET_SAMPLING_RATE:
-            MousePS2_SetSamplingRate(byte);
+        case PS2_CMD::SET_RATE:
+            MousePS2_SetRate(byte);
             MousePS2_AddBuffer(0xfa); // acknowledge
             break;
         default:
@@ -523,10 +657,17 @@ void MousePS2_PortWrite(Bit8u byte) { // value received from PS/2 port
         // value is a new command
         switch (byte) {
         case PS2_CMD::SET_RESOLUTION:
-        case PS2_CMD::SET_SAMPLING_RATE:
+        case PS2_CMD::SET_RATE:
             // commands listed above need additional parameter to be executed
             mouse_ps2.command = static_cast<PS2_CMD>(byte);
         break;
+        case PS2_CMD::ENABLE_DEV:
+            // XXX clear movement counters, enable reporting
+            // mouse_ps2.reporting = true;
+            break;
+        case PS2_CMD::DISABLE_DEV:
+            mouse_ps2.reporting = false;
+            break;
         case PS2_CMD::RESET:
             MousePS2_AddBuffer(0xfa); // acknowledge
             // XXX perform reset
@@ -551,8 +692,6 @@ void MousePS2_PortWrite(Bit8u byte) { // value received from PS/2 port
         case PS2_CMD::RESET_WRAP_MODE:
         case PS2_CMD::SET_WRAP_MODE:
         case PS2_CMD::SET_REMOTE_MODE:
-        case PS2_CMD::ENABLE_DEV:
-        case PS2_CMD::DISABLE_DEV:
         case PS2_CMD::SET_DEFAULTS:
         case PS2_CMD::RESEND:
             // XXX
@@ -561,6 +700,12 @@ void MousePS2_PortWrite(Bit8u byte) { // value received from PS/2 port
             break;
         }
     }
+}
+
+static inline void MousePS2_CursorMoved(Bit32s x_rel, Bit32s y_rel) {
+
+    mouse_ps2.delta_x += x_rel * config.sensitivity_x;
+    mouse_ps2.delta_y += y_rel * config.sensitivity_y;
 }
 
 // ***************************************************************************
@@ -586,12 +731,12 @@ bool MouseBIOS_SetPacketSize(Bit8u packet_size) {
     return MousePS2_SetPacketSize(packet_size);
 }
 
-void MouseBIOS_SetSamplingRate(Bit8u rate) {
-    static const std::vector<Bit8u> CONVERSION_TABLE = { 10, 20, 40, 60, 80, 100, 200 };
-    if (rate >= CONVERSION_TABLE.size())
-        MousePS2_SetSamplingRate(0xff);
+void MouseBIOS_SetRate(Bit8u rate_id) {
+    static const std::vector<Bit8u> CONVTAB = { 10, 20, 40, 60, 80, 100, 200 };
+    if (rate_id >= CONVTAB.size())
+        MousePS2_SetRate(0xff);
     else
-        MousePS2_SetSamplingRate(CONVERSION_TABLE[rate]);    
+        MousePS2_SetRate(CONVTAB[rate_id]);    
 }
 
 void MouseBIOS_ChangeCallback(Bit16u pseg, Bit16u pofs) {
@@ -608,69 +753,22 @@ Bit8u MouseBIOS_GetType(void) {
     return static_cast<Bit8u>(mouse_ps2.type);
 }
 
-inline Bit8u MouseBIOS_GetResetWheel4bit() {
-    // API limits are -8,7 - but let's keep it symmetric
-    Bit8s tmp = std::clamp(mouse_bios.wheel, static_cast<Bit16s>(-0x07), static_cast<Bit16s>(0x07));
-    mouse_bios.wheel = 0;
-    return (tmp >= 0) ? tmp : 0x08 + tmp;
-}
-
-inline Bit8u MouseBIOS_GetResetWheel8bit() {
-    // API limits are -128,127 - but let's keep it symmetric
-    Bit8s tmp = std::clamp(mouse_bios.wheel, static_cast<Bit16s>(-0x7F), static_cast<Bit16s>(0x7F));
-    mouse_bios.wheel = 0;
-    return (tmp >= 0) ? tmp : 0x100 + tmp;
-}
-
-static void MouseBIOS_DoPS2Callback(Bit16u buttons, Bit16s mouseX, Bit16s mouseY) {
-    if (mouse_bios.useps2callback) {
-        Bit16u mdat  = (buttons & 0x07) | 0x08; // buttons: left, right, middle
-        Bit16s xdiff = mouseX - mouse_bios.oldmouseX;
-        Bit16s ydiff = mouse_bios.oldmouseY - mouseY;
-        mouse_bios.oldmouseX = mouseX;
-        mouse_bios.oldmouseY = mouseY;
-        if (mouse_ps2.packet_size == 4 && mouse_ps2.type == PS2_TYPE::XP) {
-            // There is no overflow for 5-button mouse protocol, see HT82M30A datasheet
-            xdiff = std::clamp(xdiff, static_cast<Bit16s>(-0xff), static_cast<Bit16s>(0xff));
-            ydiff = std::clamp(ydiff, static_cast<Bit16s>(-0xff), static_cast<Bit16s>(0xff));       
-        } else {
-            if ((xdiff > 0xff) || (xdiff < -0xff)) mdat |= 0x40; // x overflow
-            if ((ydiff > 0xff) || (ydiff < -0xff)) mdat |= 0x80; // y overflow
-        }
-        xdiff %= 256;
-        ydiff %= 256;
-        if (xdiff < 0) {
-            xdiff += 0x100;
-            mdat  |= 0x10;
-        }
-        if (ydiff < 0) {
-            ydiff += 0x100;
-            mdat  |= 0x20;
-        }
-
-        if (mouse_ps2.packet_size == 4) {
-            CPU_Push16((Bit16u) (mdat + (xdiff % 256) * 256));
-            CPU_Push16((Bit16u) (ydiff % 256));
-            if (mouse_ps2.type == PS2_TYPE::XP) {
-                // IntelliMouse Explorer - wheel + 2 extra buttons
-                CPU_Push16((Bit16u) MouseBIOS_GetResetWheel4bit() | ((buttons & 0x18) << 1));
-            } else {
-                // Standard IntelliMouse - wheel
-                CPU_Push16((Bit16u) MouseBIOS_GetResetWheel8bit());       
-            }
-        } else {
-            CPU_Push16((Bit16u) mdat); 
-            CPU_Push16((Bit16u) (xdiff % 256));
-            CPU_Push16((Bit16u) (ydiff % 256)); 
-        }
-        CPU_Push16((Bit16u) 0);
-
-
-        CPU_Push16(RealSeg(mouse_bios.ps2_callback));
-        CPU_Push16(RealOff(mouse_bios.ps2_callback));
-        SegSet16(cs, mouse_bios.callback_seg);
-        reg_ip = mouse_bios.callback_ofs;
+static inline void MouseBIOS_DoPS2Callback() {
+    if (mouse_ps2.packet_size == 4) {
+        CPU_Push16((Bit16u) (mouse_ps2.packet[0] + mouse_ps2.packet[1] * 0x100));
+        CPU_Push16(mouse_ps2.packet[2]);
+        CPU_Push16(mouse_ps2.packet[3]);
+    } else {
+        CPU_Push16(mouse_ps2.packet[0]); 
+        CPU_Push16(mouse_ps2.packet[1]);
+        CPU_Push16(mouse_ps2.packet[2]); 
     }
+    CPU_Push16((Bit16u) 0);
+
+    CPU_Push16(RealSeg(mouse_bios.ps2_callback));
+    CPU_Push16(RealOff(mouse_bios.ps2_callback));
+    SegSet16(cs, mouse_bios.callback_seg);
+    reg_ip = mouse_bios.callback_ofs;
 }
 
 static Bitu MouseBIOS_PS2_DummyHandler(void) {
@@ -707,12 +805,14 @@ static inline void MouseVMW_CmdAbsPointerCommand() {
         break; // can be safely ignored
     case VMW_ABSPNT::RELATIVE:
         mouse_vmware = false;
-        MousePS2_ButtonSquishRefresh();
+        LOG_MSG("MOUSE (PS/2): VMware protocol disabled");
+        MousePS2_UpdateButtonSquishMode();
         GFX_UpdateMouseState();
         break;
     case VMW_ABSPNT::ABSOLUTE:
         mouse_vmware = true;
-        MousePS2_ButtonSquishRefresh();
+        LOG_MSG("MOUSE (PS/2): VMware protocol enabled");
+        MousePS2_UpdateButtonSquishMode();
         GFX_UpdateMouseState();
         break;
     default:
@@ -1021,9 +1121,15 @@ static void DrawCursor() {
 // DOS driver interface implementation
 // ***************************************************************************
 
-static inline Bit8u MouseDOS_GetResetWheel16bit(void) {
-    Bit16s tmp = (mouse_bios.wheel >= 0) ? mouse_bios.wheel : 0x10000 + mouse_bios.wheel;
-    mouse_bios.wheel = 0;
+static inline Bit8u MouseDOS_GetResetWheel8bit() {
+    Bit8s tmp = std::clamp(mouse_dos.wheel, static_cast<Bit16s>(-0x80), static_cast<Bit16s>(0x7F));
+    mouse_dos.wheel = 0;
+    return (tmp >= 0) ? tmp : 0x100 + tmp;
+}
+
+static inline Bit16u MouseDOS_GetResetWheel16bit() {
+    Bit16s tmp = (mouse_dos.wheel >= 0) ? mouse_dos.wheel : 0x10000 + mouse_dos.wheel;
+    mouse_dos.wheel = 0;
     return tmp;
 }
 
@@ -1132,9 +1238,6 @@ void MouseDOS_AfterNewVideoMode(bool setmode) {
     mouse_dos.updateRegion_y[1]    = -1; // offscreen
     mouse_dos.cursorType           = 0;
     mouse_dos.enabled              = true;
-
-    mouse_bios.oldmouseX = static_cast<Bit16s>(mouse_bios.x);
-    mouse_bios.oldmouseY = static_cast<Bit16s>(mouse_bios.y);
 }
 
 // FIXME: Much too empty, Mouse_NewVideoMode contains stuff that should be in here
@@ -1146,9 +1249,7 @@ static void MouseDOS_Reset()
 
     mouse_dos.mickey_x   = 0;
     mouse_dos.mickey_y   = 0;
-
-    mouse_ps2.buttons    = 0; // XXX should they really be reset here?
-    mouse_bios.wheel     = 0;
+    mouse_dos.wheel      = 0;
 
     mouse_dos.last_wheel_moved_x = 0;
     mouse_dos.last_wheel_moved_y = 0;
@@ -1162,11 +1263,69 @@ static void MouseDOS_Reset()
         mouse_dos.last_released_y[but] = 0;
     }
 
-    // Dont set max coordinates here. it is done by SetResolution!
-    mouse_bios.x = static_cast<float>((mouse_dos.max_x + 1) / 2);
-    mouse_bios.y = static_cast<float>((mouse_dos.max_y + 1) / 2);
+    mouse_dos.x        = static_cast<float>((mouse_dos.max_x + 1) / 2);
+    mouse_dos.y        = static_cast<float>((mouse_dos.max_y + 1) / 2);
     mouse_dos.sub_mask = 0;
     mouse_dos.in_UIR   = false;
+}
+
+static void MouseDOS_CursorMoved(Bit32s x_rel, Bit32s y_rel, bool is_captured) {
+
+    float x_rel_sens = x_rel * config.sensitivity_x;
+    float y_rel_sens = y_rel * config.sensitivity_y;
+
+    float dx = x_rel_sens * mouse_dos.pixelPerMickey_x;
+    float dy = y_rel_sens * mouse_dos.pixelPerMickey_y;
+
+    if((fabs(x_rel_sens) > 1.0) || (mouse_dos.senv_x < 1.0)) dx *= mouse_dos.senv_x;
+    if((fabs(y_rel_sens) > 1.0) || (mouse_dos.senv_y < 1.0)) dy *= mouse_dos.senv_y;
+    if (mouse_bios.useps2callback) dy *= 2;    
+
+    mouse_dos.mickey_x += (dx * mouse_dos.mickeysPerPixel_x);
+    mouse_dos.mickey_y += (dy * mouse_dos.mickeysPerPixel_y);
+    if (mouse_dos.mickey_x >= 32768.0) mouse_dos.mickey_x -= 65536.0;
+    else if (mouse_dos.mickey_x <= -32769.0) mouse_dos.mickey_x += 65536.0;
+    if (mouse_dos.mickey_y >= 32768.0) mouse_dos.mickey_y -= 65536.0;
+    else if (mouse_dos.mickey_y <= -32769.0) mouse_dos.mickey_y += 65536.0;
+    if (is_captured) {
+        mouse_dos.x += dx;
+        mouse_dos.y += dy;
+    } else {
+        float x = (x_rel - video.clip_x) / (video.res_x - 1) * config.sensitivity_x;
+        float y = (y_rel - video.clip_y) / (video.res_y - 1) * config.sensitivity_y;
+
+        if (CurMode->type == M_TEXT) {
+            mouse_dos.x = x * real_readw(BIOSMEM_SEG,BIOSMEM_NB_COLS) * 8;
+            mouse_dos.y = y * (IS_EGAVGA_ARCH ? (real_readb(BIOSMEM_SEG, BIOSMEM_NB_ROWS) + 1) : 25) * 8;
+        } else if ((mouse_dos.max_x < 2048) || (mouse_dos.max_y < 2048) || (mouse_dos.max_x != mouse_dos.max_y)) {
+            if ((mouse_dos.max_x > 0) && (mouse_dos.max_y > 0)) {
+                mouse_dos.x = x * mouse_dos.max_x;
+                mouse_dos.y = y * mouse_dos.max_y;
+            } else {
+                mouse_dos.x += x_rel_sens;
+                mouse_dos.y += y_rel_sens;
+            }
+        } else { // Games faking relative movement through absolute coordinates. Quite surprising that this actually works..
+            mouse_dos.x += x_rel_sens;
+            mouse_dos.y += y_rel_sens;
+        }
+    }
+
+    // ignore constraints if using PS2 mouse callback in the bios
+
+    if (!mouse_bios.useps2callback) {        
+        if (mouse_dos.x > mouse_dos.max_x) mouse_dos.x = mouse_dos.max_x; // XXX std::min/max
+        if (mouse_dos.x < mouse_dos.min_x) mouse_dos.x = mouse_dos.min_x;
+        if (mouse_dos.y > mouse_dos.max_y) mouse_dos.y = mouse_dos.max_y;
+        if (mouse_dos.y < mouse_dos.min_y) mouse_dos.y = mouse_dos.min_y;
+    } else {
+        if (mouse_dos.x >= 32768.0) mouse_dos.x -= 65536.0;
+        else if (mouse_dos.x <= -32769.0) mouse_dos.x += 65536.0;
+        if (mouse_dos.y >= 32768.0) mouse_dos.y -= 65536.0;
+        else if (mouse_dos.y <= -32769.0) mouse_dos.y += 65536.0;
+    }
+
+    DrawCursor();
 }
 
 static Bitu INT33_Handler(void) {
@@ -1195,7 +1354,7 @@ static Bitu INT33_Handler(void) {
     case 0x03: // MS MOUSE v1.0+ / CuteMouse - return position and button status
         {
             reg_bl = mouse_ps2.buttons & DOS_BUTTONS_MASK;
-            reg_bh = MouseBIOS_GetResetWheel8bit();
+            reg_bh = MouseDOS_GetResetWheel8bit(); // XXX should it clear the internal counter?
             reg_cx = DOS_GETPOS_X;
             reg_dx = DOS_GETPOS_Y;
         }
@@ -1204,20 +1363,20 @@ static Bitu INT33_Handler(void) {
         // If position isn't different from current position, don't change it.
         // (position is rounded so numbers get lost when the rounded number is set)
         // (arena/simulation Wolf)
-        if ((Bit16s) reg_cx >= mouse_dos.max_x) mouse_bios.x = static_cast<float>(mouse_dos.max_x);
-        else if (mouse_dos.min_x >= (Bit16s) reg_cx) mouse_bios.x = static_cast<float>(mouse_dos.min_x); 
-        else if ((Bit16s) reg_cx != DOS_GETPOS_X) mouse_bios.x = static_cast<float>(reg_cx);
+        if ((Bit16s) reg_cx >= mouse_dos.max_x) mouse_dos.x = static_cast<float>(mouse_dos.max_x);
+        else if (mouse_dos.min_x >= (Bit16s) reg_cx) mouse_dos.x = static_cast<float>(mouse_dos.min_x); 
+        else if ((Bit16s) reg_cx != DOS_GETPOS_X) mouse_dos.x = static_cast<float>(reg_cx);
 
-        if ((Bit16s) reg_dx >= mouse_dos.max_y) mouse_bios.y = static_cast<float>(mouse_dos.max_y);
-        else if (mouse_dos.min_y >= (Bit16s) reg_dx) mouse_bios.y = static_cast<float>(mouse_dos.min_y); 
-        else if ((Bit16s) reg_dx != DOS_GETPOS_Y) mouse_bios.y = static_cast<float>(reg_dx);
+        if ((Bit16s) reg_dx >= mouse_dos.max_y) mouse_dos.y = static_cast<float>(mouse_dos.max_y);
+        else if (mouse_dos.min_y >= (Bit16s) reg_dx) mouse_dos.y = static_cast<float>(mouse_dos.min_y); 
+        else if ((Bit16s) reg_dx != DOS_GETPOS_Y) mouse_dos.y = static_cast<float>(reg_dx);
         DrawCursor();
         break;
     case 0x05: // MS MOUSE v1.0+ / CuteMouse - return button press data / mouse wheel data
         {
             Bit16u but = reg_bx;
             if (but == 0xffff){
-                reg_bx = MouseDOS_GetResetWheel16bit();
+                reg_bx = MouseDOS_GetResetWheel16bit(); // XXX should it clear the internal counter?
                 reg_cx = mouse_dos.last_wheel_moved_x;
                 reg_dx = mouse_dos.last_wheel_moved_y;
             } else {
@@ -1234,7 +1393,7 @@ static Bitu INT33_Handler(void) {
         {
             Bit16u but = reg_bx;
             if (but == 0xffff){
-                reg_bx = MouseDOS_GetResetWheel16bit();
+                reg_bx = MouseDOS_GetResetWheel16bit(); // XXX should it clear the internal counter?
                 reg_cx = mouse_dos.last_wheel_moved_x;
                 reg_dx = mouse_dos.last_wheel_moved_y;
             } else {
@@ -1262,10 +1421,10 @@ static Bitu INT33_Handler(void) {
             mouse_dos.min_x = min;
             mouse_dos.max_x = max;
             // Battlechess wants this
-            if(mouse_bios.x > mouse_dos.max_x) mouse_bios.x = mouse_dos.max_x;
-            if(mouse_bios.x < mouse_dos.min_x) mouse_bios.x = mouse_dos.min_x;
+            if(mouse_dos.x > mouse_dos.max_x) mouse_dos.x = mouse_dos.max_x; // XXX std::min/max
+            if(mouse_dos.x < mouse_dos.min_x) mouse_dos.x = mouse_dos.min_x;
             // Or alternatively this: 
-            // mouse_bios.x = (mouse_dos.max_x - mouse_dos.min_x + 1) / 2;
+            // mouse_dos.x = (mouse_dos.max_x - mouse_dos.min_x + 1) / 2;
             LOG(LOG_MOUSE,LOG_NORMAL)("Define Hortizontal range min:%d max:%d", min, max);
         }
         break;
@@ -1284,10 +1443,10 @@ static Bitu INT33_Handler(void) {
             mouse_dos.min_y = min;
             mouse_dos.max_y = max;
             /* Battlechess wants this */
-            if(mouse_bios.y > mouse_dos.max_y) mouse_bios.y = mouse_dos.max_y;
-            if(mouse_bios.y < mouse_dos.min_y) mouse_bios.y = mouse_dos.min_y;
+            if(mouse_dos.y > mouse_dos.max_y) mouse_dos.y = mouse_dos.max_y;
+            if(mouse_dos.y < mouse_dos.min_y) mouse_dos.y = mouse_dos.min_y;
             /* Or alternatively this: 
-            mouse_bios.y = (mouse_dos.max_y - mouse_dos.min_y + 1)/2;*/
+            mouse_dos.y = (mouse_dos.max_y - mouse_dos.min_y + 1)/2;*/
             LOG(LOG_MOUSE,LOG_NORMAL)("Define Vertical range min:%d max:%d", min, max);
         }
         break;
@@ -1596,13 +1755,15 @@ static Bitu MOUSE_BD_Handler(void) {
 }
 
 static Bitu INT74_Handler(void) {
+    if (mouse_gen.events > 0)
+        MousePS2_PreparePacket();
     if (mouse_gen.events > 0 && !mouse_dos.in_UIR) {
         mouse_gen.events--;
         if (mouse_dos.sub_mask & mouse_gen.event_queue[mouse_gen.events].type) {
-            // DOS interrupt handler is installed - call it
+            // DOS mouse interrupt handler is active - call it
             reg_ax = mouse_gen.event_queue[mouse_gen.events].type;
             reg_bl = mouse_gen.event_queue[mouse_gen.events].buttons;
-            reg_bh = MouseBIOS_GetResetWheel8bit();
+            reg_bh = MouseDOS_GetResetWheel8bit();
             reg_cx = DOS_GETPOS_X;
             reg_dx = DOS_GETPOS_Y;
             reg_si = static_cast<Bit16s>(mouse_dos.mickey_x);
@@ -1616,15 +1777,15 @@ static Bitu INT74_Handler(void) {
             mouse_dos.in_UIR = true;
             //LOG(LOG_MOUSE,LOG_ERROR)("INT 74 %X",mouse_gen.event_queue[mouse_gen.events].type );
         } else if (mouse_bios.useps2callback) {
+            // BIOS mouse event callback is active - call it
             CPU_Push16(RealSeg(CALLBACK_RealPointer(mouse_nosave.int74_ret_callback)));
             CPU_Push16(RealOff(CALLBACK_RealPointer(mouse_nosave.int74_ret_callback)));
-            MouseBIOS_DoPS2Callback(mouse_gen.event_queue[mouse_gen.events].buttons,
-                                    static_cast<Bit16s>(mouse_bios.x),
-                                    static_cast<Bit16s>(mouse_bios.y));
+            MouseBIOS_DoPS2Callback();
         } else {
             SegSet16(cs, RealSeg(CALLBACK_RealPointer(mouse_nosave.int74_ret_callback)));
             reg_ip = RealOff(CALLBACK_RealPointer(mouse_nosave.int74_ret_callback));
-            //LOG(LOG_MOUSE,LOG_ERROR)("INT 74 not interested"); 
+            //LOG(LOG_MOUSE,LOG_ERROR)("INT 74 not interested");
+            MousePS2_SendPacket(); // XXX is it a proper place?
         }
     } else {
         SegSet16(cs, RealSeg(CALLBACK_RealPointer(mouse_nosave.int74_ret_callback)));
@@ -1684,66 +1845,6 @@ static void MouseGEN_AddEvent(Bit16u type) {
     }
 }
 
-static void MouseGEN_CursorMoved(Bit32s x_rel, Bit32s y_rel, bool is_captured) {
-
-    float x_rel_sens = x_rel * config.sensitivity_x;
-    float y_rel_sens = y_rel * config.sensitivity_y;
-
-    float dx = x_rel_sens * mouse_dos.pixelPerMickey_x;
-    float dy = y_rel_sens * mouse_dos.pixelPerMickey_y;
-
-    if((fabs(x_rel_sens) > 1.0) || (mouse_dos.senv_x < 1.0)) dx *= mouse_dos.senv_x;
-    if((fabs(y_rel_sens) > 1.0) || (mouse_dos.senv_y < 1.0)) dy *= mouse_dos.senv_y;
-    if (mouse_bios.useps2callback) dy *= 2;    
-
-    mouse_dos.mickey_x += (dx * mouse_dos.mickeysPerPixel_x);
-    mouse_dos.mickey_y += (dy * mouse_dos.mickeysPerPixel_y);
-    if (mouse_dos.mickey_x >= 32768.0) mouse_dos.mickey_x -= 65536.0;
-    else if (mouse_dos.mickey_x <= -32769.0) mouse_dos.mickey_x += 65536.0;
-    if (mouse_dos.mickey_y >= 32768.0) mouse_dos.mickey_y -= 65536.0;
-    else if (mouse_dos.mickey_y <= -32769.0) mouse_dos.mickey_y += 65536.0;
-    if (is_captured) {
-        mouse_bios.x += dx;
-        mouse_bios.y += dy;
-    } else {
-        float x = (x_rel - video.clip_x) / (video.res_x - 1) * config.sensitivity_x;
-        float y = (y_rel - video.clip_y) / (video.res_y - 1) * config.sensitivity_y;
-
-        if (CurMode->type == M_TEXT) {
-            mouse_bios.x = x * real_readw(BIOSMEM_SEG,BIOSMEM_NB_COLS) * 8;
-            mouse_bios.y = y * (IS_EGAVGA_ARCH ? (real_readb(BIOSMEM_SEG, BIOSMEM_NB_ROWS) + 1) : 25) * 8;
-        } else if ((mouse_dos.max_x < 2048) || (mouse_dos.max_y < 2048) || (mouse_dos.max_x != mouse_dos.max_y)) {
-            if ((mouse_dos.max_x > 0) && (mouse_dos.max_y > 0)) {
-                mouse_bios.x = x * mouse_dos.max_x;
-                mouse_bios.y = y * mouse_dos.max_y;
-            } else {
-                mouse_bios.x += x_rel_sens;
-                mouse_bios.y += y_rel_sens;
-            }
-        } else { // Games faking relative movement through absolute coordinates. Quite surprising that this actually works..
-            mouse_bios.x += x_rel_sens;
-            mouse_bios.y += y_rel_sens;
-        }
-    }
-
-    // ignore constraints if using PS2 mouse callback in the bios
-
-    if (!mouse_bios.useps2callback) {        
-        if (mouse_bios.x > mouse_dos.max_x) mouse_bios.x = mouse_dos.max_x;
-        if (mouse_bios.x < mouse_dos.min_x) mouse_bios.x = mouse_dos.min_x;
-        if (mouse_bios.y > mouse_dos.max_y) mouse_bios.y = mouse_dos.max_y;
-        if (mouse_bios.y < mouse_dos.min_y) mouse_bios.y = mouse_dos.min_y;
-    } else {
-        if (mouse_bios.x >= 32768.0) mouse_bios.x -= 65536.0;
-        else if (mouse_bios.x <= -32769.0) mouse_bios.x += 65536.0;
-        if (mouse_bios.y >= 32768.0) mouse_bios.y -= 65536.0;
-        else if (mouse_bios.y <= -32769.0) mouse_bios.y += 65536.0;
-    }
-
-    MouseGEN_AddEvent(DOS_EV::MOUSE_MOVED);
-    DrawCursor();
-}
-
 // ***************************************************************************
 // External notifications
 // ***************************************************************************
@@ -1788,8 +1889,11 @@ void Mouse_NewScreenParams(Bit16u clip_x, Bit16u clip_y,
 
 void Mouse_CursorMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bool is_captured) {
     MouseVMW_CursorMoved(x_abs, y_abs);
-    MouseGEN_CursorMoved(x_rel, y_rel, is_captured);
+    MousePS2_CursorMoved(x_rel, y_rel);
+    MouseDOS_CursorMoved(x_rel, y_rel, is_captured);
     MouseSERIAL_CursorMoved(x_rel, y_rel);
+
+    MouseGEN_AddEvent(DOS_EV::MOUSE_MOVED);
 }
 
 void Mouse_ButtonPressed(Bit8u button) {
@@ -1955,17 +2059,16 @@ void Mouse_ButtonReleased(Bit8u button) {
 }
 
 void Mouse_WheelMoved(Bit32s scroll) {
-    // API limits are -0x80,0x7F - but let's keep it symmetric
-    MouseSERIAL_WheelMoved(std::clamp(scroll, -0x7F, 0x7F));
+    MouseSERIAL_WheelMoved(std::clamp(scroll, -0x80, 0x7f));
 
     if (mouse_vmware) {
-        // API limits are -128,127 - but let's keep it symmetric
-        mouse_vmw.wheel   = std::clamp(scroll + mouse_vmw.wheel, -127, 127);
+        mouse_vmw.wheel   = std::clamp(scroll + mouse_vmw.wheel, -0x80, 0x7f);
         mouse_vmw.updated = true;
     }
 
-    // API limits are -0x8000,0x7FFF - but let's keep it symmetric
-    mouse_bios.wheel = std::clamp(scroll + mouse_bios.wheel, -0x7FFF, 0x7FFF);
+    mouse_ps2.wheel = std::clamp(scroll + mouse_ps2.wheel, -0x8000, 0x7fff);
+    mouse_dos.wheel = std::clamp(scroll + mouse_dos.wheel, -0x8000, 0x7fff);
+
     MouseGEN_AddEvent(DOS_EV::WHEEL_MOVED);
     mouse_dos.last_wheel_moved_x = DOS_GETPOS_X;
     mouse_dos.last_wheel_moved_y = DOS_GETPOS_Y;

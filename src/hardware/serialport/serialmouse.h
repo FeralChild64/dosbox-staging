@@ -29,8 +29,8 @@ public:
     virtual ~CSerialMouse();
 
     void onMouseEventMoved(Bit16s delta_x, Bit16s delta_y);
-    void onMouseEventButtons(Bit8u buttons);
-    void onMouseEventButton3(Bit8u buttons);
+    void onMouseEventButtons(Bit8u buttons); // call if button left/right changed state
+    void onMouseEventButton3(Bit8u buttons); // call if button 3 (middle) changed state
     void onMouseEventWheel(Bit8s delta_w);
 
     void setRTSDTR(bool rts, bool dtr);
@@ -46,21 +46,23 @@ public:
 private:
 
     enum MouseType {
-        NONE,
+        NO_MOUSE,
         MICROSOFT,
         LOGITECH,
         WHEEL,
         MOUSE_SYSTEMS
     };
 
-    void applyType(MouseType type);
+    void setType(MouseType type);
     void abortPacket();
     void clearCounters();
     void mouseReset();
     void startPacketId();
     void startPacketData(bool extended = false);
-    void startPacketData2();
+    void startPacketPart2();
     void unimplemented();
+
+    const int port_num;
 
     MouseType config_type;         // mouse type as in the configuration file
     bool      config_auto;         // true = autoswitch between config_type and Mouse Systems Mouse

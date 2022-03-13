@@ -980,7 +980,7 @@ static Bitu INT15_Handler(void) {
 			reg_ah=0;
 			break;
 		case 0x02:		// set sampling rate
-		    MouseBIOS_SetSamplingRate(reg_bh);
+		    MouseBIOS_SetRate(reg_bh);
 			[[fallthrough]];	
 		case 0x03:		// set resolution
 			CALLBACK_SCF(false);
