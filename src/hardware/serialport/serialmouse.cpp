@@ -103,11 +103,11 @@ CSerialMouse::CSerialMouse(Bitu id, CommandLine* cmd): CSerial(id, cmd),
 
     InstallationSuccessful = true;
 
-    MouseSER_Register(this);
+    MouseSER_RegisterListener(this);
 }
 
 CSerialMouse::~CSerialMouse() {
-    MouseSER_UnRegister(this);
+    MouseSER_UnRegisterListener(this);
     removeEvent(SERIAL_TX_EVENT); // clear events
 }
 

@@ -14,6 +14,10 @@ libints_sources = files([
   'int10_video_state.cpp',
   'int10_vptable.cpp',
   'mouse.cpp',
+  'mouse_dos_driver.cpp',
+  'mouse_ps2_bios.cpp',
+  'mouse_serial.cpp',
+  'mouse_vmware.cpp',
   'xms.cpp',
 ])
 

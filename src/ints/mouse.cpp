@@ -19,35 +19,15 @@
 
 #include "mouse.h"
 
-#include <string.h>
-#include <math.h>
-#include <vector>
-
 #include "callback.h"
 #include "mem.h"
 #include "regs.h"
 #include "cpu.h"
 #include "pic.h"
-#include "inout.h"
 #include "int10.h"
 #include "bios.h"
 #include "dos_inc.h"
 #include "keyboard.h"
-#include "video.h"
-
-#include "../hardware/serialport/serialmouse.h"
-
-// Reference:
-// - https://www.digchip.com/datasheets/parts/datasheet/196/HT82M30A-pdf.php
-// - https://isdaman.com/alsos/hardware/mouse/ps2interface.htm
-// - https://www.ctyme.com/intr/int-33.htm
-// - https://wiki.osdev.org/Mouse_Input
-// - https://wiki.osdev.org/VMware_tools
-// - https://wiki.osdev.org/VirtualBox_Guest_Additions (planned support)
-// Drivers:
-// - https://github.com/NattyNarwhal/vmwmouse
-// - https://git.javispedro.com/cgit/vbmouse.git (planned support)
-
 
 // ***************************************************************************
 // PS/2 interface specific definitions
@@ -91,36 +71,6 @@ enum PS2_TYPE:Bit8u { // mouse type visible via PS/2 interface
 static constexpr Bit8u BIOS_MOUSE_IRQ = 12;
 
 // ***************************************************************************
-// VMware interface specific definitions
-// ***************************************************************************
-
-static constexpr io_port_t VMW_PORT   = 0x5658u;     // communication port
-static constexpr io_port_t VMW_PORTHB = 0x5659u;     // communication port, high bandwidth
-
-static constexpr Bit32u    VMW_MAGIC  = 0x564D5868u; // magic number for all VMware calls
-
-enum VMW_CMD:Bit16u {
-    GETVERSION         = 10,
-    ABSPOINTER_DATA    = 39,
-    ABSPOINTER_STATUS  = 40,
-    ABSPOINTER_COMMAND = 41,
-};
-
-enum VMW_ABSPNT:Bit32u {
-    ENABLE             = 0x45414552,
-    RELATIVE           = 0xF5,
-    ABSOLUTE           = 0x53424152,
-};
-
-enum VMW_BUTTON:Bit8u {
-    LEFT               = 0x20,
-    RIGHT              = 0x10,
-    MIDDLE             = 0x08,
-};
-
-volatile bool mouse_vmware = false;  // if true, VMware compatible driver has taken over the mouse
-
-// ***************************************************************************
 // DOS driver interface specific definitions
 // ***************************************************************************
 
@@ -157,19 +107,6 @@ static const Bit8u GEN_KEYMASKS[] = { 0x01, 0x02, 0x04, 0x08, 0x10 };
 // Internal data
 // ***************************************************************************
 
-static struct MouseSerialStruct { // Serial port mouse data
-
-    std::vector<CSerialMouse*> listeners;  // never clean this up manually!
-
-    float    delta_x, delta_y;             // accumulated mouse movement since last reported
-
-    MouseSerialStruct() : // XXX rework other structures - they should have constructors too
-        listeners(),
-        delta_x(0.0f),
-        delta_y(0.0f) {}
-
-} mouse_serial;
-
 static struct { // PS/2 mouse data
 
     Bit8u    buttons;                      // currently visible button state
@@ -199,24 +136,6 @@ static struct { // PS/2 mouse data
     }
 
 } mouse_ps2;
-
-static struct { // VMware interface mouse data
-
-    Bit8u    buttons;                      // state of mouse buttons, in VMware format
-    Bit16u   x, y;                         // absolute mouse position in VMware/VirtualBox format (scaled from 0 to 0xffff)
-    Bit8s    wheel;
-
-    bool     updated;
-
-    Bit16s   offset_x, offset_y;           // offset between host and guest mouse coordinates (in host pixels)
-
-    void Init() {
-        memset(this, 0, sizeof(*this));
-        x = 0x7fff; // middle of the screen
-        y = 0x7fff;
-    }
-
-} mouse_vmw;
 
 static struct { // BIOS PS/2 interface mouse data
 
@@ -331,26 +250,8 @@ static struct {
 
 } mouse_gen;
 
-static struct {
-
-    float    sensitivity_x = 0.3f;
-    float    sensitivity_y = 0.3f;
-
-} config;
-
-static struct {
-
-    bool     fullscreen;
-    Bit16u   res_x, res_y;                 // resolution to which guest image is scaled, excluding black borders
-    Bit16u   clip_x, clip_y;               // clipping value - size of black border (one side)
-
-    void Init() {
-        memset(this, 0, sizeof(*this));
-        this->res_x = 1; // prevent potential division by 0
-        this->res_y = 1;
-    }
-
-} video;
+MouseInfoConfig mouse_config;
+MouseInfoVideo  mouse_video;
 
 static void MouseGEN_AddEvent(Bit16u type);
 static void MouseGEN_EventHandler(uint32_t);
@@ -383,54 +284,13 @@ static Bit16u userdefCursorMask[DOS_Y_CURSOR];
 // Serial port interface implementation
 // ***************************************************************************
 
-void MouseSER_Register(CSerialMouse *listener) {
-    if (listener)
-        mouse_serial.listeners.push_back(listener);
-}
 
-void MouseSER_UnRegister(CSerialMouse *listener) {
-    auto iter = std::find(mouse_serial.listeners.begin(), mouse_serial.listeners.end(), listener);
-    if (iter != mouse_serial.listeners.end())
-        mouse_serial.listeners.erase(iter);
-}
-
-static inline void MouseSER_NotifyMoved(Bit32s x_rel, Bit32s y_rel) {
-    static constexpr float MAX = 16384.0f;
-
-    mouse_serial.delta_x += std::clamp(x_rel * config.sensitivity_x, -MAX, MAX);
-    mouse_serial.delta_y += std::clamp(y_rel * config.sensitivity_y, -MAX, MAX);
-
-    Bit16s dx = static_cast<Bit16s>(mouse_serial.delta_x);
-    Bit16s dy = static_cast<Bit16s>(mouse_serial.delta_y);
-
-    if (dx != 0 || dy != 0) {
-        for (auto &listener : mouse_serial.listeners)
-            listener->onMouseEventMoved(dx, dy);
-        mouse_serial.delta_x -= dx;
-        mouse_serial.delta_y -= dy;
-    }
-}
-
-static inline void MouseSER_NotifyPressed(Bit8u buttons, Bit8u idx) {
-    for (auto &listener : mouse_serial.listeners)
-        listener->onMouseEventButton(buttons, idx);
-}
-
-static inline void MouseSER_NotifyReleased(Bit8u buttons, Bit8u idx) {
-    for (auto &listener : mouse_serial.listeners)
-        listener->onMouseEventButton(buttons, idx);
-}
-
-static inline void MouseSER_NotifyWheel(Bit32s w_rel) {
-    for (auto &listener : mouse_serial.listeners)
-        listener->onMouseEventWheel(std::clamp(w_rel, -0x80, 0x7f));
-}
 
 // ***************************************************************************
 // PS/2 interface implementation
 // ***************************************************************************
 
-static inline void MousePS2_UpdateButtonSquish() {
+void MousePS2_UpdateButtonSquish() {
     // - if VMware compatible driver is enabled, never try to report mouse buttons 4 and 5, this would be asking for trouble
     // - for PS/2 modes other than IntelliMouse Explorer there is no standard way to report buttons 4 and 5
     bool sqush_mode = mouse_vmware || (mouse_ps2.type != PS2_TYPE::XP);
@@ -749,8 +609,8 @@ void MousePS2_PortWrite(Bit8u byte) { // value received from PS/2 port
 }
 
 static inline void MousePS2_NotifyMoved(Bit32s x_rel, Bit32s y_rel) {
-    mouse_ps2.delta_x += x_rel * config.sensitivity_x * mouse_ps2.counts_coeff;
-    mouse_ps2.delta_y += y_rel * config.sensitivity_y * mouse_ps2.counts_coeff;
+    mouse_ps2.delta_x += x_rel * mouse_config.sensitivity_x * mouse_ps2.counts_coeff;
+    mouse_ps2.delta_y += y_rel * mouse_config.sensitivity_y * mouse_ps2.counts_coeff;
 }
 
 static inline void MousePS2_NotifyPressedReleased(Bit8u buttons_all, Bit8u buttons_12S) {
@@ -831,125 +691,6 @@ static Bitu MouseBIOS_PS2_DummyHandler() { // XXX rename this
     return CBRET_NONE;
 }
 
-// ***************************************************************************
-// VMware interface implementation
-// ***************************************************************************
-
-static inline void MouseVMW_CmdGetVersion() {
-    reg_eax = 0; // FIXME: should we respond with something resembling VMware?
-    reg_ebx = VMW_MAGIC;
-}
-
-static inline void MouseVMW_CmdAbsPointerData() {
-    reg_eax = mouse_vmw.buttons;
-    reg_ebx = mouse_vmw.x;
-    reg_ecx = mouse_vmw.y;
-    reg_edx = (mouse_vmw.wheel >= 0) ? mouse_vmw.wheel : 0x100 + mouse_vmw.wheel;
-
-    mouse_vmw.wheel = 0;
-}
-
-static inline void MouseVMW_CmdAbsPointerStatus() {
-    reg_eax = mouse_vmw.updated ? 4 : 0;
-    mouse_vmw.updated = false;
-}
-
-static inline void MouseVMW_CmdAbsPointerCommand() {
-    switch (reg_ebx) {
-    case VMW_ABSPNT::ENABLE:
-        break; // can be safely ignored
-    case VMW_ABSPNT::RELATIVE:
-        mouse_vmware = false;
-        LOG_MSG("MOUSE (PS/2): VMware protocol disabled");
-        MousePS2_UpdateButtonSquish();
-        GFX_UpdateMouseState();
-        break;
-    case VMW_ABSPNT::ABSOLUTE:
-        mouse_vmware = true;
-        LOG_MSG("MOUSE (PS/2): VMware protocol enabled");
-        MousePS2_UpdateButtonSquish();
-        GFX_UpdateMouseState();
-        break;
-    default:
-        LOG_WARNING("Mouse: unimplemented VMware subcommand 0x%08x", reg_ebx);
-        break;
-    }
-}
-
-static Bit16u MouseVMW_PortRead(io_port_t, io_width_t) {
-    if (reg_eax != VMW_MAGIC)
-        return 0;
-
-    switch (reg_cx) {
-    case VMW_CMD::GETVERSION:
-        MouseVMW_CmdGetVersion();
-        break;
-    case VMW_CMD::ABSPOINTER_DATA:
-        MouseVMW_CmdAbsPointerData();
-        break;
-    case VMW_CMD::ABSPOINTER_STATUS:
-        MouseVMW_CmdAbsPointerStatus();
-        break;
-    case VMW_CMD::ABSPOINTER_COMMAND:
-        MouseVMW_CmdAbsPointerCommand();
-        break;
-    default:
-        LOG_WARNING("Mouse: unimplemented VMware command 0x%08x", reg_ecx);
-        break;
-    }
-
-    return reg_ax;
-}
-
-static void MouseVMW_NotifyMoved(Bit32s x_abs, Bit32s y_abs) {
-    float vmw_x, vmw_y;
-    if (video.fullscreen) {
-        // We have to maintain the diffs (offsets) between host and guest
-        // mouse positions; otherwise in case of clipped picture (like
-        // 4:3 screen displayed on 16:9 fullscreen mode) we could have
-        // an effect of 'sticky' borders if the user moves mouse outside
-        // of the guest display area
-
-        if (x_abs + mouse_vmw.offset_x < video.clip_x)
-                mouse_vmw.offset_x = video.clip_x - x_abs;
-        else if (x_abs + mouse_vmw.offset_x >= video.res_x + video.clip_x)
-                mouse_vmw.offset_x = video.res_x + video.clip_x - x_abs - 1;
-
-        if (y_abs + mouse_vmw.offset_y < video.clip_y)
-                mouse_vmw.offset_y = video.clip_y - y_abs;
-        else if (y_abs + mouse_vmw.offset_y >= video.res_y + video.clip_y)
-                mouse_vmw.offset_y = video.res_y + video.clip_y - y_abs - 1;
-
-        vmw_x = x_abs + mouse_vmw.offset_x - video.clip_x;
-        vmw_y = y_abs + mouse_vmw.offset_y - video.clip_y;
-    }
-    else {
-        vmw_x = std::max(x_abs - video.clip_x, 0);
-        vmw_y = std::max(y_abs - video.clip_y, 0);
-    }
-
-    mouse_vmw.x = std::min(0xffffu, static_cast<Bit32u>(vmw_x * 0xffff / (video.res_x - 1) + 0.499));
-    mouse_vmw.y = std::min(0xffffu, static_cast<Bit32u>(vmw_y * 0xffff / (video.res_y - 1) + 0.499));
-
-    mouse_vmw.updated = true;
-}
-
-static void MouseVMW_NotifyPressedReleased(Bit8u buttons) {
-    mouse_vmw.buttons = 0;
-
-    if (buttons & 1) mouse_vmw.buttons |=VMW_BUTTON::LEFT;
-    if (buttons & 2) mouse_vmw.buttons |=VMW_BUTTON::RIGHT;
-    if (buttons & 4) mouse_vmw.buttons |=VMW_BUTTON::MIDDLE;
-
-    mouse_vmw.updated = true;
-}
-
-static inline void MouseVMW_NotifyWheel(Bit32s w_rel) {
-    if (mouse_vmware) {
-        mouse_vmw.wheel   = std::clamp(w_rel + mouse_vmw.wheel, -0x80, 0x7f);
-        mouse_vmw.updated = true;
-    }
-}
 
 // ***************************************************************************
 // DOS driver mouse cursor - text mode
@@ -1343,8 +1084,8 @@ static void MouseDOS_Reset()
 
 static void MouseDOS_NotifyMoved(Bit32s x_rel, Bit32s y_rel, bool is_captured) {
 
-    float x_rel_sens = x_rel * config.sensitivity_x;
-    float y_rel_sens = y_rel * config.sensitivity_y;
+    float x_rel_sens = x_rel * mouse_config.sensitivity_x;
+    float y_rel_sens = y_rel * mouse_config.sensitivity_y;
 
     float dx = x_rel_sens * mouse_dos.pixelPerMickey_x;
     float dy = y_rel_sens * mouse_dos.pixelPerMickey_y;
@@ -1363,8 +1104,8 @@ static void MouseDOS_NotifyMoved(Bit32s x_rel, Bit32s y_rel, bool is_captured) {
         mouse_dos.x += dx;
         mouse_dos.y += dy;
     } else {
-        float x = (x_rel - video.clip_x) / (video.res_x - 1) * config.sensitivity_x;
-        float y = (y_rel - video.clip_y) / (video.res_y - 1) * config.sensitivity_y;
+        float x = (x_rel - mouse_video.clip_x) / (mouse_video.res_x - 1) * mouse_config.sensitivity_x;
+        float y = (y_rel - mouse_video.clip_y) / (mouse_video.res_y - 1) * mouse_config.sensitivity_y;
 
         if (CurMode->type == M_TEXT) {
             mouse_dos.x = x * real_readw(BIOSMEM_SEG,BIOSMEM_NB_COLS) * 8;
@@ -1972,17 +1713,17 @@ void Mouse_SetSensitivity(Bit32s sensitivity_x, Bit32s sensitivity_y) {
     static constexpr float MIN = 0.01f;
     static constexpr float MAX = 100.0f;
 
-    config.sensitivity_x = std::clamp(sensitivity_x/100.0f, -MAX, MAX);
-    if (!std::signbit(config.sensitivity_x))
-        config.sensitivity_x = std::max(config.sensitivity_x, MIN);
+    mouse_config.sensitivity_x = std::clamp(sensitivity_x/100.0f, -MAX, MAX);
+    if (!std::signbit(mouse_config.sensitivity_x))
+        mouse_config.sensitivity_x = std::max(mouse_config.sensitivity_x, MIN);
     else
-        config.sensitivity_x = std::min(config.sensitivity_x, -MIN);
+        mouse_config.sensitivity_x = std::min(mouse_config.sensitivity_x, -MIN);
 
-    config.sensitivity_y = std::clamp(sensitivity_y/100.0f, -MAX, MAX);
-    if (!std::signbit(config.sensitivity_y))
-        config.sensitivity_y = std::max(config.sensitivity_y, MIN);
+    mouse_config.sensitivity_y = std::clamp(sensitivity_y/100.0f, -MAX, MAX);
+    if (!std::signbit(mouse_config.sensitivity_y))
+        mouse_config.sensitivity_y = std::max(mouse_config.sensitivity_y, MIN);
     else
-        config.sensitivity_y = std::min(config.sensitivity_y, -MIN);
+        mouse_config.sensitivity_y = std::min(mouse_config.sensitivity_y, -MIN);
 }
 
 void Mouse_NewScreenParams(Bit16u clip_x, Bit16u clip_y,
@@ -1990,20 +1731,13 @@ void Mouse_NewScreenParams(Bit16u clip_x, Bit16u clip_y,
                            bool fullscreen,
                            Bit32s x_abs, Bit32s y_abs) {
 
-    video.clip_x     = clip_x;
-    video.clip_y     = clip_y;
-    video.res_x      = res_x;
-    video.res_y      = res_y;
-    video.fullscreen = fullscreen;
+    mouse_video.clip_x     = clip_x;
+    mouse_video.clip_y     = clip_y;
+    mouse_video.res_x      = res_x;
+    mouse_video.res_y      = res_y;
+    mouse_video.fullscreen = fullscreen;
 
-    // Handle VMware driver - adjust clipping, prevent cursor jump with the next mouse move on the host side
-
-    mouse_vmw.offset_x = std::clamp(static_cast<Bit32s>(mouse_vmw.offset_x), -video.clip_x, static_cast<Bit32s>(video.clip_x));
-    mouse_vmw.offset_y = std::clamp(static_cast<Bit32s>(mouse_vmw.offset_y), -video.clip_y, static_cast<Bit32s>(video.clip_y));
-
-    MouseVMW_NotifyMoved(x_abs, y_abs);
-    if (mouse_vmware)
-        MouseGEN_AddEvent(DOS_EV::MOUSE_MOVED);
+    MouseVMW_NewScreenParams(x_abs, y_abs);
 }
 
 void Mouse_EventMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bool is_captured) {
@@ -2015,6 +1749,10 @@ void Mouse_EventMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bo
 
         MouseGEN_AddEvent(DOS_EV::MOUSE_MOVED);
     }
+}
+
+void MousePS2_NotifyMovedDummy() {
+    MouseGEN_AddEvent(DOS_EV::MOUSE_MOVED); // XXX we need a better implementation, only touching PS/2
 }
 
 static inline DOS_EV MouseDOS_SelectEventPressed(Bit8u idx, bool changed_12S) {
@@ -2111,9 +1849,7 @@ void Mouse_EventWheel(Bit32s w_rel) {
 }
 
 void MOUSE_Init(Section* /*sec*/) {
-    video.Init();
     mouse_ps2.Init();
-    mouse_vmw.Init();
     mouse_bios.Init();
     mouse_dos.Init();
     mouse_nosave.Init();
@@ -2184,8 +1920,7 @@ void MOUSE_Init(Section* /*sec*/) {
     CALLBACK_Setup(mouse_nosave.call_uir, &UIR_Handler, CB_RETF_CLI, "mouse uir ret");
     mouse_nosave.uir_callback = CALLBACK_RealPointer(mouse_nosave.call_uir);
 
-    // VMware I/O port
-    IO_RegisterReadHandler(VMW_PORT, MouseVMW_PortRead, io_width_t::word, 1);
+    MouseVMW_Init();
 
     MouseBIOS_Reset();
 
