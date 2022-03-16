@@ -163,12 +163,12 @@ void MouseVMW_NotifyMoved(Bit32s x_abs, Bit32s y_abs) {
     updated = true;
 }
 
-void MouseVMW_NotifyPressedReleased(Bit8u buttons_123) {
+void MouseVMW_NotifyPressedReleased(Bit8u buttons_12S) {
     buttons_vmw = 0;
 
-    if (buttons_123 & 1) buttons_vmw |=VMW_BUTTON::LEFT;
-    if (buttons_123 & 2) buttons_vmw |=VMW_BUTTON::RIGHT;
-    if (buttons_123 & 4) buttons_vmw |=VMW_BUTTON::MIDDLE;
+    if (buttons_12S & 1) buttons_vmw |=VMW_BUTTON::LEFT;
+    if (buttons_12S & 2) buttons_vmw |=VMW_BUTTON::RIGHT;
+    if (buttons_12S & 4) buttons_vmw |=VMW_BUTTON::MIDDLE;
 
     updated = true;
 }

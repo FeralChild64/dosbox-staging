@@ -22,11 +22,10 @@
 #include "dosbox.h"
 
 // ***************************************************************************
-// Common mouse external notifications
+// Notifications from external subsystems - all should go via these methods
 // ***************************************************************************
 
 void  Mouse_EventMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bool is_captured);
-void  Mouse_EventMovedDummy();
 void  Mouse_EventPressed(Bit8u idx);
 void  Mouse_EventReleased(Bit8u idx);
 void  Mouse_EventWheel(Bit32s w_rel);
@@ -63,6 +62,13 @@ extern MouseInfoVideo  mouse_video;
 extern bool            mouse_vmware; // true = vmware driver took over the mouse
 
 // ***************************************************************************
+// Functions to be called by specific interface implementations
+// ***************************************************************************
+
+void  Mouse_ClearQueue();
+void  Mouse_EventMovedDummy();
+
+// ***************************************************************************
 // Serial mouse
 // ***************************************************************************
 
@@ -76,18 +82,28 @@ void  MouseSER_UnRegisterListener(CSerialMouse *listener);
 // - needs index of button which changed state
 
 void  MouseSER_NotifyMoved(Bit32s x_rel, Bit32s y_rel);
-void  MouseSER_NotifyPressed(Bit8u buttons_123, Bit8u idx);
-void  MouseSER_NotifyReleased(Bit8u buttons_123, Bit8u idx);
+void  MouseSER_NotifyPressed(Bit8u buttons_12S, Bit8u idx);
+void  MouseSER_NotifyReleased(Bit8u buttons_12S, Bit8u idx);
 void  MouseSER_NotifyWheel(Bit32s w_rel);
 
 // ***************************************************************************
 // PS/2 mouse
 // ***************************************************************************
 
+void  MousePS2_Init();
 void  MousePS2_UpdateButtonSquish();
 void  MousePS2_PortWrite(Bit8u byte);
+void  MousePS2_PreparePacket(Bit8u buttons);
 
+// - needs relative movements
+// - understands up to 5 buttons in Intellimouse Explorer mode
+// - understands up to 3 buttons in other modes
+// - provides a way to generate dummy event, for VMware mouse integration
+
+void  MousePS2_NotifyMoved(Bit32s x_rel, Bit32s y_rel);
 void  MousePS2_NotifyMovedDummy();
+void  MousePS2_NotifyPressedReleased(Bit8u buttons_12S, Bit8u buttons_all);
+void  MousePS2_NotifyWheel(Bit32s w_rel);
 
 // ***************************************************************************
 // BIOS mouse interface for PS/2 mouse
@@ -95,12 +111,14 @@ void  MousePS2_NotifyMovedDummy();
 
 bool  MouseBIOS_SetState(bool use);
 void  MouseBIOS_ChangeCallback(Bit16u pseg, Bit16u pofs);
-
 void  MouseBIOS_Reset(void);
 bool  MouseBIOS_SetPacketSize(Bit8u packet_size);
 bool  MouseBIOS_SetRate(Bit8u rate_id);
 bool  MouseBIOS_SetResolution(Bit8u res_id);
 Bit8u MouseBIOS_GetType(void);
+
+bool  MouseBIOS_HasCallback();
+Bitu  MouseBIOS_DoCallback();
 
 // ***************************************************************************
 // Vmware protocol extension for PS/2 mouse
@@ -113,14 +131,28 @@ void  MouseVMW_NewScreenParams(Bit32s x_abs, Bit32s y_abs);
 // - understands up to 3 buttons
 
 void  MouseVMW_NotifyMoved(Bit32s x_abs, Bit32s y_abs);
-void  MouseVMW_NotifyPressedReleased(Bit8u buttons_123);
+void  MouseVMW_NotifyPressedReleased(Bit8u buttons_12S);
 void  MouseVMW_NotifyWheel(Bit32s w_rel);
 
 // ***************************************************************************
 // DOS mouse driver
 // ***************************************************************************
 
+void  MouseDOS_Init();
 void  MouseDOS_BeforeNewVideoMode();
 void  MouseDOS_AfterNewVideoMode(bool setmode);
 
-#endif
+bool  MouseDOS_HasCallback(Bit8u type);
+bool  MouseDOS_CallbackInProgress();
+Bitu  MouseDOS_DoCallback(Bit8u type, Bit8u buttons);
+
+// - needs relative movements
+// - understands up to 3 buttons
+// - needs index of button which changed state
+
+void  MouseDOS_NotifyMoved(Bit32s x_rel, Bit32s y_rel, bool is_captured);
+void  MouseDOS_NotifyPressed(Bit8u buttons_12S, Bit8u idx);
+void  MouseDOS_NotifyReleased(Bit8u buttons_12S, Bit8u idx);
+void  MouseDOS_NotifyWheel(Bit32s w_rel);
+
+#endif // DOSBOX_MOUSE_H

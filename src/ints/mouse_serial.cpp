@@ -48,7 +48,7 @@ void MouseSER_NotifyMoved(Bit32s x_rel, Bit32s y_rel) {
     delta_x += std::clamp(x_rel * mouse_config.sensitivity_x, -MAX, MAX);
     delta_y += std::clamp(y_rel * mouse_config.sensitivity_y, -MAX, MAX);
 
-    Bit16s dx = static_cast<Bit16s>(delta_x);
+    Bit16s dx = static_cast<Bit16s>(delta_x);  // XXX round to nearest value instead
     Bit16s dy = static_cast<Bit16s>(delta_y);
 
     if (dx != 0 || dy != 0) {
@@ -59,14 +59,14 @@ void MouseSER_NotifyMoved(Bit32s x_rel, Bit32s y_rel) {
     }
 }
 
-void MouseSER_NotifyPressed(Bit8u buttons_123, Bit8u idx) {
+void MouseSER_NotifyPressed(Bit8u buttons_12S, Bit8u idx) {
     for (auto &listener : listeners)
-        listener->onMouseEventButton(buttons_123, idx);
+        listener->onMouseEventButton(buttons_12S, idx);
 }
 
-void MouseSER_NotifyReleased(Bit8u buttons_123, Bit8u idx) {
+void MouseSER_NotifyReleased(Bit8u buttons_12S, Bit8u idx) {
     for (auto &listener : listeners)
-        listener->onMouseEventButton(buttons_123, idx);
+        listener->onMouseEventButton(buttons_12S, idx);
 }
 
 void MouseSER_NotifyWheel(Bit32s w_rel) {
