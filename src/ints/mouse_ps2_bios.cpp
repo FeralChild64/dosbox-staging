@@ -185,7 +185,7 @@ static Bit16s MousePS2_ApplyScaling(Bit16s d) {
 
 void MousePS2_SendPacket() {
 
-    Bit8u  mdat = ((mouse_ps2.type == PS2_TYPE::XP) ? (mouse_ps2.buttons_all & 0x07) : mouse_ps2.buttons_12S) | 0x08;
+    Bit8u  mdat = (mouse_ps2.buttons & 0x07) | 0x08;
     Bit16s dx   = static_cast<Bit16s>(mouse_ps2.delta_x); // XXX round to nearest value instead
     Bit16s dy   = static_cast<Bit16s>(mouse_ps2.delta_y);
 
@@ -226,7 +226,7 @@ void MousePS2_SendPacket() {
         packet_size = 4;
     }
     else if (mouse_ps2.type == PS2_TYPE::XP) {
-        mouse_ps2.packet[3] = MousePS2_GetResetWheel4bit() | ((mouse_ps2.buttons_all & 0x18) << 1);
+        mouse_ps2.packet[3] = MousePS2_GetResetWheel4bit() | ((mouse_ps2.buttons & 0x18) << 1);
         packet_size = 4;
     }
     else
