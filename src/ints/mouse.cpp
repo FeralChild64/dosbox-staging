@@ -222,7 +222,7 @@ void Mouse_EventPressed(Bit8u idx) {
     bool  changed_12S = (buttons_12S_old != buttons_12S);
     Bit8u idx_12S     = idx < 2 ? idx : 2;
 
-    MousePS2_NotifyPressedReleased(buttons_12S, buttons_12 | buttons_12S);
+    MousePS2_NotifyPressedReleased(buttons_12S, buttons_12 | buttons_345);
     if (changed_12S) {
         MouseDOS_NotifyPressed(buttons_12S, idx_12S);
         MouseVMW_NotifyPressedReleased(buttons_12S);
