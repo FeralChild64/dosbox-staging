@@ -151,7 +151,7 @@ static inline void MousePS2_AddBuffer(Bit8u byte) {
 static inline Bit8u MousePS2_GetResetWheel4bit() {
     Bit8s tmp = std::clamp(mouse_ps2.wheel, static_cast<Bit8s>(-0x08), static_cast<Bit8s>(0x07));
     mouse_ps2.wheel = 0;
-    return (tmp >= 0) ? tmp : 0x08 + tmp;
+    return (tmp >= 0) ? tmp : 0x10 + tmp;
 }
 
 static inline Bit8u MousePS2_GetResetWheel8bit() {
