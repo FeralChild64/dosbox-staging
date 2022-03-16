@@ -145,7 +145,7 @@ static void MousePS2_SetType(PS2_TYPE type) {
 }
 
 static inline void MousePS2_AddBuffer(Bit8u byte) {
-    KEYBOARD_AddBuffer(byte | 0x100);
+    KEYBOARD_AddBufferAUX(&byte);
 }
 
 static inline Bit8u MousePS2_GetResetWheel4bit() {
@@ -183,13 +183,11 @@ static Bit16s MousePS2_ApplyScaling(Bit16s d) {
     return static_cast<Bit16s>(std::clamp(2 * d, -0x8000, 0x7fff));
 }
 
-void MousePS2_PreparePacket(Bit8u buttons) {
+void MousePS2_SendPacket() {
 
-    Bit8u  mdat = (buttons & 0x03) | 0x08;
+    Bit8u  mdat = ((mouse_ps2.type == PS2_TYPE::XP) ? (mouse_ps2.buttons_all & 0x07) : mouse_ps2.buttons_12S) | 0x08;
     Bit16s dx   = static_cast<Bit16s>(mouse_ps2.delta_x); // XXX round to nearest value instead
     Bit16s dy   = static_cast<Bit16s>(mouse_ps2.delta_y);
-
-    // XXX only push new packet if there are any changes
 
     mouse_ps2.delta_x -= dx;
     mouse_ps2.delta_y -= dy;
@@ -222,12 +220,20 @@ void MousePS2_PreparePacket(Bit8u buttons) {
     mouse_ps2.packet[1] = static_cast<Bit8u>(dx % 0x100);
     mouse_ps2.packet[2] = static_cast<Bit8u>(dy % 0x100);
 
-    if (mouse_ps2.type == PS2_TYPE::IM)
+    Bit8u packet_size = 3;
+    if (mouse_ps2.type == PS2_TYPE::IM) {
         mouse_ps2.packet[3] = MousePS2_GetResetWheel8bit();
-    else if (mouse_ps2.type == PS2_TYPE::XP)
-        mouse_ps2.packet[3] = MousePS2_GetResetWheel4bit() | ((buttons & 0x18) << 1);
+        packet_size = 4;
+    }
+    else if (mouse_ps2.type == PS2_TYPE::XP) {
+        mouse_ps2.packet[3] = MousePS2_GetResetWheel4bit() | ((mouse_ps2.buttons_all & 0x18) << 1);
+        packet_size = 4;
+    }
     else
         mouse_ps2.packet[3] = 0;
+
+    // XXX only push new packet if there are any changes, otherwise just do PIC_ActivateIRQ(12);
+    KEYBOARD_AddBufferAUX(&mouse_ps2.packet[0], packet_size);
 }
 
 static void MousePS2_CmdSetResolution(Bit8u counts_mm) {
@@ -322,9 +328,6 @@ static void MousePS2_CmdSetScaling(bool enabled) {
 }
 
 void MousePS2_PortWrite(Bit8u byte) { // value received from PS/2 port
-
-    LOG_WARNING("XXX in 0x%02x", byte);
-
     if (mouse_ps2.modeWrap && byte != PS2_CMD::RESET && byte != PS2_CMD::RESET_WRAP_MODE) {
         MousePS2_AddBuffer(byte); // wrap mode, just send bytes back
     } else if (mouse_ps2.command != PS2_CMD::NO_COMMAND) {

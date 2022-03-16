@@ -93,7 +93,7 @@ void  MouseSER_NotifyWheel(Bit32s w_rel);
 void  MousePS2_Init();
 void  MousePS2_UpdateButtonSquish();
 void  MousePS2_PortWrite(Bit8u byte);
-void  MousePS2_PreparePacket(Bit8u buttons);
+void  MousePS2_SendPacket();
 
 // - needs relative movements
 // - understands up to 5 buttons in Intellimouse Explorer mode

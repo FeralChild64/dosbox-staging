@@ -21,13 +21,10 @@
 
 #include "callback.h"
 #include "cpu.h"
+#include "keyboard.h"
 #include "mem.h"
 #include "pic.h"
 #include "regs.h"
-
-// ***************************************************************************
-// Other definitions
-// ***************************************************************************
 
 enum DOS_EV:Bit16u { // compatible with DOS driver mask in driver function 0x0c
     NOT_DOS_EVENT     =   0x00,
@@ -67,7 +64,7 @@ static void EventHandler(uint32_t /*val*/)
     if (events) {
         timer_in_progress = true;
         PIC_AddEvent(EventHandler, 5.0); // XXX arbitrate delay between PS/2 and maximum one
-        PIC_ActivateIRQ(12);
+        MousePS2_SendPacket(); // this will trigger IRQ 12 / INT 74
     }
 }
 
@@ -89,15 +86,16 @@ static void AddEvent(Bit8u type) {
     if (!timer_in_progress) {
         timer_in_progress = true;
         PIC_AddEvent(EventHandler, 5.0); // XXX arbitrate delay between PS/2 and maximum one
-        PIC_ActivateIRQ(12);
+        MousePS2_SendPacket(); // this willl trigger IRQ 12 / INT 74
     }
 }
 
 static Bitu INT74_Handler() {
+    KEYBOARD_ClrMsgAUX(); // XXX it should probably only clear last 3 or 4 bytes, depending on last packet size
+
     if (events > 0 && !MouseDOS_CallbackInProgress()) {
         events--;
 
-        MousePS2_PreparePacket(event_queue[events].buttons); // XXX wrong place, and should use buttons from internal state
         if (MouseDOS_HasCallback(event_queue[events].type)) {
             CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
             CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)) + 7);

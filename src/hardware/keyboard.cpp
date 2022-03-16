@@ -40,7 +40,7 @@ enum KeyCommands {
 	CMD_SETLEDS,
 	CMD_SETTYPERATE,
 	CMD_SETOUTPORT,
-	CMD_MOUSEOUT
+	CMD_AUXOUT
 };
 
 static struct {
@@ -93,20 +93,56 @@ void KEYBOARD_ClrBuffer(void) {
 	keyb.scheduled=false;
 }
 
-void KEYBOARD_AddBuffer(Bit16u data) {
+static void KEYBOARD_AddBuffer(Bit8u data) {
 	if (keyb.used>=KEYBUFSIZE) {
-		LOG(LOG_KEYBOARD,LOG_NORMAL)("Buffer full, dropping all codes");
-		KEYBOARD_ClrBuffer();
+		LOG(LOG_KEYBOARD,LOG_NORMAL)("Buffer full, dropping code");
 		return;
 	}
-	Bitu start=keyb.pos+keyb.used;
-	if (start>=KEYBUFSIZE) start-=KEYBUFSIZE;
+	Bitu start=(keyb.pos+keyb.used) % KEYBUFSIZE;
 	keyb.buffer[start]=data;
 	keyb.used++;
 	/* Start up an event to start the first IRQ */
 	if (!keyb.scheduled && !keyb.p60changed) {
 		keyb.scheduled=true;
 		PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);
+	}
+}
+
+void KEYBOARD_AddBufferAUX(Bit8u *data, Bit8u bytes) { /* For PS/2 mouse */
+	if (keyb.used+bytes>KEYBUFSIZE) {
+		LOG(LOG_KEYBOARD,LOG_NORMAL)("Buffer full, dropping mouse codes");
+		PIC_ActivateIRQ(12); /* At least allow BIOS/DOS interfaces to work */
+		return;
+	}
+	Bitu start=keyb.pos+keyb.used;
+	for (Bit8u i=0; i<bytes; i++)
+		keyb.buffer[(start+i) % KEYBUFSIZE]=*(data+i) | AUX;
+	keyb.used+=bytes;
+	/* Start up an event to start the first IRQ */
+	if (!keyb.scheduled && !keyb.p60changed) {
+		keyb.scheduled=true;
+		/* No need for more delay, we have PS/2 sampling rate emulated + host OS mouse lag :) */
+		PIC_AddEvent(KEYBOARD_TransferBuffer,0);
+	}
+}
+
+void KEYBOARD_ClrMsgAUX() { /* Needed by virtual BIOS/DOS mouse support */
+	keyb.auxchanged=false;
+	keyb.p60changed=false;
+	keyb.scheduled=false;
+	PIC_RemoveEvents(KEYBOARD_TransferBuffer);
+	if (!keyb.used) {
+		return;
+	}
+	/* Drop everything that came from AUX (mouse) */
+	while (keyb.used && (keyb.buffer[keyb.pos+keyb.used-1]&AUX)){
+		keyb.pos = (keyb.pos+1) % KEYBUFSIZE;
+		keyb.used--;
+	}
+	/* If there is still something left in the buffer, schedule it */
+	if (keyb.used) {
+		keyb.scheduled=true;
+		PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);		
 	}
 }
 
@@ -186,7 +222,7 @@ static void write_p60(io_port_t, io_val_t value, io_width_t)
 		KEYBOARD_ClrBuffer();
 		KEYBOARD_AddBuffer(0xfa);	/* Acknowledge */
 		break;
-    case CMD_MOUSEOUT:
+    case CMD_AUXOUT:
         keyb.command=CMD_NONE;
         MousePS2_PortWrite(val);
         break;
@@ -305,7 +341,7 @@ static void write_p64(io_port_t, io_val_t value, io_width_t)
 		keyb.command=CMD_SETOUTPORT;
 		break;
 	case 0xd4:		/* Address the mouse with the next byte */
-		keyb.command=CMD_MOUSEOUT;
+		keyb.command=CMD_AUXOUT;
 		break;
 	default:
 		LOG(LOG_KEYBOARD, LOG_ERROR)("Port 64 write with val %x", val);
