@@ -232,8 +232,10 @@ void MousePS2_SendPacket() {
     else
         mouse_ps2.packet[3] = 0;
 
+    // XXX has problems with Windows 3.1 keyboard driver
+    // XXX KEYBOARD_AddBufferAUX(&mouse_ps2.packet[0], packet_size);
+    PIC_ActivateIRQ(12);
     // XXX only push new packet if there are any changes, otherwise just do PIC_ActivateIRQ(12);
-    KEYBOARD_AddBufferAUX(&mouse_ps2.packet[0], packet_size);
 }
 
 static void MousePS2_CmdSetResolution(Bit8u counts_mm) {
