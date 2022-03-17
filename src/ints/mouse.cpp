@@ -90,6 +90,29 @@ static void AddEvent(Bit8u type) {
     }
 }
 
+static inline DOS_EV SelectEventPressed(Bit8u idx, bool changed_12S) {
+    switch (idx) {
+    case 0:  return DOS_EV::PRESSED_LEFT;
+    case 1:  return DOS_EV::PRESSED_RIGHT;
+    case 2:  return DOS_EV::PRESSED_MIDDLE;
+    case 3:  return changed_12S ? DOS_EV::PRESSED_MIDDLE : DOS_EV::NOT_DOS_EVENT;
+    case 4:  return changed_12S ? DOS_EV::PRESSED_MIDDLE : DOS_EV::NOT_DOS_EVENT;
+    default: return DOS_EV::NOT_DOS_EVENT;
+    }
+}
+
+static inline DOS_EV SelectEventReleased(Bit8u idx, bool changed_12S) {
+    switch (idx) {
+    case 0:  return DOS_EV::RELEASED_LEFT;
+    case 1:  return DOS_EV::RELEASED_RIGHT;
+    case 2:  return DOS_EV::RELEASED_MIDDLE;
+    case 3:  return changed_12S ? DOS_EV::RELEASED_MIDDLE : DOS_EV::NOT_DOS_EVENT;
+    case 4:  return changed_12S ? DOS_EV::RELEASED_MIDDLE : DOS_EV::NOT_DOS_EVENT;
+    default: return DOS_EV::NOT_DOS_EVENT;
+    }
+}
+
+
 static Bitu INT74_Handler() {
     KEYBOARD_ClrMsgAUX(); // XXX it should probably only clear last 3 or 4 bytes, depending on last packet size
 
@@ -180,28 +203,6 @@ void Mouse_EventMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bo
 
 void MousePS2_NotifyMovedDummy() {
     AddEvent(DOS_EV::MOUSE_MOVED); // XXX we need a better implementation, only touching PS/2
-}
-
-static inline DOS_EV SelectEventPressed(Bit8u idx, bool changed_12S) {
-    switch (idx) {
-    case 0:  return DOS_EV::PRESSED_LEFT;
-    case 1:  return DOS_EV::PRESSED_RIGHT;
-    case 2:  return DOS_EV::PRESSED_MIDDLE;
-    case 3:  return changed_12S ? DOS_EV::PRESSED_MIDDLE : DOS_EV::NOT_DOS_EVENT;
-    case 4:  return changed_12S ? DOS_EV::PRESSED_MIDDLE : DOS_EV::NOT_DOS_EVENT;
-    default: return DOS_EV::NOT_DOS_EVENT;
-    }
-}
-
-static inline DOS_EV SelectEventReleased(Bit8u idx, bool changed_12S) {
-    switch (idx) {
-    case 0:  return DOS_EV::RELEASED_LEFT;
-    case 1:  return DOS_EV::RELEASED_RIGHT;
-    case 2:  return DOS_EV::RELEASED_MIDDLE;
-    case 3:  return changed_12S ? DOS_EV::RELEASED_MIDDLE : DOS_EV::NOT_DOS_EVENT;
-    case 4:  return changed_12S ? DOS_EV::RELEASED_MIDDLE : DOS_EV::NOT_DOS_EVENT;
-    default: return DOS_EV::NOT_DOS_EVENT;
-    }
 }
 
 void Mouse_EventPressed(Bit8u idx) {
