@@ -27,6 +27,8 @@
 
 #include "dos_inc.h"
 
+constexpr int autoexec_maxsize = 4096;
+
 class CommandLine {
 public:
 	CommandLine(int argc, char const *const argv[]);
@@ -92,6 +94,7 @@ public:
 };
 
 typedef void (PROGRAMS_Main)(Program * * make);
+void PROGRAMS_Destroy([[maybe_unused]] Section* sec);
 void PROGRAMS_MakeFile(char const * const name,PROGRAMS_Main * main);
 
 #endif

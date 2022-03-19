@@ -20,7 +20,9 @@
 
 #include "ide.h"
 #include "string_utils.h"
+#include <string_view>
 
+extern char sfn[DOS_NAMELENGTH_ASCII];
 
 // TODO Right now label formatting seems to be a bit of mess, with various
 // places in code setting/expecting different format, so simple GetLabel() on
@@ -69,6 +71,113 @@ void Set_Label(char const * const input, char * const output, bool cdrom) {
 	//Remove trailing dot. except when on cdrom and filename is exactly 8 (9 including the dot) letters. MSCDEX feature/bug (fifa96 cdrom detection)
 	if((labelPos > 0) && (output[labelPos-1] == '.') && !(cdrom && labelPos ==9))
 		output[labelPos-1] = 0;
+}
+
+constexpr bool is_special_character(const char c)
+{
+    constexpr auto special_characters = std::string_view("\"+=,;:<>[]|?*");
+    return special_characters.find(c) != std::string_view::npos;
+}
+
+/* Generate 8.3 names from LFNs, with tilde usage (from ~1 to ~9999). */
+std::string generate_8x3(const char *lfn, const unsigned int num, const bool start)
+{
+	unsigned int tilde_limit = 1000000;
+	if (num >= tilde_limit)
+		return "";
+	static std::string result = "";
+	std::string input = lfn;
+	while (input.size() && (input[0] == '.' || input[0] == ' '))
+		input.erase(input.begin());
+	while (input.size() && (input.back() == '.' || input.back() == ' '))
+		input.pop_back();
+	size_t len = 0;
+	auto found = input.rfind('.');
+	unsigned int tilde_pos = 6 - (unsigned int)floor(log10(num));
+	if (num == 1 || start) {
+		result.clear();
+		len = found != std::string::npos ? found : input.size();
+		for (size_t i = 0; i < len; i++) {
+			if (input[i] != ' ') {
+				result += is_special_character(input[i])
+				                  ? "_"
+				                  : std::string(1, toupper(input[i]));
+				if (result.size() >= tilde_pos)
+					break;
+			}
+		}
+	}
+	result.erase(tilde_pos);
+	result += '~' + std::to_string(num);
+	if (found != std::string::npos) {
+		input.erase(0, found + 1);
+		size_t len_ext = 0;
+		len = input.size();
+		for (size_t i = 0; i < len; i++) {
+			if (input[i] != ' ') {
+				if (!len_ext)
+					result += ".";
+				result += is_special_character(input[i])
+				                  ? "_"
+				                  : std::string(1, toupper(input[i]));
+				if (++len_ext >= 3)
+					break;
+			}
+		}
+	}
+	return result;
+}
+
+bool filename_not_8x3(const char *n)
+{
+	unsigned int i;
+
+	i = 0;
+	while (*n != 0) {
+		if (*n == '.')
+			break;
+		if ((*n & 0xFF) <= 32 || *n == 127 || is_special_character(*n))
+			return true;
+		i++;
+		n++;
+	}
+	if (i > 8)
+		return true;
+	if (*n == 0)
+		return false; /* made it past 8 or less normal chars and end of
+		                 string: normal */
+
+	/* skip dot */
+	assert(*n == '.');
+	n++;
+
+	i = 0;
+	while (*n != 0) {
+		if (*n == '.')
+			return true; /* another '.' means LFN */
+		if ((*n & 0xFF) <= 32 || *n == 127 || is_special_character(*n))
+			return true;
+		i++;
+		n++;
+	}
+	if (i > 3)
+		return true;
+
+	return false; /* it is 8.3 case */
+}
+
+/* Assuming an LFN call, if the name is not strict 8.3 uppercase, return true.
+ * If the name is strict 8.3 uppercase like "FILENAME.TXT" there is no point
+ * making an LFN because it is a waste of space */
+bool filename_not_strict_8x3(const char *n)
+{
+	if (filename_not_8x3(n))
+		return true;
+	const auto len = strlen(n);
+	for (unsigned int i = 0; i < len; i++)
+		if (n[i] >= 'a' && n[i] <= 'z')
+			return true;
+	return false; /* it is strict 8.3 upper case */
 }
 
 DOS_Drive::DOS_Drive()
