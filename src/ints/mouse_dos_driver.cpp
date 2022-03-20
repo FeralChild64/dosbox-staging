@@ -285,7 +285,7 @@ static void RestoreCursorBackground() {
     RestoreVgaRegisters();
 }
 
-static void DrawCursor() {
+void MouseDOS_DrawCursor() {
     if (driver_state.hidden || driver_state.inhibit_draw) return;
     INT10_SetCurMode();
     // In Textmode ?
@@ -569,8 +569,6 @@ void MouseDOS_NotifyMoved(Bit32s x_rel, Bit32s y_rel, bool is_captured) {
     if (driver_state.x < driver_state.min_x) driver_state.x = driver_state.min_x;
     if (driver_state.y > driver_state.max_y) driver_state.y = driver_state.max_y;
     if (driver_state.y < driver_state.min_y) driver_state.y = driver_state.min_y;
-
-    DrawCursor();
 }
 
 void MouseDOS_NotifyPressed(Bit8u buttons_12S, Bit8u idx) {
@@ -613,7 +611,7 @@ static Bitu INT33_Handler() {
     case 0x01: // MS MOUSE v1.0+ - show mouse cursor
         if (driver_state.hidden) driver_state.hidden--;
         driver_state.updateRegion_y[1] = -1; //offscreen
-        DrawCursor();
+        MouseDOS_DrawCursor();
         break;
     case 0x02: // MS MOUSE v1.0+ - hide mouse cursor
         {
@@ -641,7 +639,7 @@ static Bitu INT33_Handler() {
         if ((Bit16s) reg_dx >= driver_state.max_y) driver_state.y = static_cast<float>(driver_state.max_y);
         else if (driver_state.min_y >= (Bit16s) reg_dx) driver_state.y = static_cast<float>(driver_state.min_y); 
         else if ((Bit16s) reg_dx != GETPOS_Y) driver_state.y = static_cast<float>(reg_dx);
-        DrawCursor();
+        MouseDOS_DrawCursor();
         break;
     case 0x05: // MS MOUSE v1.0+ / CuteMouse - return button press data / mouse wheel data
         {
@@ -731,7 +729,7 @@ static Bitu INT33_Handler() {
             driver_state.hotx       = reg_bx;
             driver_state.hoty       = reg_cx;
             driver_state.cursorType = 2;
-            DrawCursor();
+            MouseDOS_DrawCursor();
         }
         break;
     case 0x0a: // MS MOUSE v3.0+ - define text cursor
@@ -742,7 +740,7 @@ static Bitu INT33_Handler() {
             INT10_SetCursorShape(reg_cl, reg_dl);
             LOG(LOG_MOUSE,LOG_NORMAL)("Hardware Text cursor selected");
         }
-        DrawCursor();
+        MouseDOS_DrawCursor();
         break;
     case 0x27: // MS MOUSE v7.01+ - get screen/cursor masks and mickey counts
         reg_ax = driver_state.textAndMask;
@@ -771,7 +769,7 @@ static Bitu INT33_Handler() {
         driver_state.updateRegion_y[0] = (Bit16s) reg_dx;
         driver_state.updateRegion_x[1] = (Bit16s) reg_si;
         driver_state.updateRegion_y[1] = (Bit16s) reg_di;
-        DrawCursor();
+        MouseDOS_DrawCursor();
         break;
     case 0x11: // CuteMouse - get mouse capabilities
         reg_ax = 0x574D; // Identifier for detection purposes
@@ -1040,7 +1038,6 @@ bool MouseDOS_CallbackInProgress() {
     return in_UIR;
 }
 
-// FIXME: DrawCursor() shall probably be moved inside this handler
 Bitu MouseDOS_DoCallback(Bit8u type, Bit8u buttons) {
     in_UIR = true;
 

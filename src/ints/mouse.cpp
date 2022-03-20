@@ -119,6 +119,14 @@ static Bitu INT74_Handler() {
     if (events > 0 && !MouseDOS_CallbackInProgress()) {
         events--;
 
+        // INT 33h emulation: HERE within the IRQ 12 handler is the appropriate place to
+        // redraw the cursor. OSes like Windows 3.1 expect real-mode code to do it in
+        // response to IRQ 12, not "out of the blue" from the SDL event handler like
+        // the original DOSBox code did it. Doing this allows the INT 33h emulation
+        // to draw the cursor while not causing Windows 3.1 to crash or behave
+        // erratically.
+        MouseDOS_DrawCursor();
+
         if (MouseDOS_HasCallback(event_queue[events].type)) {
             CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
             CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)) + 7);

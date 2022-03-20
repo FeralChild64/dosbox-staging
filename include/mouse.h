@@ -141,6 +141,7 @@ void  MouseVMW_NotifyWheel(Bit32s w_rel);
 void  MouseDOS_Init();
 void  MouseDOS_BeforeNewVideoMode();
 void  MouseDOS_AfterNewVideoMode(bool setmode);
+void  MouseDOS_DrawCursor();
 
 bool  MouseDOS_HasCallback(Bit8u type);
 bool  MouseDOS_CallbackInProgress();
