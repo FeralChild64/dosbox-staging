@@ -112,9 +112,10 @@ static inline DOS_EV SelectEventReleased(Bit8u idx, bool changed_12S) {
     }
 }
 
-
 static Bitu INT74_Handler() {
     KEYBOARD_ClrMsgAUX(); // XXX it should probably only clear last 3 or 4 bytes, depending on last packet size
+
+    // XXX fix spamming INT74's under Windows 3.1
 
     if (events > 0 && !MouseDOS_CallbackInProgress()) {
         events--;
@@ -128,11 +129,13 @@ static Bitu INT74_Handler() {
         MouseDOS_DrawCursor();
 
         if (MouseDOS_HasCallback(event_queue[events].type)) {
+
             CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
             CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)) + 7);
             return MouseDOS_DoCallback(event_queue[events].type, event_queue[events].buttons);
         }
         else if (MouseBIOS_HasCallback()) {
+
             CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
             CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)));
             return MouseBIOS_DoCallback();

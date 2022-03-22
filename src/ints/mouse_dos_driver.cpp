@@ -1029,12 +1029,10 @@ Bitu UIR_Handler() {
 }
 
 bool MouseDOS_HasCallback(Bit8u type) {
-    // XXX additionally check whether DOS driver is enabled, see DOSBox-X for reference
     return driver_state.sub_mask & type;
 }
 
 bool MouseDOS_CallbackInProgress() {
-    // XXX additionally check whether DOS driver is enabled, see DOSBox-X for reference
     return in_UIR;
 }
 

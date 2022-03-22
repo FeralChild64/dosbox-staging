@@ -78,7 +78,7 @@ Bit8u    unlock_idx_im, unlock_idx_xp; // sequence index for unlocking extended 
 
 PS2_CMD  command;                      // command waiting for a parameter
 Bit8u    packet[4];                    // packet to be transferred via hardware port or BIOS interface
-bool     reporting;                    // XXX use this
+bool     reporting;
 
 Bit8u    rate_hz;                      // how often (maximum) the mouse event listener can be updated
 float    delay;                        // minimum time between interrupts [ms]
@@ -178,6 +178,8 @@ static Bit16s MousePS2_ApplyScaling(Bit16s d) {
 
 void MousePS2_SendPacket() {
 
+    bool packet_needed = false;
+
     Bit8u  mdat = (buttons & 0x07) | 0x08;
     Bit16s dx   = static_cast<Bit16s>(delta_x); // XXX round to nearest value instead
     Bit16s dy   = static_cast<Bit16s>(delta_y);
@@ -187,6 +189,9 @@ void MousePS2_SendPacket() {
 
     dx = MousePS2_ApplyScaling(dx);
     dy = MousePS2_ApplyScaling(-dy);
+
+    if (dx != 0 || dy != 0)
+        packet_needed = true;
 
     if (type == PS2_TYPE::XP) {
         // There is no overflow for 5-button mouse protocol, see HT82M30A datasheet
@@ -209,6 +214,9 @@ void MousePS2_SendPacket() {
         mdat |= 0x20; // sign bit for y
     }
 
+    if (mdat != packet[0])
+        packet_needed = true;
+
     packet[0] = static_cast<Bit8u>(mdat);
     packet[1] = static_cast<Bit8u>(dx % 0x100);
     packet[2] = static_cast<Bit8u>(dy % 0x100);
@@ -217,18 +225,24 @@ void MousePS2_SendPacket() {
     if (type == PS2_TYPE::IM) {
         packet[3] = MousePS2_GetResetWheel8bit();
         packet_size = 4;
+        if (packet[3] != 0)
+            packet_needed = true;
     }
     else if (type == PS2_TYPE::XP) {
-        packet[3] = MousePS2_GetResetWheel4bit() | ((buttons & 0x18) << 1);
+        Bit8u old_buttons = packet[3] & 0xf0;
+        Bit8u new_buttons = ((buttons & 0x18) << 1);
+        packet[3] = MousePS2_GetResetWheel4bit() | new_buttons;
         packet_size = 4;
+        if (old_buttons != new_buttons || (packet[3] & 0x0f) != 0)
+            packet_needed = true;
     }
     else
         packet[3] = 0;
 
-    // XXX has problems with Windows 3.1 keyboard driver
-    // XXX KEYBOARD_AddBufferAUX(&packet[0], packet_size);
-    PIC_ActivateIRQ(12);
-    // XXX only push new packet if there are any changes, otherwise just do PIC_ActivateIRQ(12);
+    if (reporting || packet_needed)
+        KEYBOARD_AddBufferAUX(&packet[0], packet_size);
+    else
+        PIC_ActivateIRQ(12);
 }
 
 static void MousePS2_CmdSetResolution(Bit8u counts_mm) {
@@ -298,6 +312,7 @@ static void MousePS2_CmdReset() {
     delta_y      = 0.0f;
     wheel        = 0;
 
+    reporting    = true;
     modeRemote   = false;
     modeWrap     = false;
 }
