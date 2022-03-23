@@ -95,6 +95,7 @@ void  MousePS2_UpdateButtonSquish();
 float MousePS2_GetDelay();
 void  MousePS2_PortWrite(Bit8u byte);
 void  MousePS2_SendPacket(bool force = false);
+bool  MousePS2_WithDrawPacket();
 
 // - needs relative movements
 // - understands up to 5 buttons in Intellimouse Explorer mode
@@ -112,11 +113,11 @@ void  MousePS2_NotifyWheel(Bit32s w_rel);
 
 bool  MouseBIOS_SetState(bool use);
 void  MouseBIOS_ChangeCallback(Bit16u pseg, Bit16u pofs);
-void  MouseBIOS_Reset(void);
+void  MouseBIOS_Reset();
 bool  MouseBIOS_SetPacketSize(Bit8u packet_size);
 bool  MouseBIOS_SetRate(Bit8u rate_id);
 bool  MouseBIOS_SetResolution(Bit8u res_id);
-Bit8u MouseBIOS_GetType(void);
+Bit8u MouseBIOS_GetType();
 
 bool  MouseBIOS_HasCallback();
 Bitu  MouseBIOS_DoCallback();

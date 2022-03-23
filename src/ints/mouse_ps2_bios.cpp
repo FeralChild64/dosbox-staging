@@ -251,6 +251,14 @@ void MousePS2_SendPacket(bool force) {
         PIC_ActivateIRQ(12);
 }
 
+bool MousePS2_WithDrawPacket() {
+    auto bytes = KEYBOARD_ClrMsgAUX();
+    if ((type != PS2_TYPE::XP && bytes >= 3) || (bytes >= 4))
+        return true;
+
+    return false;
+}
+
 static void CmdSetResolution(Bit8u counts_mm) {
     TerminateUnlock();
     if (counts_mm != 1 && counts_mm != 2 && counts_mm != 4 && counts_mm != 8)

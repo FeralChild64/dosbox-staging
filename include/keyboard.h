@@ -135,10 +135,10 @@ enum KBD_KEYS {
 	KBD_LAST
 };
 
-void KEYBOARD_ClrBuffer(void);
-void KEYBOARD_AddKey(KBD_KEYS keytype,bool pressed);
+void  KEYBOARD_ClrBuffer(void);
+void  KEYBOARD_AddKey(KBD_KEYS keytype,bool pressed);
 
-void KEYBOARD_AddBufferAUX(Bit8u *data, Bit8u bytes = 1);
-void KEYBOARD_ClrMsgAUX();
+void  KEYBOARD_AddBufferAUX(Bit8u *data, Bit8u bytes = 1);
+Bit8u KEYBOARD_ClrMsgAUX();
 
 #endif

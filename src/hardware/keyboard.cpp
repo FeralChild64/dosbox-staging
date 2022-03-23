@@ -126,24 +126,28 @@ void KEYBOARD_AddBufferAUX(Bit8u *data, Bit8u bytes) { /* For PS/2 mouse */
 	}
 }
 
-void KEYBOARD_ClrMsgAUX() { /* Needed by virtual BIOS/DOS mouse support */
+Bit8u KEYBOARD_ClrMsgAUX() { /* Needed by virtual BIOS/DOS mouse support */
+    Bit8u withdrawn=0;
 	keyb.auxchanged=false;
 	keyb.p60changed=false;
 	keyb.scheduled=false;
 	PIC_RemoveEvents(KEYBOARD_TransferBuffer);
 	if (!keyb.used) {
-		return;
+		return withdrawn;
 	}
 	/* Drop everything that came from AUX (mouse) */
 	while (keyb.used && (keyb.buffer[keyb.pos+keyb.used-1]&AUX)){
 		keyb.pos = (keyb.pos+1) % KEYBUFSIZE;
 		keyb.used--;
+		withdrawn++;
 	}
 	/* If there is still something left in the buffer, schedule it */
 	if (keyb.used) {
 		keyb.scheduled=true;
 		PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);		
 	}
+
+	return withdrawn;
 }
 
 static uint8_t read_p60(io_port_t, io_width_t)

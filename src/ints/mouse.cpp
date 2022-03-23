@@ -40,12 +40,12 @@ enum DOS_EV:Bit16u { // compatible with DOS driver mask in driver function 0x0c
 
 static const Bit8u QUEUE_SIZE  = 32; // if over 255, increase 'events' size
 
-static const Bit8u KEY_MASKS[] = { 0x01, 0x02, 0x04, 0x08, 0x10 }; // XXX utilize bit manipulation from DOSBox Staging instead
+static const Bit8u KEY_MASKS[] = { 0x01, 0x02, 0x04, 0x08, 0x10 };
 
 static Bit8u    buttons_12;                   // state of buttons 1 (left), 2 (right), as visible on host side
 static Bit8u    buttons_345;                  // state of mouse buttons 3 (middle), 4, and 5 as visible on host side
 
-static struct { Bit8u type; Bit8u buttons; } event_queue[QUEUE_SIZE]; // XXX rename to reflect that this is only DOS related
+static struct { Bit8u dos_type; Bit8u buttons; } event_queue[QUEUE_SIZE];
 static Bit8u    events;
 static bool     timer_in_progress;
 
@@ -86,18 +86,18 @@ static void EventHandler(uint32_t /*val*/)
     if (events) SendPacket();
 }
 
-static void AddEvent(Bit8u type) {
+static void AddEvent(Bit8u dos_type) {
     if (events < QUEUE_SIZE) {
         if (events > 0) {
             // Skip redundant events
-            if (type == DOS_EV::MOUSE_MOVED || type == DOS_EV::WHEEL_MOVED) return;
+            if (dos_type == DOS_EV::MOUSE_MOVED || dos_type == DOS_EV::WHEEL_MOVED) return;
             // Always put the newest element in the front as that the events are 
             // handled backwards (prevents doubleclicks while moving)
             for(Bitu i = events ; i ; i--)
                 event_queue[i] = event_queue[i - 1];
         }
-        event_queue[0].type    = type;
-        event_queue[0].buttons = buttons_12 + (buttons_345 ? 4 : 0);
+        event_queue[0].dos_type = dos_type;
+        event_queue[0].buttons  = buttons_12 + (buttons_345 ? 4 : 0);
         events++;
     }
 
@@ -130,7 +130,7 @@ static Bitu INT74_Handler() {
     int74_used = true;
     int74_needed_countdown = 5;
 
-    KEYBOARD_ClrMsgAUX(); // XXX it should probably only clear last 3 or 4 bytes, depending on last packet size
+    bool packet_found = MousePS2_WithDrawPacket();
 
     // XXX fix spamming INT74's under Windows 3.1; something to do with protected mode?
     // LOG_WARNING("XXX - SPAM SPAM SPAM");
@@ -146,13 +146,13 @@ static Bitu INT74_Handler() {
         // erratically.
         MouseDOS_DrawCursor();
 
-        if (MouseDOS_HasCallback(event_queue[events].type)) {
+        if (MouseDOS_HasCallback(event_queue[events].dos_type)) {
 
             CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
             CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)) + 7);
-            return MouseDOS_DoCallback(event_queue[events].type, event_queue[events].buttons);
+            return MouseDOS_DoCallback(event_queue[events].dos_type, event_queue[events].buttons);
         }
-        else if (MouseBIOS_HasCallback()) {
+        else if (packet_found && MouseBIOS_HasCallback()) {
 
             CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
             CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)));
@@ -231,7 +231,7 @@ void Mouse_EventMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bo
 }
 
 void MousePS2_NotifyMovedDummy() {
-    // XXX we need a better implementation here - something might still be waiting in event queue
+    // XXX provide a better implementation here - something might still be waiting in event queue
     MousePS2_SendPacket(true);
 }
 
