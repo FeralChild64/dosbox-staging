@@ -182,7 +182,7 @@ static inline void ResetCounters() {
     wheel   = 0;
 }
 
-void MousePS2_SendPacket(bool force) {
+bool MousePS2_SendPacket(bool force) {
 
     bool packet_needed = force;
 
@@ -245,10 +245,11 @@ void MousePS2_SendPacket(bool force) {
     else
         packet[3] = 0;
 
-    if (!modeWrap && !modeRemote && reporting && packet_needed)
-        KEYBOARD_AddBufferAUX(&packet[0], packet_size);
-    else
-        PIC_ActivateIRQ(12);
+    if (!modeWrap && !modeRemote && reporting && packet_needed) {
+        return KEYBOARD_AddBufferAUX(&packet[0], packet_size);
+    }
+
+    return false;
 }
 
 bool MousePS2_WithDrawPacket() {

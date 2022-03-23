@@ -107,11 +107,10 @@ static void KEYBOARD_AddBuffer(Bit8u data) {
 	}
 }
 
-void KEYBOARD_AddBufferAUX(Bit8u *data, Bit8u bytes) { /* For PS/2 mouse */
+bool KEYBOARD_AddBufferAUX(Bit8u *data, Bit8u bytes) { /* For PS/2 mouse */
 	if (keyb.used+bytes>KEYBUFSIZE) {
 		LOG(LOG_KEYBOARD,LOG_NORMAL)("Buffer full, dropping mouse codes");
-		PIC_ActivateIRQ(12); /* At least allow BIOS/DOS interfaces to work */
-		return;
+		return false;
 	}
 	Bitu start=keyb.pos+keyb.used;
 	for (Bit8u i=0; i<bytes; i++) {
@@ -125,30 +124,30 @@ void KEYBOARD_AddBufferAUX(Bit8u *data, Bit8u bytes) { /* For PS/2 mouse */
 		/* No need for more delay, we have PS/2 sampling rate emulated + host OS mouse lag :) */
 		PIC_AddEvent(KEYBOARD_TransferBuffer,0);
 	}
+	return true;
 }
 
 Bit8u KEYBOARD_ClrMsgAUX() { /* Needed by virtual BIOS/DOS mouse support */
-    Bit8u withdrawn=0;
+    Bit8u bytes=0;
 	keyb.auxchanged=false;
 	keyb.p60changed=false;
 	keyb.scheduled=false;
 	PIC_RemoveEvents(KEYBOARD_TransferBuffer);
 	if (!keyb.used) {
-		return withdrawn;
+		return bytes;
 	}
 	/* Drop everything that came from AUX (mouse) */
 	while (keyb.used && keyb.is_aux[(keyb.pos+keyb.used-1) % KEYBUFSIZE]){
 		keyb.pos = (keyb.pos+1) % KEYBUFSIZE;
 		keyb.used--;
-		withdrawn++;
+		bytes++;
 	}
 	/* If there is still something left in the buffer, schedule it */
 	if (keyb.used) {
 		keyb.scheduled=true;
 		PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);		
 	}
-
-	return withdrawn;
+	return bytes;
 }
 
 static uint8_t read_p60(io_port_t, io_width_t)

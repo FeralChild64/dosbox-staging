@@ -77,7 +77,8 @@ static inline void SendPacket() {
 
     timer_in_progress = true;
     PIC_AddEvent(EventHandler, GetEventDelay());
-    MousePS2_SendPacket(); // this will trigger IRQ 12 / INT 74
+    if (!MousePS2_SendPacket())
+        PIC_ActivateIRQ(12);
 }
 
 static void EventHandler(uint32_t /*val*/)
@@ -135,25 +136,29 @@ static Bitu INT74_Handler() {
     // XXX fix spamming INT74's under Windows 3.1; something to do with protected mode?
     // LOG_WARNING("XXX - SPAM SPAM SPAM");
 
-    if (events > 0 && !MouseDOS_CallbackInProgress()) {
-        events--;
+    if (!MouseDOS_CallbackInProgress()) {
 
-        // INT 33h emulation: HERE within the IRQ 12 handler is the appropriate place to
-        // redraw the cursor. OSes like Windows 3.1 expect real-mode code to do it in
-        // response to IRQ 12, not "out of the blue" from the SDL event handler like
-        // the original DOSBox code did it. Doing this allows the INT 33h emulation
-        // to draw the cursor while not causing Windows 3.1 to crash or behave
-        // erratically.
-        MouseDOS_DrawCursor();
+        if (events > 0) {
+            events--;
 
-        if (MouseDOS_HasCallback(event_queue[events].dos_type)) {
+            // INT 33h emulation: HERE within the IRQ 12 handler is the appropriate place to
+            // redraw the cursor. OSes like Windows 3.1 expect real-mode code to do it in
+            // response to IRQ 12, not "out of the blue" from the SDL event handler like
+            // the original DOSBox code did it. Doing this allows the INT 33h emulation
+            // to draw the cursor while not causing Windows 3.1 to crash or behave
+            // erratically.
+            MouseDOS_DrawCursor();
 
-            CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
-            CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)) + 7);
-            return MouseDOS_DoCallback(event_queue[events].dos_type, event_queue[events].buttons);
+            if (MouseDOS_HasCallback(event_queue[events].dos_type)) {
+                // To be handled by DOS driver
+                CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
+                CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)) + 7);
+                return MouseDOS_DoCallback(event_queue[events].dos_type, event_queue[events].buttons);
+            }
         }
-        else if (packet_found && MouseBIOS_HasCallback()) {
 
+        if (packet_found && MouseBIOS_HasCallback()) {
+            // To be handled by BIOS
             CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
             CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)));
             return MouseBIOS_DoCallback();
@@ -232,7 +237,8 @@ void Mouse_EventMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bo
 
 void MousePS2_NotifyMovedDummy() {
     // XXX provide a better implementation here - something might still be waiting in event queue
-    MousePS2_SendPacket(true);
+    if (!MousePS2_SendPacket(true))
+        PIC_ActivateIRQ(12);
 }
 
 void Mouse_EventPressed(Bit8u idx) {

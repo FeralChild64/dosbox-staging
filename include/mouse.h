@@ -94,7 +94,7 @@ void  MousePS2_Init();
 void  MousePS2_UpdateButtonSquish();
 float MousePS2_GetDelay();
 void  MousePS2_PortWrite(Bit8u byte);
-void  MousePS2_SendPacket(bool force = false);
+bool  MousePS2_SendPacket(bool force = false);
 bool  MousePS2_WithDrawPacket();
 
 // - needs relative movements
