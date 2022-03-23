@@ -49,7 +49,7 @@ static struct { Bit8u dos_type; Bit8u buttons; } event_queue[QUEUE_SIZE];
 static Bit8u    events;
 static bool     timer_in_progress;
 
-static Bitu     call_int74, int74_ret_callback;
+static Bitu     int74_ret_callback;
 static bool     int74_used;                   // true = our virtual INT74 callback is actually used, not overridden
 static Bit8u    int74_needed_countdown;       // counter to detect above value
 
@@ -309,7 +309,7 @@ void Mouse_EventWheel(Bit32s w_rel) {
 void MOUSE_Init(Section* /*sec*/) {
 
     // Callback for ps2 irq
-    call_int74 = CALLBACK_Allocate();
+    Bitu call_int74 = CALLBACK_Allocate();
     CALLBACK_Setup(call_int74, &INT74_Handler, CB_IRQ12, "int 74");
     // pseudocode for CB_IRQ12:
     //    sti

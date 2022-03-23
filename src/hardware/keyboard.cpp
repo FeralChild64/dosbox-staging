@@ -31,8 +31,6 @@
 #define KEYBUFSIZE 32
 #define KEYDELAY   0.300 // Considering 20-30 khz serial clock and 11 bits/char
 
-#define AUX        0x100 // Marker for bytes coming from AUX (mouse) PS/2 port
-
 using namespace bit::literals;
 
 enum KeyCommands {
@@ -44,7 +42,8 @@ enum KeyCommands {
 };
 
 static struct {
-    Bit16u buffer[KEYBUFSIZE];
+    Bit8u buffer[KEYBUFSIZE];
+    bool  is_aux[KEYBUFSIZE]; // true = corresponding byte came from AUX (mouse) port
 	Bitu used;
 	Bitu pos;
 	struct {
@@ -61,13 +60,12 @@ static struct {
 	bool scheduled;
 } keyb;
 
-static void KEYBOARD_SetPort60(Bit16u val) {
-	keyb.auxchanged=(val&AUX)>0;
+static void KEYBOARD_SetPort60(Bit8u val, bool is_aux=false) {
+	keyb.auxchanged=is_aux;
 	keyb.p60changed=true;
 	keyb.p60data=val&0xff;
-    if (keyb.auxchanged) {
+    if (is_aux)
         PIC_ActivateIRQ(12);
-    }
     else {
 		if (machine==MCH_PCJR) PIC_ActivateIRQ(6);
 		else PIC_ActivateIRQ(1);
@@ -81,8 +79,8 @@ static void KEYBOARD_TransferBuffer(uint32_t /*val*/)
 		LOG(LOG_KEYBOARD,LOG_NORMAL)("Transfer started with empty buffer");
 		return;
 	}
-	KEYBOARD_SetPort60(keyb.buffer[keyb.pos]);
-	if (++keyb.pos >= KEYBUFSIZE) keyb.pos -= KEYBUFSIZE;
+	KEYBOARD_SetPort60(keyb.buffer[keyb.pos], keyb.is_aux[keyb.pos]);
+	keyb.pos = (keyb.pos+1) % KEYBUFSIZE;
 	keyb.used--;
 }
 
@@ -100,6 +98,7 @@ static void KEYBOARD_AddBuffer(Bit8u data) {
 	}
 	Bitu start=(keyb.pos+keyb.used) % KEYBUFSIZE;
 	keyb.buffer[start]=data;
+	keyb.is_aux[start]=false;
 	keyb.used++;
 	/* Start up an event to start the first IRQ */
 	if (!keyb.scheduled && !keyb.p60changed) {
@@ -115,8 +114,10 @@ void KEYBOARD_AddBufferAUX(Bit8u *data, Bit8u bytes) { /* For PS/2 mouse */
 		return;
 	}
 	Bitu start=keyb.pos+keyb.used;
-	for (Bit8u i=0; i<bytes; i++)
-		keyb.buffer[(start+i) % KEYBUFSIZE]=*(data+i) | AUX;
+	for (Bit8u i=0; i<bytes; i++) {
+		keyb.buffer[(start+i) % KEYBUFSIZE]=*(data+i);
+		keyb.is_aux[(start+i) % KEYBUFSIZE]=true;
+	}
 	keyb.used+=bytes;
 	/* Start up an event to start the first IRQ */
 	if (!keyb.scheduled && !keyb.p60changed) {
@@ -136,7 +137,7 @@ Bit8u KEYBOARD_ClrMsgAUX() { /* Needed by virtual BIOS/DOS mouse support */
 		return withdrawn;
 	}
 	/* Drop everything that came from AUX (mouse) */
-	while (keyb.used && (keyb.buffer[keyb.pos+keyb.used-1]&AUX)){
+	while (keyb.used && keyb.is_aux[(keyb.pos+keyb.used-1) % KEYBUFSIZE]){
 		keyb.pos = (keyb.pos+1) % KEYBUFSIZE;
 		keyb.used--;
 		withdrawn++;
