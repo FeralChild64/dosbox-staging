@@ -48,7 +48,7 @@ static struct { // DOS driver state, can be stored/restored to/from guest memory
 
     Bit8u    buttons;
     float    x, y;
-    Bit16s   wheel;                        // NOTE: only fetch this via 'MouseDOS_GetResetWheel*' calls!
+    Bit16s   wheel;
 
     float    mickey_x, mickey_y;
 
@@ -104,11 +104,8 @@ static struct { // DOS driver state, can be stored/restored to/from guest memory
 
 } driver_state;
 
-Bitu     call_int33;
-Bitu     call_mouse_bd;
-Bitu     call_uir;
-RealPt   uir_callback;
-bool     in_UIR;
+static RealPt   uir_callback;
+static bool     in_UIR;
 
 // ***************************************************************************
 // Data - cursor/mask
@@ -376,19 +373,19 @@ void MouseDOS_DrawCursor() {
 // DOS driver interface implementation
 // ***************************************************************************
 
-static inline Bit8u MouseDOS_GetResetWheel8bit() {
+static inline Bit8u GetResetWheel8bit() {
     Bit8s tmp = std::clamp(driver_state.wheel, static_cast<Bit16s>(-0x80), static_cast<Bit16s>(0x7F));
     driver_state.wheel = 0;
     return (tmp >= 0) ? tmp : 0x100 + tmp;
 }
 
-static inline Bit16u MouseDOS_GetResetWheel16bit() {
+static inline Bit16u GetResetWheel16bit() {
     Bit16s tmp = (driver_state.wheel >= 0) ? driver_state.wheel : 0x10000 + driver_state.wheel;
     driver_state.wheel = 0;
     return tmp;
 }
 
-static void MouseDOS_SetMickeyPixelRate(Bit16s px, Bit16s py) {
+static void SetMickeyPixelRate(Bit16s px, Bit16s py) {
     if ((px != 0) && (py != 0)) {
         driver_state.mickeysPerPixel_x  = static_cast<float>(px) / X_MICKEY;
         driver_state.mickeysPerPixel_y  = static_cast<float>(py) / Y_MICKEY;
@@ -397,7 +394,7 @@ static void MouseDOS_SetMickeyPixelRate(Bit16s px, Bit16s py) {
     }
 }
 
-static void MouseDOS_SetSensitivity(Bit16u px, Bit16u py, Bit16u dspeed) {
+static void SetSensitivity(Bit16u px, Bit16u py, Bit16u dspeed) {
     px     = std::min(static_cast<Bit16u>(100), px);
     py     = std::min(static_cast<Bit16u>(100), py);
     dspeed = std::min(static_cast<Bit16u>(100), dspeed);
@@ -413,7 +410,7 @@ static void MouseDOS_SetSensitivity(Bit16u px, Bit16u py, Bit16u dspeed) {
      }
 }
 
-static void MouseDOS_ResetHardware() {
+static void ResetHardware() {
     PIC_SetIRQMask(12, false);
 }
 
@@ -496,11 +493,11 @@ void MouseDOS_AfterNewVideoMode(bool setmode) {
 }
 
 // FIXME: Much too empty, Mouse_NewVideoMode contains stuff that should be in here
-static void MouseDOS_Reset()
+static void Reset()
 {
     MouseDOS_BeforeNewVideoMode();
     MouseDOS_AfterNewVideoMode(false);
-    MouseDOS_SetMickeyPixelRate(8, 16);
+    SetMickeyPixelRate(8, 16);
 
     driver_state.mickey_x   = 0;
     driver_state.mickey_y   = 0;
@@ -601,12 +598,12 @@ static Bitu INT33_Handler() {
 //    LOG(LOG_MOUSE,LOG_NORMAL)("MOUSE: %04X %X %X %d %d",reg_ax,reg_bx,reg_cx,GETPOS_X,GETPOS_Y);
     switch (reg_ax) {
     case 0x00: // MS MOUSE - reset driver and read status
-        MouseDOS_ResetHardware();
+        ResetHardware();
         [[fallthrough]];
     case 0x21: // MS MOUSE v6.0+ - software reset
         reg_ax = 0xffff;
         reg_bx = NUM_BUTTONS;
-        MouseDOS_Reset();
+        Reset();
         break;
     case 0x01: // MS MOUSE v1.0+ - show mouse cursor
         if (driver_state.hidden) driver_state.hidden--;
@@ -623,7 +620,7 @@ static Bitu INT33_Handler() {
     case 0x03: // MS MOUSE v1.0+ / CuteMouse - return position and button status
         {
             reg_bl = driver_state.buttons;
-            reg_bh = MouseDOS_GetResetWheel8bit(); // CuteMouse clears mouse wheel status here
+            reg_bh = GetResetWheel8bit(); // CuteMouse clears mouse wheel status here
             reg_cx = GETPOS_X;
             reg_dx = GETPOS_Y;
         }
@@ -645,7 +642,7 @@ static Bitu INT33_Handler() {
         {
             Bit16u but = reg_bx;
             if (but == 0xffff){
-                reg_bx = MouseDOS_GetResetWheel16bit();
+                reg_bx = GetResetWheel16bit();
                 reg_cx = driver_state.last_wheel_moved_x;
                 reg_dx = driver_state.last_wheel_moved_y;
             } else {
@@ -662,7 +659,7 @@ static Bitu INT33_Handler() {
         {
             Bit16u but = reg_bx;
             if (but == 0xffff){
-                reg_bx = MouseDOS_GetResetWheel16bit();
+                reg_bx = GetResetWheel16bit();
                 reg_cx = driver_state.last_wheel_moved_x;
                 reg_dx = driver_state.last_wheel_moved_y;
             } else {
@@ -762,7 +759,7 @@ static Bitu INT33_Handler() {
         LOG(LOG_MOUSE,LOG_ERROR)("Mouse light pen emulation not implemented");
         break;
     case 0x0f: // MS MOUSE v1.0+ - define mickey/pixel rate
-        MouseDOS_SetMickeyPixelRate(reg_cx, reg_dx);
+        SetMickeyPixelRate(reg_cx, reg_dx);
         break;
     case 0x10: // MS MOUSE v1.0+ - define screen region for updating
         driver_state.updateRegion_x[0] = (Bit16s) reg_cx;
@@ -824,7 +821,7 @@ static Bitu INT33_Handler() {
         break;
     case 0x1a: // MS MOUSE v6.0+ - set mouse sensitivity
         // FIXME : double mouse speed value
-        MouseDOS_SetSensitivity(reg_bx, reg_cx, reg_dx);
+        SetSensitivity(reg_bx, reg_cx, reg_dx);
 
         LOG(LOG_MOUSE,LOG_WARN)("Set sensitivity used with %d %d (%d)",reg_bx,reg_cx,reg_dx);
         break;
@@ -1041,7 +1038,7 @@ Bitu MouseDOS_DoCallback(Bit8u type, Bit8u buttons) {
 
     reg_ax = type;
     reg_bl = buttons;
-    reg_bh = MouseDOS_GetResetWheel8bit();
+    reg_bh = GetResetWheel8bit();
     reg_cx = GETPOS_X;
     reg_dx = GETPOS_Y;
     reg_si = static_cast<Bit16s>(driver_state.mickey_x);
@@ -1057,14 +1054,14 @@ Bitu MouseDOS_DoCallback(Bit8u type, Bit8u buttons) {
 
 void MouseDOS_Init() {
     // Callback for mouse interrupt 0x33
-    call_int33 = CALLBACK_Allocate();
+    Bitu call_int33 = CALLBACK_Allocate();
     // RealPt i33loc = RealMake(CB_SEG + 1,(call_int33 * CB_SIZE) - 0x10);
     RealPt i33loc = RealMake(DOS_GetMemory(0x1) - 1, 0x10);
     CALLBACK_Setup(call_int33, &INT33_Handler, CB_MOUSE, Real2Phys(i33loc), "Mouse");
     // Wasteland needs low(seg(int33))!=0 and low(ofs(int33))!=0
     real_writed(0, 0x33 << 2, i33loc);
 
-    call_mouse_bd=CALLBACK_Allocate();
+    Bitu call_mouse_bd=CALLBACK_Allocate();
     CALLBACK_Setup(call_mouse_bd, &MOUSE_BD_Handler, CB_RETF8, PhysMake(RealSeg(i33loc), RealOff(i33loc) + 2), "MouseBD");
     // pseudocode for CB_MOUSE (including the special backdoor entry point):
     //    jump near i33hd
@@ -1075,7 +1072,7 @@ void MouseDOS_Init() {
     //    iret
 
     // Callback for mouse user routine return
-    call_uir = CALLBACK_Allocate();
+    Bit8u call_uir = CALLBACK_Allocate();
     CALLBACK_Setup(call_uir, &UIR_Handler, CB_RETF_CLI, "mouse uir ret");
     uir_callback = CALLBACK_RealPointer(call_uir);
 
@@ -1084,7 +1081,7 @@ void MouseDOS_Init() {
     driver_state.hidden  = 1;      // hide cursor on startup
     driver_state.mode    = 0xff;   // non-existing mode
 
-    MouseDOS_ResetHardware();
-    MouseDOS_Reset();
-    MouseDOS_SetSensitivity(50, 50, 50);
+    ResetHardware();
+    Reset();
+    SetSensitivity(50, 50, 50);
 }

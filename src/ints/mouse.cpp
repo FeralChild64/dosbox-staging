@@ -42,14 +42,16 @@ static const Bit8u QUEUE_SIZE  = 32; // if over 255, increase 'events' size
 
 static const Bit8u KEY_MASKS[] = { 0x01, 0x02, 0x04, 0x08, 0x10 }; // XXX utilize bit manipulation from DOSBox Staging instead
 
-Bit8u    buttons_12;                   // state of buttons 1 (left), 2 (right), as visible on host side
-Bit8u    buttons_345;                  // state of mouse buttons 3 (middle), 4, and 5 as visible on host side
+static Bit8u    buttons_12;                   // state of buttons 1 (left), 2 (right), as visible on host side
+static Bit8u    buttons_345;                  // state of mouse buttons 3 (middle), 4, and 5 as visible on host side
 
-struct { Bit8u type; Bit8u buttons; } event_queue[QUEUE_SIZE]; // XXX rename to reflect that this is only DOS related
-Bit8u    events;
-bool     timer_in_progress;
+static struct { Bit8u type; Bit8u buttons; } event_queue[QUEUE_SIZE]; // XXX rename to reflect that this is only DOS related
+static Bit8u    events;
+static bool     timer_in_progress;
 
-Bitu     call_int74, int74_ret_callback;
+static Bitu     call_int74, int74_ret_callback;
+static bool     int74_used;                   // true = our virtual INT74 callback is actually used, not overridden
+static Bit8u    int74_needed_countdown;       // counter to detect above value
 
 MouseInfoConfig mouse_config;
 MouseInfoVideo  mouse_video;
@@ -58,14 +60,30 @@ MouseInfoVideo  mouse_video;
 // Queue / interrupt 74 implementation
 // ***************************************************************************
 
+static void EventHandler(uint32_t); // forward devlaration
+
+static inline float GetEventDelay() {
+    if (int74_used && MouseDOS_HasCallback(0xff))
+        return 5.0f; // 200 Hz sampling rate
+
+    return MousePS2_GetDelay();
+}
+
+static inline void SendPacket() {
+    if (int74_needed_countdown > 0)
+        int74_needed_countdown--;
+    else
+        int74_used = false;
+
+    timer_in_progress = true;
+    PIC_AddEvent(EventHandler, GetEventDelay());
+    MousePS2_SendPacket(); // this will trigger IRQ 12 / INT 74
+}
+
 static void EventHandler(uint32_t /*val*/)
 {
     timer_in_progress = false;
-    if (events) {
-        timer_in_progress = true;
-        PIC_AddEvent(EventHandler, 5.0); // XXX arbitrate delay between PS/2 and maximum one
-        MousePS2_SendPacket(); // this will trigger IRQ 12 / INT 74
-    }
+    if (events) SendPacket();
 }
 
 static void AddEvent(Bit8u type) {
@@ -83,11 +101,7 @@ static void AddEvent(Bit8u type) {
         events++;
     }
 
-    if (!timer_in_progress) {
-        timer_in_progress = true;
-        PIC_AddEvent(EventHandler, 5.0); // XXX arbitrate delay between PS/2 and maximum one
-        MousePS2_SendPacket(); // this willl trigger IRQ 12 / INT 74
-    }
+    if (!timer_in_progress) SendPacket();
 }
 
 static inline DOS_EV SelectEventPressed(Bit8u idx, bool changed_12S) {
@@ -113,9 +127,13 @@ static inline DOS_EV SelectEventReleased(Bit8u idx, bool changed_12S) {
 }
 
 static Bitu INT74_Handler() {
+    int74_used = true;
+    int74_needed_countdown = 5;
+
     KEYBOARD_ClrMsgAUX(); // XXX it should probably only clear last 3 or 4 bytes, depending on last packet size
 
-    // XXX fix spamming INT74's under Windows 3.1
+    // XXX fix spamming INT74's under Windows 3.1; something to do with protected mode?
+    // LOG_WARNING("XXX - SPAM SPAM SPAM");
 
     if (events > 0 && !MouseDOS_CallbackInProgress()) {
         events--;
@@ -153,7 +171,7 @@ Bitu INT74_Ret_Handler() {
     if (events) {
         if (!timer_in_progress) {
             timer_in_progress = true;
-            PIC_AddEvent(EventHandler, 5.0); // XXX arbitrate delay between PS/2 and maximum one
+            PIC_AddEvent(EventHandler, GetEventDelay());
         }
     }
     return CBRET_NONE;
@@ -213,7 +231,8 @@ void Mouse_EventMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bo
 }
 
 void MousePS2_NotifyMovedDummy() {
-    AddEvent(DOS_EV::MOUSE_MOVED); // XXX we need a better implementation, only touching PS/2
+    // XXX we need a better implementation here - something might still be waiting in event queue
+    MousePS2_SendPacket(true);
 }
 
 void Mouse_EventPressed(Bit8u idx) {
