@@ -94,8 +94,9 @@ void  MousePS2_Init();
 void  MousePS2_UpdateButtonSquish();
 float MousePS2_GetDelay();
 void  MousePS2_PortWrite(Bit8u byte);
-bool  MousePS2_SendPacket(bool force = false);
-bool  MousePS2_WithDrawPacket();
+bool  MousePS2_SendPacket();
+Bit8u MousePS2_UpdatePacket();
+void  MousePS2_WithDrawPacket();
 
 // - needs relative movements
 // - understands up to 5 buttons in Intellimouse Explorer mode

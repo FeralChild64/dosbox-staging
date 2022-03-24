@@ -182,9 +182,8 @@ static inline void ResetCounters() {
     wheel   = 0;
 }
 
-bool MousePS2_SendPacket(bool force) {
-
-    bool packet_needed = force;
+Bit8u MousePS2_UpdatePacket() {
+    bool packet_needed = false;
 
     Bit8u  mdat = (buttons & 0x07) | 0x08;
     Bit16s dx   = static_cast<Bit16s>(std::round(delta_x));
@@ -245,19 +244,21 @@ bool MousePS2_SendPacket(bool force) {
     else
         packet[3] = 0;
 
-    if (!modeWrap && !modeRemote && reporting && packet_needed) {
+    return packet_needed ? packet_size : 0;
+}
+
+bool MousePS2_SendPacket() {
+    Bit8u packet_size = MousePS2_UpdatePacket();
+
+    if (!modeWrap && !modeRemote && reporting && packet_size) {
         return KEYBOARD_AddBufferAUX(&packet[0], packet_size);
     }
 
     return false;
 }
 
-bool MousePS2_WithDrawPacket() {
-    auto bytes = KEYBOARD_ClrMsgAUX();
-    if ((type != PS2_TYPE::XP && bytes >= 3) || (bytes >= 4))
-        return true;
-
-    return false;
+void MousePS2_WithDrawPacket() {
+    KEYBOARD_ClrMsgAUX();
 }
 
 static void CmdSetResolution(Bit8u counts_mm) {

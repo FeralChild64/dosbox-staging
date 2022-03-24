@@ -77,7 +77,11 @@ static inline void SendPacket() {
 
     timer_in_progress = true;
     PIC_AddEvent(EventHandler, GetEventDelay());
-    if (!MousePS2_SendPacket())
+    if (!int74_used || MouseBIOS_HasCallback()) {
+        MousePS2_UpdatePacket();
+        PIC_ActivateIRQ(12);
+    }
+    else if (!MousePS2_SendPacket())
         PIC_ActivateIRQ(12);
 }
 
@@ -129,13 +133,9 @@ static inline DOS_EV SelectEventReleased(Bit8u idx, bool changed_12S) {
 
 static Bitu INT74_Handler() {
     int74_used = true;
-    int74_needed_countdown = 5;
+    int74_needed_countdown = 3;
 
-    bool packet_found = MousePS2_WithDrawPacket();
-
-    // XXX fix spamming INT74's under Windows 3.1; something to do with protected mode?
-    // LOG_WARNING("XXX - SPAM SPAM SPAM");
-
+    MousePS2_WithDrawPacket();
     if (!MouseDOS_CallbackInProgress()) {
 
         if (events > 0) {
@@ -157,7 +157,7 @@ static Bitu INT74_Handler() {
             }
         }
 
-        if (packet_found && MouseBIOS_HasCallback()) {
+        if (MouseBIOS_HasCallback()) { // XXX only do this if something new is to be reported
             // To be handled by BIOS
             CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
             CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)));
@@ -237,8 +237,8 @@ void Mouse_EventMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bo
 
 void MousePS2_NotifyMovedDummy() {
     // XXX provide a better implementation here - something might still be waiting in event queue
-    if (!MousePS2_SendPacket(true))
-        PIC_ActivateIRQ(12);
+    MousePS2_UpdatePacket();
+    PIC_ActivateIRQ(12);
 }
 
 void Mouse_EventPressed(Bit8u idx) {
