@@ -33,8 +33,8 @@
 // Reference:
 // - https://www.ctyme.com/intr/int-33.htm
 
-#define GETPOS_X        (static_cast<Bit16s>(driver_state.x) & driver_state.gran_x)
-#define GETPOS_Y        (static_cast<Bit16s>(driver_state.y) & driver_state.gran_y)
+#define GETPOS_X        (static_cast<int16_t>(driver_state.x) & driver_state.gran_x)
+#define GETPOS_Y        (static_cast<int16_t>(driver_state.y) & driver_state.gran_y)
 #define X_CURSOR        16
 #define Y_CURSOR        16
 #define X_MICKEY        8
@@ -44,100 +44,100 @@
 
 static struct { // DOS driver state, can be stored/restored to/from guest memory
 
-    bool     enabled;
+    bool      enabled;
 
-    Bit8u    buttons;
-    float    x, y;
-    Bit16s   wheel;
+    uint8_t   buttons;
+    float     x, y;
+    int16_t   wheel;
 
-    float    mickey_x, mickey_y;
+    float     mickey_x, mickey_y;
 
-    Bit16u   times_pressed[NUM_BUTTONS];
-    Bit16u   times_released[NUM_BUTTONS];
-    Bit16u   last_released_x[NUM_BUTTONS];
-    Bit16u   last_released_y[NUM_BUTTONS];
-    Bit16u   last_pressed_x[NUM_BUTTONS];
-    Bit16u   last_pressed_y[NUM_BUTTONS];
-    Bit16u   last_wheel_moved_x;
-    Bit16u   last_wheel_moved_y;
+    uint16_t  times_pressed[NUM_BUTTONS];
+    uint16_t  times_released[NUM_BUTTONS];
+    uint16_t  last_released_x[NUM_BUTTONS];
+    uint16_t  last_released_y[NUM_BUTTONS];
+    uint16_t  last_pressed_x[NUM_BUTTONS];
+    uint16_t  last_pressed_y[NUM_BUTTONS];
+    uint16_t  last_wheel_moved_x;
+    uint16_t  last_wheel_moved_y;
 
-    float    mickeysPerPixel_x, mickeysPerPixel_y;
-    float    pixelPerMickey_x,  pixelPerMickey_y;
+    float     mickeysPerPixel_x, mickeysPerPixel_y;
+    float     pixelPerMickey_x,  pixelPerMickey_y;
 
-    Bit16s   min_x, max_x, min_y, max_y;
-    Bit16s   gran_x, gran_y;
+    int16_t   min_x, max_x, min_y, max_y;
+    int16_t   gran_x, gran_y;
 
-    Bit16s   updateRegion_x[2];
-    Bit16s   updateRegion_y[2];
+    int16_t   updateRegion_x[2];
+    int16_t   updateRegion_y[2];
 
-    Bit16u   doubleSpeedThreshold; // FIXME: this should affect mouse movement
+    uint16_t  doubleSpeedThreshold; // FIXME: this should affect mouse movement
 
-    Bit16u   language;
-    Bit8u    page;
-    Bit8u    mode;
+    uint16_t  language;
+    uint8_t   page;
+    uint8_t   mode;
 
     // sensitivity
-    Bit16u   senv_x_val;
-    Bit16u   senv_y_val;
-    Bit16u   dspeed_val; // FIXME: this should affect mouse movement
-    float    senv_x;
-    float    senv_y;
+    uint16_t  senv_x_val;
+    uint16_t  senv_y_val;
+    uint16_t  dspeed_val; // FIXME: this should affect mouse movement
+    float     senv_x;
+    float     senv_y;
 
     // mouse cursor
-    bool     inhibit_draw;
-    Bit16u   hidden;
-    Bit16u   oldhidden;
-    bool     background;
-    Bit16s   backposx, backposy;
-    Bit8u    backData[X_CURSOR * Y_CURSOR];
-    Bit16u*  screenMask;
-    Bit16u*  cursorMask;
-    Bit16s   clipx, clipy;
-    Bit16s   hotx, hoty;
-    Bit16u   textAndMask, textXorMask;
-    Bit16u   cursorType;
+    bool      inhibit_draw;
+    uint16_t  hidden;
+    uint16_t  oldhidden;
+    bool      background;
+    int16_t   backposx, backposy;
+    uint8_t   backData[X_CURSOR * Y_CURSOR];
+    uint16_t* screenMask;
+    uint16_t* cursorMask;
+    int16_t   clipx, clipy;
+    int16_t   hotx, hoty;
+    uint16_t  textAndMask, textXorMask;
+    uint16_t  cursorType;
 
     // user callback
-    Bit16u   sub_mask;
-    Bit16u   sub_seg;
-    Bit16u   sub_ofs;
+    uint16_t  sub_mask;
+    uint16_t  sub_seg;
+    uint16_t  sub_ofs;
 
 } driver_state;
 
-static RealPt   uir_callback;
-static bool     in_UIR;
+static RealPt uir_callback;
+static bool   in_UIR;
 
 // ***************************************************************************
 // Data - cursor/mask
 // ***************************************************************************
 
-static constexpr Bit16u DEFAULT_TEXT_AND_MASK = 0x77FF;
-static constexpr Bit16u DEFAULT_TEXT_XOR_MASK = 0x7700;
+static constexpr uint16_t DEFAULT_TEXT_AND_MASK = 0x77FF;
+static constexpr uint16_t DEFAULT_TEXT_XOR_MASK = 0x7700;
 
-static Bit16u DEFAULT_SCREEN_MASK[Y_CURSOR] = {
+static uint16_t DEFAULT_SCREEN_MASK[Y_CURSOR] = {
     0x3FFF, 0x1FFF, 0x0FFF, 0x07FF,
     0x03FF, 0x01FF, 0x00FF, 0x007F,
     0x003F, 0x001F, 0x01FF, 0x00FF,
     0x30FF, 0xF87F, 0xF87F, 0xFCFF
 };
 
-static Bit16u DEFAULT_CURSOR_MASK[Y_CURSOR] = {
+static uint16_t DEFAULT_CURSOR_MASK[Y_CURSOR] = {
     0x0000, 0x4000, 0x6000, 0x7000,
     0x7800, 0x7C00, 0x7E00, 0x7F00,
     0x7F80, 0x7C00, 0x6C00, 0x4600,
     0x0600, 0x0300, 0x0300, 0x0000
 };
 
-static Bit16u userdefScreenMask[Y_CURSOR];
-static Bit16u userdefCursorMask[Y_CURSOR];
+static uint16_t userdefScreenMask[Y_CURSOR];
+static uint16_t userdefCursorMask[Y_CURSOR];
 
 // ***************************************************************************
 // Text mode cursor
 // ***************************************************************************
 
 // Write and read directly to the screen. Do no use int_setcursorpos (LOTUS123)
-extern void WriteChar(Bit16u col, Bit16u row, Bit8u page, Bit8u chr, Bit8u attr, bool useattr);
-extern void ReadCharAttr(Bit16u col, Bit16u row, Bit8u page, Bit16u * result);
+extern void WriteChar(uint16_t col, uint16_t row, uint8_t page, uint8_t chr, uint8_t attr, bool useattr);
+extern void ReadCharAttr(uint16_t col, uint16_t row, uint8_t page, uint16_t * result);
 
 void RestoreCursorBackgroundText() {
     if (driver_state.hidden || driver_state.inhibit_draw) return;
@@ -166,22 +166,22 @@ void DrawCursorText() {
     if (driver_state.mode < 2) driver_state.backposx >>= 1; 
 
     //use current page (CV program)
-    Bit8u page = real_readb(BIOSMEM_SEG,BIOSMEM_CURRENT_PAGE);
+    uint8_t page = real_readb(BIOSMEM_SEG,BIOSMEM_CURRENT_PAGE);
     
     if (driver_state.cursorType == 0) {
-        Bit16u result;
+        uint16_t result;
         ReadCharAttr(driver_state.backposx, driver_state.backposy, page, &result);
-        driver_state.backData[0] = (Bit8u) (result & 0xff);
-        driver_state.backData[1] = (Bit8u) (result >> 8);
+        driver_state.backData[0] = (uint8_t) (result & 0xff);
+        driver_state.backData[1] = (uint8_t) (result >> 8);
         driver_state.background  = true;
         // Write Cursor
         result = (result & driver_state.textAndMask) ^ driver_state.textXorMask;
-        WriteChar(driver_state.backposx, driver_state.backposy, page, (Bit8u) (result & 0xff), (Bit8u) (result >> 8), true);
+        WriteChar(driver_state.backposx, driver_state.backposy, page, (uint8_t) (result & 0xff), (uint8_t) (result >> 8), true);
     } else {
-        Bit16u address=page * real_readw(BIOSMEM_SEG,BIOSMEM_PAGE_SIZE);
+        uint16_t address=page * real_readw(BIOSMEM_SEG,BIOSMEM_PAGE_SIZE);
         address += (driver_state.backposy * real_readw(BIOSMEM_SEG,BIOSMEM_NB_COLS) + driver_state.backposx) * 2;
         address /= 2;
-        Bit16u cr = real_readw(BIOSMEM_SEG,BIOSMEM_CRTC_ADDRESS);
+        uint16_t cr = real_readw(BIOSMEM_SEG,BIOSMEM_CRTC_ADDRESS);
         IO_Write(cr    , 0xe);
         IO_Write(cr + 1, (address >> 8) & 0xff);
         IO_Write(cr    , 0xf);
@@ -193,12 +193,12 @@ void DrawCursorText() {
 // Graphic mode cursor
 // ***************************************************************************
 
-static Bit8u gfxReg3CE[9];
-static Bit8u index3C4, gfxReg3C5;
+static uint8_t gfxReg3CE[9];
+static uint8_t index3C4, gfxReg3C5;
 
 static void SaveVgaRegisters() {
     if (IS_VGA_ARCH) {
-        for (Bit8u i=0; i<9; i++) {
+        for (uint8_t i=0; i<9; i++) {
             IO_Write    (0x3CE,i);
             gfxReg3CE[i] = IO_Read(0x3CF);
         }
@@ -218,7 +218,7 @@ static void SaveVgaRegisters() {
 
 static void RestoreVgaRegisters() {
     if (IS_VGA_ARCH) {
-        for (Bit8u i=0; i<9; i++) {
+        for (uint8_t i=0; i<9; i++) {
             IO_Write(0x3CE,i);
             IO_Write(0x3CF,gfxReg3CE[i]);
         }
@@ -229,8 +229,8 @@ static void RestoreVgaRegisters() {
     }
 }
 
-static void ClipCursorArea(Bit16s& x1, Bit16s& x2, Bit16s& y1, Bit16s& y2,
-                           Bit16u& addx1, Bit16u& addx2, Bit16u& addy) {
+static void ClipCursorArea(int16_t& x1, int16_t& x2, int16_t& y1, int16_t& y2,
+                           uint16_t& addx1, uint16_t& addx2, uint16_t& addy) {
     addx1 = addx2 = addy = 0;
     // Clip up
     if (y1 < 0) {
@@ -259,13 +259,13 @@ static void RestoreCursorBackground() {
     SaveVgaRegisters();
     if (driver_state.background) {
         // Restore background
-        Bit16s x, y;
-        Bit16u addx1, addx2, addy;
-        Bit16u dataPos = 0;
-        Bit16s x1      = driver_state.backposx;
-        Bit16s y1      = driver_state.backposy;
-        Bit16s x2      = x1 + X_CURSOR - 1;
-        Bit16s y2      = y1 + Y_CURSOR - 1;    
+        int16_t  x, y;
+        uint16_t addx1, addx2, addy;
+        uint16_t dataPos = 0;
+        int16_t  x1      = driver_state.backposx;
+        int16_t  y1      = driver_state.backposy;
+        int16_t  x2      = x1 + X_CURSOR - 1;
+        int16_t  y2      = y1 + Y_CURSOR - 1;    
 
         ClipCursorArea(x1, x2, y1, y2, addx1, addx2, addy);
 
@@ -311,11 +311,11 @@ void MouseDOS_DrawCursor() {
     // Get Clipping ranges
 
 
-    driver_state.clipx = (Bit16s) ((Bits) CurMode->swidth  - 1);    // Get from BIOS?
-    driver_state.clipy = (Bit16s) ((Bits) CurMode->sheight - 1);
+    driver_state.clipx = (int16_t) ((Bits) CurMode->swidth  - 1);    // Get from BIOS?
+    driver_state.clipy = (int16_t) ((Bits) CurMode->sheight - 1);
 
     /* might be vidmode == 0x13?2:1 */
-    Bit16s xratio = 640;
+    int16_t xratio = 640;
     if (CurMode->swidth>0) xratio/=CurMode->swidth;
     if (xratio==0) xratio = 1;
     
@@ -324,13 +324,13 @@ void MouseDOS_DrawCursor() {
     SaveVgaRegisters();
 
     // Save Background
-    Bit16s x, y;
-    Bit16u addx1, addx2, addy;
-    Bit16u dataPos   = 0;
-    Bit16s x1        = GETPOS_X / xratio - driver_state.hotx;
-    Bit16s y1        = GETPOS_Y - driver_state.hoty;
-    Bit16s x2        = x1 + X_CURSOR - 1;
-    Bit16s y2        = y1 + Y_CURSOR - 1;    
+    int16_t  x, y;
+    uint16_t addx1, addx2, addy;
+    uint16_t dataPos   = 0;
+    int16_t  x1        = GETPOS_X / xratio - driver_state.hotx;
+    int16_t  y1        = GETPOS_Y - driver_state.hoty;
+    int16_t  x2        = x1 + X_CURSOR - 1;
+    int16_t  y2        = y1 + Y_CURSOR - 1;    
 
     ClipCursorArea(x1,x2,y1,y2, addx1, addx2, addy);
 
@@ -349,11 +349,11 @@ void MouseDOS_DrawCursor() {
     // Draw Mousecursor
     dataPos = addy * X_CURSOR;
     for (y = y1; y <= y2; y++) {
-        Bit16u scMask = driver_state.screenMask[addy + y - y1];
-        Bit16u cuMask = driver_state.cursorMask[addy + y - y1];
+        uint16_t scMask = driver_state.screenMask[addy + y - y1];
+        uint16_t cuMask = driver_state.cursorMask[addy + y - y1];
         if (addx1 > 0) { scMask <<= addx1; cuMask <<= addx1; dataPos += addx1; };
         for (x = x1; x <= x2; x++) {
-            Bit8u pixel = 0;
+            uint8_t pixel = 0;
             // ScreenMask
             if (scMask & HIGHESTBIT) pixel = driver_state.backData[dataPos];
             scMask<<=1;
@@ -373,19 +373,19 @@ void MouseDOS_DrawCursor() {
 // DOS driver interface implementation
 // ***************************************************************************
 
-static inline Bit8u GetResetWheel8bit() {
-    Bit8s tmp = std::clamp(driver_state.wheel, static_cast<Bit16s>(-0x80), static_cast<Bit16s>(0x7F));
+static inline uint8_t GetResetWheel8bit() {
+    int8_t tmp = std::clamp(driver_state.wheel, static_cast<int16_t>(-0x80), static_cast<int16_t>(0x7F));
     driver_state.wheel = 0;
     return (tmp >= 0) ? tmp : 0x100 + tmp;
 }
 
-static inline Bit16u GetResetWheel16bit() {
-    Bit16s tmp = (driver_state.wheel >= 0) ? driver_state.wheel : 0x10000 + driver_state.wheel;
+static inline uint16_t GetResetWheel16bit() {
+    int16_t tmp = (driver_state.wheel >= 0) ? driver_state.wheel : 0x10000 + driver_state.wheel;
     driver_state.wheel = 0;
     return tmp;
 }
 
-static void SetMickeyPixelRate(Bit16s px, Bit16s py) {
+static void SetMickeyPixelRate(int16_t px, int16_t py) {
     if ((px != 0) && (py != 0)) {
         driver_state.mickeysPerPixel_x  = static_cast<float>(px) / X_MICKEY;
         driver_state.mickeysPerPixel_y  = static_cast<float>(py) / Y_MICKEY;
@@ -394,10 +394,10 @@ static void SetMickeyPixelRate(Bit16s px, Bit16s py) {
     }
 }
 
-static void SetSensitivity(Bit16u px, Bit16u py, Bit16u dspeed) {
-    px     = std::min(static_cast<Bit16u>(100), px);
-    py     = std::min(static_cast<Bit16u>(100), py);
-    dspeed = std::min(static_cast<Bit16u>(100), dspeed);
+static void SetSensitivity(uint16_t px, uint16_t py, uint16_t dspeed) {
+    px     = std::min(static_cast<uint16_t>(100), px);
+    py     = std::min(static_cast<uint16_t>(100), py);
+    dspeed = std::min(static_cast<uint16_t>(100), dspeed);
     // save values
     driver_state.senv_x_val = px;
     driver_state.senv_y_val = py;
@@ -429,10 +429,10 @@ void MouseDOS_BeforeNewVideoMode() {
 void MouseDOS_AfterNewVideoMode(bool setmode) {
     driver_state.inhibit_draw = false;
     // Get the correct resolution from the current video mode
-    Bit8u mode = mem_readb(BIOS_VIDEO_MODE);
+    uint8_t mode = mem_readb(BIOS_VIDEO_MODE);
     if (setmode && mode == driver_state.mode) LOG(LOG_MOUSE,LOG_NORMAL)("New video mode is the same as the old");
-    driver_state.gran_x = (Bit16s) 0xffff;
-    driver_state.gran_y = (Bit16s) 0xffff;
+    driver_state.gran_x = (int16_t) 0xffff;
+    driver_state.gran_y = (int16_t) 0xffff;
     switch (mode) {
     case 0x00:
     case 0x01:
@@ -440,7 +440,7 @@ void MouseDOS_AfterNewVideoMode(bool setmode) {
     case 0x03:
     case 0x07: {
         driver_state.gran_x = (mode < 2) ? 0xfff0 : 0xfff8;
-        driver_state.gran_y = (Bit16s) 0xfff8;
+        driver_state.gran_y = (int16_t) 0xfff8;
         Bitu rows = IS_EGAVGA_ARCH ? real_readb(BIOSMEM_SEG,BIOSMEM_NB_ROWS) : 24;
         if ((rows == 0) || (rows > 250)) rows = 25 - 1;
         driver_state.max_y = 8 * (rows + 1) - 1;
@@ -455,7 +455,7 @@ void MouseDOS_AfterNewVideoMode(bool setmode) {
     case 0x0d:
     case 0x0e:
     case 0x13:
-        if (mode == 0x0d || mode == 0x13) driver_state.gran_x = (Bit16s) 0xfffe;
+        if (mode == 0x0d || mode == 0x13) driver_state.gran_x = (int16_t) 0xfffe;
         driver_state.max_y = 199;
         break;
     case 0x0f:
@@ -506,7 +506,7 @@ static void Reset()
     driver_state.last_wheel_moved_x = 0;
     driver_state.last_wheel_moved_y = 0;
 
-    for (Bit16u but = 0; but < NUM_BUTTONS; but++) {
+    for (uint16_t but = 0; but < NUM_BUTTONS; but++) {
         driver_state.times_pressed[but]   = 0;
         driver_state.times_released[but]  = 0;
         driver_state.last_pressed_x[but]  = 0;
@@ -521,7 +521,7 @@ static void Reset()
     in_UIR                = false;
 }
 
-void MouseDOS_NotifyMoved(Bit32s x_rel, Bit32s y_rel, bool is_captured) {
+void MouseDOS_NotifyMoved(int32_t x_rel, int32_t y_rel, bool is_captured) {
 
     float x_rel_sens = x_rel * mouse_config.sensitivity_x;
     float y_rel_sens = y_rel * mouse_config.sensitivity_y;
@@ -568,7 +568,7 @@ void MouseDOS_NotifyMoved(Bit32s x_rel, Bit32s y_rel, bool is_captured) {
     if (driver_state.y < driver_state.min_y) driver_state.y = driver_state.min_y;
 }
 
-void MouseDOS_NotifyPressed(Bit8u buttons_12S, Bit8u idx) {
+void MouseDOS_NotifyPressed(uint8_t buttons_12S, uint8_t idx) {
     if (idx >= NUM_BUTTONS) return;
 
     driver_state.buttons = buttons_12S;
@@ -578,7 +578,7 @@ void MouseDOS_NotifyPressed(Bit8u buttons_12S, Bit8u idx) {
     driver_state.last_pressed_y[idx] = GETPOS_Y;
 }
 
-void MouseDOS_NotifyReleased(Bit8u buttons_12S, Bit8u idx) {
+void MouseDOS_NotifyReleased(uint8_t buttons_12S, uint8_t idx) {
     if (idx >= NUM_BUTTONS) return;
 
     driver_state.buttons = buttons_12S;
@@ -588,7 +588,7 @@ void MouseDOS_NotifyReleased(Bit8u buttons_12S, Bit8u idx) {
     driver_state.last_released_y[idx] = GETPOS_Y;
 }
 
-void MouseDOS_NotifyWheel(Bit32s w_rel) {
+void MouseDOS_NotifyWheel(int32_t w_rel) {
     driver_state.wheel = std::clamp(w_rel + driver_state.wheel, -0x8000, 0x7fff);
     driver_state.last_wheel_moved_x = GETPOS_X;
     driver_state.last_wheel_moved_y = GETPOS_Y;
@@ -629,18 +629,18 @@ static Bitu INT33_Handler() {
         // If position isn't different from current position, don't change it.
         // (position is rounded so numbers get lost when the rounded number is set)
         // (arena/simulation Wolf)
-        if ((Bit16s) reg_cx >= driver_state.max_x) driver_state.x = static_cast<float>(driver_state.max_x);
-        else if (driver_state.min_x >= (Bit16s) reg_cx) driver_state.x = static_cast<float>(driver_state.min_x); 
-        else if ((Bit16s) reg_cx != GETPOS_X) driver_state.x = static_cast<float>(reg_cx);
+        if ((int16_t) reg_cx >= driver_state.max_x) driver_state.x = static_cast<float>(driver_state.max_x);
+        else if (driver_state.min_x >= (int16_t) reg_cx) driver_state.x = static_cast<float>(driver_state.min_x); 
+        else if ((int16_t) reg_cx != GETPOS_X) driver_state.x = static_cast<float>(reg_cx);
 
-        if ((Bit16s) reg_dx >= driver_state.max_y) driver_state.y = static_cast<float>(driver_state.max_y);
-        else if (driver_state.min_y >= (Bit16s) reg_dx) driver_state.y = static_cast<float>(driver_state.min_y); 
-        else if ((Bit16s) reg_dx != GETPOS_Y) driver_state.y = static_cast<float>(reg_dx);
+        if ((int16_t) reg_dx >= driver_state.max_y) driver_state.y = static_cast<float>(driver_state.max_y);
+        else if (driver_state.min_y >= (int16_t) reg_dx) driver_state.y = static_cast<float>(driver_state.min_y); 
+        else if ((int16_t) reg_dx != GETPOS_Y) driver_state.y = static_cast<float>(reg_dx);
         MouseDOS_DrawCursor();
         break;
     case 0x05: // MS MOUSE v1.0+ / CuteMouse - return button press data / mouse wheel data
         {
-            Bit16u but = reg_bx;
+            uint16_t but = reg_bx;
             if (but == 0xffff){
                 reg_bx = GetResetWheel16bit();
                 reg_cx = driver_state.last_wheel_moved_x;
@@ -657,7 +657,7 @@ static Bitu INT33_Handler() {
         break;
     case 0x06: // MS MOUSE v1.0+ / CuteMouse - return button release data / mouse wheel data
         {
-            Bit16u but = reg_bx;
+            uint16_t but = reg_bx;
             if (but == 0xffff){
                 reg_bx = GetResetWheel16bit();
                 reg_cx = driver_state.last_wheel_moved_x;
@@ -676,13 +676,13 @@ static Bitu INT33_Handler() {
         {   // Lemmings set 1-640 and wants that. iron seeds set 0-640 but doesn't like 640
             // Iron seed works if newvideo mode with mode 13 sets 0-639
             // Larry 6 actually wants newvideo mode with mode 13 to set it to 0-319
-            Bit16s max, min;
-            if ((Bit16s) reg_cx < (Bit16s) reg_dx) {
-                min = (Bit16s) reg_cx;
-                max = (Bit16s) reg_dx;
+            int16_t max, min;
+            if ((int16_t) reg_cx < (int16_t) reg_dx) {
+                min = (int16_t) reg_cx;
+                max = (int16_t) reg_dx;
             } else {
-                min = (Bit16s) reg_dx;
-                max = (Bit16s) reg_cx;
+                min = (int16_t) reg_dx;
+                max = (int16_t) reg_cx;
             }
             driver_state.min_x = min;
             driver_state.max_x = max;
@@ -698,13 +698,13 @@ static Bitu INT33_Handler() {
         {   // not sure what to take instead of the CurMode (see case 0x07 as well)
             // especially the cases where sheight= 400 and we set it with the mouse_reset to 200
             // disabled it at the moment. Seems to break syndicate who want 400 in mode 13
-            Bit16s max, min;
-            if ((Bit16s) reg_cx < (Bit16s) reg_dx) {
-                min = (Bit16s) reg_cx;
-                max = (Bit16s) reg_dx;
+            int16_t max, min;
+            if ((int16_t) reg_cx < (int16_t) reg_dx) {
+                min = (int16_t) reg_cx;
+                max = (int16_t) reg_dx;
             } else {
-                min = (Bit16s) reg_dx;
-                max = (Bit16s) reg_cx;
+                min = (int16_t) reg_dx;
+                max = (int16_t) reg_cx;
             }
             driver_state.min_y = min;
             driver_state.max_y = max;
@@ -744,8 +744,8 @@ static Bitu INT33_Handler() {
         reg_bx = driver_state.textXorMask;
         [[fallthrough]];
     case 0x0b: // MS MOUSE v1.0+ - read motion data
-        reg_cx = static_cast<Bit16s>(driver_state.mickey_x);
-        reg_dx = static_cast<Bit16s>(driver_state.mickey_y);
+        reg_cx = static_cast<int16_t>(driver_state.mickey_x);
+        reg_dx = static_cast<int16_t>(driver_state.mickey_y);
         driver_state.mickey_x = 0;
         driver_state.mickey_y = 0;
         break;
@@ -762,10 +762,10 @@ static Bitu INT33_Handler() {
         SetMickeyPixelRate(reg_cx, reg_dx);
         break;
     case 0x10: // MS MOUSE v1.0+ - define screen region for updating
-        driver_state.updateRegion_x[0] = (Bit16s) reg_cx;
-        driver_state.updateRegion_y[0] = (Bit16s) reg_dx;
-        driver_state.updateRegion_x[1] = (Bit16s) reg_si;
-        driver_state.updateRegion_y[1] = (Bit16s) reg_di;
+        driver_state.updateRegion_x[0] = (int16_t) reg_cx;
+        driver_state.updateRegion_y[0] = (int16_t) reg_dx;
+        driver_state.updateRegion_x[1] = (int16_t) reg_si;
+        driver_state.updateRegion_y[1] = (int16_t) reg_di;
         MouseDOS_DrawCursor();
         break;
     case 0x11: // CuteMouse - get mouse capabilities
@@ -785,9 +785,9 @@ static Bitu INT33_Handler() {
          break;
     case 0x14: // MS MOUSE v3.0+ - exchange event-handler 
         {    
-            Bit16u oldSeg  = driver_state.sub_seg;
-            Bit16u oldOfs  = driver_state.sub_ofs;
-            Bit16u oldMask = driver_state.sub_mask;
+            uint16_t oldSeg  = driver_state.sub_seg;
+            uint16_t oldOfs  = driver_state.sub_ofs;
+            uint16_t oldMask = driver_state.sub_mask;
             // Set new values
             driver_state.sub_mask = reg_cx;
             driver_state.sub_seg  = SegValue(es);
@@ -882,8 +882,8 @@ static Bitu INT33_Handler() {
         break;
     case 0x26: // MS MOUSE v6.26+ - get maximum virtual coordinates
         reg_bx = (driver_state.enabled ? 0x0000 : 0xffff);
-        reg_cx = (Bit16u) driver_state.max_x;
-        reg_dx = (Bit16u) driver_state.max_y;
+        reg_cx = (uint16_t) driver_state.max_x;
+        reg_dx = (uint16_t) driver_state.max_y;
         break;
     case 0x28: // MS MOUSE v7.0+ - set video mode
         // TODO: According to PC sourcebook
@@ -904,9 +904,9 @@ static Bitu INT33_Handler() {
         LOG(LOG_MOUSE,LOG_ERROR)("Enumerate video modes not implemented");
         break;
     case 0x2a: // MS MOUSE v7.01+ - get cursor hot spot
-        reg_al = (Bit8u) -driver_state.hidden;    // Microsoft uses a negative byte counter for cursor visibility
-        reg_bx = (Bit16u) driver_state.hotx;
-        reg_cx = (Bit16u) driver_state.hoty;
+        reg_al = (uint8_t) -driver_state.hidden;    // Microsoft uses a negative byte counter for cursor visibility
+        reg_bx = (uint16_t) driver_state.hotx;
+        reg_cx = (uint16_t) driver_state.hoty;
         reg_dx = 0x04;    // PS/2 mouse type
         break;
     case 0x2b: // MS MOUSE v7.0+ - load acceleration profiles
@@ -928,10 +928,10 @@ static Bitu INT33_Handler() {
         LOG(LOG_MOUSE,LOG_ERROR)("Get/set BallPoint information not implemented");
         break;
     case 0x31: // MS MOUSE v7.05+ - get current minimum/maximum virtual coordinates
-        reg_ax = (Bit16u) driver_state.min_x;
-        reg_bx = (Bit16u) driver_state.min_y;
-        reg_cx = (Bit16u) driver_state.max_x;
-        reg_dx = (Bit16u) driver_state.max_y;
+        reg_ax = (uint16_t) driver_state.min_x;
+        reg_bx = (uint16_t) driver_state.min_y;
+        reg_cx = (uint16_t) driver_state.max_x;
+        reg_dx = (uint16_t) driver_state.max_y;
         break;
     case 0x32: // MS MOUSE v7.05+ - get active advanced functions
         LOG(LOG_MOUSE,LOG_ERROR)("Get active advanced functions not implemented");
@@ -961,15 +961,15 @@ static Bitu INT33_Handler() {
     return CBRET_NONE;
 }
 
-static Bitu MOUSE_BD_Handler() {
+static uintptr_t MOUSE_BD_Handler() {
     // the stack contains offsets to register values
-    Bit16u raxpt = real_readw(SegValue(ss), reg_sp + 0x0a);
-    Bit16u rbxpt = real_readw(SegValue(ss), reg_sp + 0x08);
-    Bit16u rcxpt = real_readw(SegValue(ss), reg_sp + 0x06);
-    Bit16u rdxpt = real_readw(SegValue(ss), reg_sp + 0x04);
+    uint16_t raxpt = real_readw(SegValue(ss), reg_sp + 0x0a);
+    uint16_t rbxpt = real_readw(SegValue(ss), reg_sp + 0x08);
+    uint16_t rcxpt = real_readw(SegValue(ss), reg_sp + 0x06);
+    uint16_t rdxpt = real_readw(SegValue(ss), reg_sp + 0x04);
 
     // read out the actual values, registers ARE overwritten
-    Bit16u rax=real_readw(SegValue(ds), raxpt);
+    uint16_t rax=real_readw(SegValue(ds), raxpt);
     reg_ax = rax;
     reg_bx = real_readw(SegValue(ds), rbxpt);
     reg_cx = real_readw(SegValue(ds), rcxpt);
@@ -1020,12 +1020,12 @@ static Bitu MOUSE_BD_Handler() {
     return CBRET_NONE;
 }
 
-Bitu UIR_Handler() {
+uintptr_t UIR_Handler() {
     in_UIR = false;
     return CBRET_NONE;
 }
 
-bool MouseDOS_HasCallback(Bit8u type) {
+bool MouseDOS_HasCallback(uint8_t type) {
     return driver_state.sub_mask & type;
 }
 
@@ -1033,7 +1033,7 @@ bool MouseDOS_CallbackInProgress() {
     return in_UIR;
 }
 
-Bitu MouseDOS_DoCallback(Bit8u type, Bit8u buttons) {
+uintptr_t MouseDOS_DoCallback(uint8_t type, uint8_t buttons) {
     in_UIR = true;
 
     reg_ax = type;
@@ -1041,8 +1041,8 @@ Bitu MouseDOS_DoCallback(Bit8u type, Bit8u buttons) {
     reg_bh = GetResetWheel8bit();
     reg_cx = GETPOS_X;
     reg_dx = GETPOS_Y;
-    reg_si = static_cast<Bit16s>(driver_state.mickey_x);
-    reg_di = static_cast<Bit16s>(driver_state.mickey_y);
+    reg_si = static_cast<int16_t>(driver_state.mickey_x);
+    reg_di = static_cast<int16_t>(driver_state.mickey_y);
 
     CPU_Push16(RealSeg(uir_callback));
     CPU_Push16(RealOff(uir_callback));
@@ -1054,14 +1054,14 @@ Bitu MouseDOS_DoCallback(Bit8u type, Bit8u buttons) {
 
 void MouseDOS_Init() {
     // Callback for mouse interrupt 0x33
-    Bitu call_int33 = CALLBACK_Allocate();
+    auto call_int33 = CALLBACK_Allocate();
     // RealPt i33loc = RealMake(CB_SEG + 1,(call_int33 * CB_SIZE) - 0x10);
     RealPt i33loc = RealMake(DOS_GetMemory(0x1) - 1, 0x10);
     CALLBACK_Setup(call_int33, &INT33_Handler, CB_MOUSE, Real2Phys(i33loc), "Mouse");
     // Wasteland needs low(seg(int33))!=0 and low(ofs(int33))!=0
     real_writed(0, 0x33 << 2, i33loc);
 
-    Bitu call_mouse_bd=CALLBACK_Allocate();
+    auto call_mouse_bd=CALLBACK_Allocate();
     CALLBACK_Setup(call_mouse_bd, &MOUSE_BD_Handler, CB_RETF8, PhysMake(RealSeg(i33loc), RealOff(i33loc) + 2), "MouseBD");
     // pseudocode for CB_MOUSE (including the special backdoor entry point):
     //    jump near i33hd
@@ -1072,7 +1072,7 @@ void MouseDOS_Init() {
     //    iret
 
     // Callback for mouse user routine return
-    Bit8u call_uir = CALLBACK_Allocate();
+    auto call_uir = CALLBACK_Allocate();
     CALLBACK_Setup(call_uir, &UIR_Handler, CB_RETF_CLI, "mouse uir ret");
     uir_callback = CALLBACK_RealPointer(call_uir);
 

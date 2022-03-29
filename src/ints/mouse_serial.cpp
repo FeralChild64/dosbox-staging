@@ -42,7 +42,7 @@ void MouseSER_UnRegisterListener(CSerialMouse *listener) {
         listeners.erase(iter);
 }
 
-void MouseSER_NotifyMoved(Bit32s x_rel, Bit32s y_rel) {
+void MouseSER_NotifyMoved(int32_t x_rel, int32_t y_rel) {
     static constexpr float MAX = 16384.0f;
 
     delta_x += std::clamp(x_rel * mouse_config.sensitivity_x, -MAX, MAX);
@@ -59,17 +59,17 @@ void MouseSER_NotifyMoved(Bit32s x_rel, Bit32s y_rel) {
     }
 }
 
-void MouseSER_NotifyPressed(Bit8u buttons_12S, Bit8u idx) {
+void MouseSER_NotifyPressed(uint8_t buttons_12S, uint8_t idx) {
     for (auto &listener : listeners)
         listener->onMouseEventButton(buttons_12S, idx);
 }
 
-void MouseSER_NotifyReleased(Bit8u buttons_12S, Bit8u idx) {
+void MouseSER_NotifyReleased(uint8_t buttons_12S, uint8_t idx) {
     for (auto &listener : listeners)
         listener->onMouseEventButton(buttons_12S, idx);
 }
 
-void MouseSER_NotifyWheel(Bit32s w_rel) {
+void MouseSER_NotifyWheel(int32_t w_rel) {
     for (auto &listener : listeners)
         listener->onMouseEventWheel(std::clamp(w_rel, -0x80, 0x7f));
 }

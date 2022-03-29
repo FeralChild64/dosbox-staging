@@ -25,16 +25,14 @@
 // Notifications from external subsystems - all should go via these methods
 // ***************************************************************************
 
-void  Mouse_EventMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bool is_captured);
-void  Mouse_EventPressed(Bit8u idx);
-void  Mouse_EventReleased(Bit8u idx);
-void  Mouse_EventWheel(Bit32s w_rel);
+void  Mouse_EventMoved(int32_t x_rel, int32_t y_rel, int32_t x_abs, int32_t y_abs, bool is_captured);
+void  Mouse_EventPressed(uint8_t idx);
+void  Mouse_EventReleased(uint8_t idx);
+void  Mouse_EventWheel(int32_t w_rel);
 
-void  Mouse_SetSensitivity(Bit32s sensitivity_x, Bit32s sensitivity_y);
-void  Mouse_NewScreenParams(Bit16u clip_x, Bit16u clip_y,
-                            Bit16u res_x,  Bit16u res_y,
-                            bool fullscreen,
-                            Bit32s x_abs,  Bit32s y_abs);
+void  Mouse_SetSensitivity(int32_t sensitivity_x, int32_t sensitivity_y);
+void  Mouse_NewScreenParams(uint16_t clip_x, uint16_t clip_y, uint16_t res_x,  uint16_t res_y,
+                            bool fullscreen, int32_t x_abs, int32_t y_abs);
 
 // ***************************************************************************
 // Common structures, please only update via functions above
@@ -49,11 +47,11 @@ typedef struct {
 
 typedef struct {
 
-    bool   fullscreen = false;
-    Bit16u res_x      = 320;         // resolution to which guest image is scaled, excluding black borders
-    Bit16u res_y      = 200;
-    Bit16u clip_x     = 0;           // clipping = size of black border (one side)
-    Bit16u clip_y     = 0;           // clipping value - size of black border (one side)
+    bool     fullscreen = false;
+    uint16_t res_x      = 320;       // resolution to which guest image is scaled, excluding black borders
+    uint16_t res_y      = 200;
+    uint16_t clip_x     = 0;         // clipping = size of black border (one side)
+    uint16_t clip_y     = 0;         // clipping value - size of black border (one side)
 
 } MouseInfoVideo;
 
@@ -81,10 +79,10 @@ void  MouseSER_UnRegisterListener(CSerialMouse *listener);
 // - understands up to 3 buttons
 // - needs index of button which changed state
 
-void  MouseSER_NotifyMoved(Bit32s x_rel, Bit32s y_rel);
-void  MouseSER_NotifyPressed(Bit8u buttons_12S, Bit8u idx);
-void  MouseSER_NotifyReleased(Bit8u buttons_12S, Bit8u idx);
-void  MouseSER_NotifyWheel(Bit32s w_rel);
+void  MouseSER_NotifyMoved(int32_t x_rel, int32_t y_rel);
+void  MouseSER_NotifyPressed(uint8_t buttons_12S, uint8_t idx);
+void  MouseSER_NotifyReleased(uint8_t buttons_12S, uint8_t idx);
+void  MouseSER_NotifyWheel(int32_t w_rel);
 
 // ***************************************************************************
 // PS/2 mouse
@@ -93,9 +91,9 @@ void  MouseSER_NotifyWheel(Bit32s w_rel);
 void  MousePS2_Init();
 void  MousePS2_UpdateButtonSquish();
 float MousePS2_GetDelay();
-void  MousePS2_PortWrite(Bit8u byte);
+void  MousePS2_PortWrite(uint8_t byte);
 bool  MousePS2_SendPacket();
-Bit8u MousePS2_UpdatePacket();
+uint8_t MousePS2_UpdatePacket();
 void  MousePS2_WithDrawPacket();
 
 // - needs relative movements
@@ -103,39 +101,39 @@ void  MousePS2_WithDrawPacket();
 // - understands up to 3 buttons in other modes
 // - provides a way to generate dummy event, for VMware mouse integration
 
-void  MousePS2_NotifyMoved(Bit32s x_rel, Bit32s y_rel);
+void  MousePS2_NotifyMoved(int32_t x_rel, int32_t y_rel);
 void  MousePS2_NotifyMovedDummy();
-void  MousePS2_NotifyPressedReleased(Bit8u buttons_12S, Bit8u buttons_all);
-void  MousePS2_NotifyWheel(Bit32s w_rel);
+void  MousePS2_NotifyPressedReleased(uint8_t buttons_12S, uint8_t buttons_all);
+void  MousePS2_NotifyWheel(int32_t w_rel);
 
 // ***************************************************************************
 // BIOS mouse interface for PS/2 mouse
 // ***************************************************************************
 
 bool  MouseBIOS_SetState(bool use);
-void  MouseBIOS_ChangeCallback(Bit16u pseg, Bit16u pofs);
+void  MouseBIOS_ChangeCallback(uint16_t pseg, uint16_t pofs);
 void  MouseBIOS_Reset();
-bool  MouseBIOS_SetPacketSize(Bit8u packet_size);
-bool  MouseBIOS_SetRate(Bit8u rate_id);
-bool  MouseBIOS_SetResolution(Bit8u res_id);
-Bit8u MouseBIOS_GetType();
+bool  MouseBIOS_SetPacketSize(uint8_t packet_size);
+bool  MouseBIOS_SetRate(uint8_t rate_id);
+bool  MouseBIOS_SetResolution(uint8_t res_id);
+uint8_t MouseBIOS_GetType();
 
 bool  MouseBIOS_HasCallback();
-Bitu  MouseBIOS_DoCallback();
+uintptr_t MouseBIOS_DoCallback();
 
 // ***************************************************************************
 // Vmware protocol extension for PS/2 mouse
 // ***************************************************************************
 
 void  MouseVMW_Init();
-void  MouseVMW_NewScreenParams(Bit32s x_abs, Bit32s y_abs);
+void  MouseVMW_NewScreenParams(int32_t x_abs, int32_t y_abs);
 
 // - needs absolute mouse position
 // - understands up to 3 buttons
 
-void  MouseVMW_NotifyMoved(Bit32s x_abs, Bit32s y_abs);
-void  MouseVMW_NotifyPressedReleased(Bit8u buttons_12S);
-void  MouseVMW_NotifyWheel(Bit32s w_rel);
+void  MouseVMW_NotifyMoved(int32_t x_abs, int32_t y_abs);
+void  MouseVMW_NotifyPressedReleased(uint8_t buttons_12S);
+void  MouseVMW_NotifyWheel(int32_t w_rel);
 
 // ***************************************************************************
 // DOS mouse driver
@@ -146,17 +144,17 @@ void  MouseDOS_BeforeNewVideoMode();
 void  MouseDOS_AfterNewVideoMode(bool setmode);
 void  MouseDOS_DrawCursor();
 
-bool  MouseDOS_HasCallback(Bit8u type);
+bool  MouseDOS_HasCallback(uint8_t type);
 bool  MouseDOS_CallbackInProgress();
-Bitu  MouseDOS_DoCallback(Bit8u type, Bit8u buttons);
+uintptr_t MouseDOS_DoCallback(uint8_t type, uint8_t buttons);
 
 // - needs relative movements
 // - understands up to 3 buttons
 // - needs index of button which changed state
 
-void  MouseDOS_NotifyMoved(Bit32s x_rel, Bit32s y_rel, bool is_captured);
-void  MouseDOS_NotifyPressed(Bit8u buttons_12S, Bit8u idx);
-void  MouseDOS_NotifyReleased(Bit8u buttons_12S, Bit8u idx);
-void  MouseDOS_NotifyWheel(Bit32s w_rel);
+void  MouseDOS_NotifyMoved(int32_t x_rel, int32_t y_rel, bool is_captured);
+void  MouseDOS_NotifyPressed(uint8_t buttons_12S, uint8_t idx);
+void  MouseDOS_NotifyReleased(uint8_t buttons_12S, uint8_t idx);
+void  MouseDOS_NotifyWheel(int32_t w_rel);
 
 #endif // DOSBOX_MOUSE_H

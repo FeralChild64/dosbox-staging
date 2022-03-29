@@ -36,7 +36,7 @@
 // - https://isdaman.com/alsos/hardware/mouse/ps2interface.htm
 // - https://wiki.osdev.org/Mouse_Input
 
-enum PS2_CMD:Bit8u { // commands that can be received from PS/2 port
+enum PS2_CMD:uint8_t { // commands that can be received from PS/2 port
     NO_COMMAND        = 0x00,
     SET_SCALING_11    = 0xe6,
     SET_SCALING_21    = 0xe7,
@@ -55,35 +55,35 @@ enum PS2_CMD:Bit8u { // commands that can be received from PS/2 port
     RESET             = 0xff,
 };
 
-enum PS2_RES:Bit8u {
+enum PS2_RES:uint8_t {
     SELF_TEST_PASSED  = 0xaa,
     ACKNOWLEDGE       = 0xfa,
 };
 
-enum PS2_TYPE:Bit8u { // mouse type visible via PS/2 interface
+enum PS2_TYPE:uint8_t { // mouse type visible via PS/2 interface
     NO_MOUSE          = 0xff,
     STD               = 0x00, // standard 2 or 3 button mouse
     IM                = 0x03, // Microsoft IntelliMouse (3 buttons + wheel)
     XP                = 0x04, // Microsoft IntelliMouse Explorer (5 buttons + wheel)
 };
 
-static Bit8u    buttons;                      // currently visible button state
-static Bit8u    buttons_all;                  // state of all 5 buttons as visible on the host side
-static Bit8u    buttons_12S;                  // state when buttons 3/4/5 act together as button 3 (squished mode)
+static uint8_t  buttons;                      // currently visible button state
+static uint8_t  buttons_all;                  // state of all 5 buttons as visible on the host side
+static uint8_t  buttons_12S;                  // state when buttons 3/4/5 act together as button 3 (squished mode)
 static float    delta_x, delta_y;             // accumulated mouse movement since last reported
-static Bit8s    wheel;                        // NOTE: only fetch this via 'GetResetWheel*' calls!
+static int8_t   wheel;                        // NOTE: only fetch this via 'GetResetWheel*' calls!
 
 static PS2_TYPE type;                         // NOTE: only change this via 'SetType' call!
-static Bit8u    unlock_idx_im, unlock_idx_xp; // sequence index for unlocking extended protocols
+static uint8_t  unlock_idx_im, unlock_idx_xp; // sequence index for unlocking extended protocols
 
 static PS2_CMD  command;                      // command waiting for a parameter
-static Bit8u    packet[4];                    // packet to be transferred via hardware port or BIOS interface
+static uint8_t  packet[4];                    // packet to be transferred via hardware port or BIOS interface
 static bool     reporting;
 
-static Bit8u    rate_hz;                      // how often (maximum) the mouse event listener can be updated
+static uint8_t  rate_hz;                      // how often (maximum) the mouse event listener can be updated
 static float    delay;                        // minimum time between interrupts [ms]
 static bool     scaling_21;
-static Bit8u    counts_mm;                    // counts per mm
+static uint8_t  counts_mm;                    // counts per mm
 static float    counts_coeff;                 // 1.0 is 4 counts per mm
 static bool     modeRemote;                   // true = remote mode, false = stream mode
 static bool     modeWrap;                     // true = wrap mode
@@ -137,23 +137,23 @@ static void SetType(PS2_TYPE type) {
     }
 }
 
-static inline void AddBuffer(Bit8u byte) {
+static inline void AddBuffer(uint8_t byte) {
     KEYBOARD_AddBufferAUX(&byte);
 }
 
-static inline Bit8u GetResetWheel4bit() {
-    Bit8s tmp = std::clamp(wheel, static_cast<Bit8s>(-0x08), static_cast<Bit8s>(0x07));
+static inline uint8_t GetResetWheel4bit() {
+    int8_t tmp = std::clamp(wheel, static_cast<int8_t>(-0x08), static_cast<int8_t>(0x07));
     wheel = 0;
     return (tmp >= 0) ? tmp : 0x10 + tmp;
 }
 
-static inline Bit8u GetResetWheel8bit() {
-    Bit8s tmp = wheel;
+static inline uint8_t GetResetWheel8bit() {
+    int8_t tmp = wheel;
     wheel = 0;
     return (tmp >= 0) ? tmp : 0x100 + tmp;
 }
 
-static Bit16s ApplyScaling(Bit16s d) {
+static Bit16s ApplyScaling(int16_t d) {
     if (!scaling_21)
         return d;
 
@@ -173,7 +173,7 @@ static Bit16s ApplyScaling(Bit16s d) {
     default: break;
     }
 
-    return static_cast<Bit16s>(std::clamp(2 * d, -0x8000, 0x7fff));
+    return static_cast<int16_t>(std::clamp(2 * d, -0x8000, 0x7fff));
 }
 
 static inline void ResetCounters() {
@@ -182,12 +182,12 @@ static inline void ResetCounters() {
     wheel   = 0;
 }
 
-Bit8u MousePS2_UpdatePacket() {
+uint8_t MousePS2_UpdatePacket() {
     bool packet_needed = false;
 
-    Bit8u  mdat = (buttons & 0x07) | 0x08;
-    Bit16s dx   = static_cast<Bit16s>(std::round(delta_x));
-    Bit16s dy   = static_cast<Bit16s>(std::round(delta_y));
+    uint8_t mdat = (buttons & 0x07) | 0x08;
+    int16_t dx   = static_cast<int16_t>(std::round(delta_x));
+    int16_t dy   = static_cast<int16_t>(std::round(delta_y));
 
     delta_x -= dx;
     delta_y -= dy;
@@ -200,8 +200,8 @@ Bit8u MousePS2_UpdatePacket() {
 
     if (type == PS2_TYPE::XP) {
         // There is no overflow for 5-button mouse protocol, see HT82M30A datasheet
-        dx = std::clamp(dx, static_cast<Bit16s>(-0xff), static_cast<Bit16s>(0xff));
-        dy = std::clamp(dy, static_cast<Bit16s>(-0xff), static_cast<Bit16s>(0xff));       
+        dx = std::clamp(dx, static_cast<int16_t>(-0xff), static_cast<int16_t>(0xff));
+        dy = std::clamp(dy, static_cast<int16_t>(-0xff), static_cast<int16_t>(0xff));       
     } else {
         if ((dx > 0xff) || (dx < -0xff)) mdat |= 0x40; // x overflow
         if ((dy > 0xff) || (dy < -0xff)) mdat |= 0x80; // y overflow
@@ -222,11 +222,11 @@ Bit8u MousePS2_UpdatePacket() {
     if (mdat != packet[0])
         packet_needed = true;
 
-    packet[0] = static_cast<Bit8u>(mdat);
-    packet[1] = static_cast<Bit8u>(dx % 0x100);
-    packet[2] = static_cast<Bit8u>(dy % 0x100);
+    packet[0] = static_cast<uint8_t>(mdat);
+    packet[1] = static_cast<uint8_t>(dx % 0x100);
+    packet[2] = static_cast<uint8_t>(dy % 0x100);
 
-    Bit8u packet_size = 3;
+    uint8_t packet_size = 3;
     if (type == PS2_TYPE::IM) {
         packet[3] = GetResetWheel8bit();
         packet_size = 4;
@@ -234,8 +234,8 @@ Bit8u MousePS2_UpdatePacket() {
             packet_needed = true;
     }
     else if (type == PS2_TYPE::XP) {
-        Bit8u old_buttons = packet[3] & 0xf0;
-        Bit8u new_buttons = ((buttons & 0x18) << 1);
+        uint8_t old_buttons = packet[3] & 0xf0;
+        uint8_t new_buttons = ((buttons & 0x18) << 1);
         packet[3] = GetResetWheel4bit() | new_buttons;
         packet_size = 4;
         if (old_buttons != new_buttons || (packet[3] & 0x0f) != 0)
@@ -248,7 +248,7 @@ Bit8u MousePS2_UpdatePacket() {
 }
 
 bool MousePS2_SendPacket() {
-    Bit8u packet_size = MousePS2_UpdatePacket();
+    uint8_t packet_size = MousePS2_UpdatePacket();
 
     if (!modeWrap && !modeRemote && reporting && packet_size) {
         return KEYBOARD_AddBufferAUX(&packet[0], packet_size);
@@ -358,7 +358,7 @@ float MousePS2_GetDelay() {
     return delay;
 }
 
-void MousePS2_PortWrite(Bit8u byte) { // value received from PS/2 port
+void MousePS2_PortWrite(uint8_t byte) { // value received from PS/2 port
     if (modeWrap && byte != PS2_CMD::RESET && byte != PS2_CMD::RESET_WRAP_MODE) {
         AddBuffer(byte); // wrap mode, just send bytes back
     } else if (command != PS2_CMD::NO_COMMAND) {
@@ -453,19 +453,19 @@ void MousePS2_PortWrite(Bit8u byte) { // value received from PS/2 port
     }
 }
 
-void MousePS2_NotifyMoved(Bit32s x_rel, Bit32s y_rel) {
+void MousePS2_NotifyMoved(int32_t x_rel, int32_t y_rel) {
     delta_x += x_rel * mouse_config.sensitivity_x * counts_coeff;
     delta_y += y_rel * mouse_config.sensitivity_y * counts_coeff;
 }
 
-void MousePS2_NotifyPressedReleased(Bit8u buttons_12S, Bit8u buttons_all) {
+void MousePS2_NotifyPressedReleased(uint8_t buttons_12S, uint8_t buttons_all) {
     ::buttons_12S = buttons_12S;
     ::buttons_all = buttons_all;
 
     MousePS2_UpdateButtonSquish();
 }
 
-void MousePS2_NotifyWheel(Bit32s w_rel) {
+void MousePS2_NotifyWheel(int32_t w_rel) {
     wheel = std::clamp(w_rel + wheel, -0x80, 0x7f);
 }
 
@@ -473,13 +473,13 @@ void MousePS2_NotifyWheel(Bit32s w_rel) {
 // BIOS interface implementation
 // ***************************************************************************
 
-static bool    packet_4bytes = false;
+static bool     packet_4bytes = false;
 
-static bool    callback_init = false;
-static Bit16u  callback_seg = 0;
-static Bit16u  callback_ofs = 0;
-static bool    callback_use = false;
-static RealPt  ps2_callback = 0;
+static bool     callback_init = false;
+static uint16_t callback_seg = 0;
+static uint16_t callback_ofs = 0;
+static bool     callback_use = false;
+static RealPt   ps2_callback = 0;
 
 void MouseBIOS_Reset() {
     CmdReset();
@@ -497,7 +497,7 @@ bool MouseBIOS_SetState(bool use) {
     }
 }
 
-bool MouseBIOS_SetPacketSize(Bit8u packet_size) {
+bool MouseBIOS_SetPacketSize(uint8_t packet_size) {
     if (packet_size == 3)
         packet_4bytes = false;
     else if (packet_size == 4)
@@ -508,8 +508,8 @@ bool MouseBIOS_SetPacketSize(Bit8u packet_size) {
     return true;
 }
 
-bool MouseBIOS_SetRate(Bit8u rate_id) {
-    static const std::vector<Bit8u> CONVTAB = { 10, 20, 40, 60, 80, 100, 200 };
+bool MouseBIOS_SetRate(uint8_t rate_id) {
+    static const std::vector<uint8_t> CONVTAB = { 10, 20, 40, 60, 80, 100, 200 };
     if (rate_id >= CONVTAB.size())
         return false;
 
@@ -517,8 +517,8 @@ bool MouseBIOS_SetRate(Bit8u rate_id) {
     return true;
 }
 
-bool MouseBIOS_SetResolution(Bit8u res_id) {
-    static const std::vector<Bit8u> CONVTAB = { 1, 2, 4, 8 };
+bool MouseBIOS_SetResolution(uint8_t res_id) {
+    static const std::vector<uint8_t> CONVTAB = { 1, 2, 4, 8 };
     if (res_id >= CONVTAB.size())
         return false;
 
@@ -526,7 +526,7 @@ bool MouseBIOS_SetResolution(Bit8u res_id) {
     return true;
 }
 
-void MouseBIOS_ChangeCallback(Bit16u pseg, Bit16u pofs) {
+void MouseBIOS_ChangeCallback(uint16_t pseg, uint16_t pofs) {
     if ((pseg == 0) && (pofs == 0)) {
         callback_init = false;
     } else {
@@ -537,7 +537,7 @@ void MouseBIOS_ChangeCallback(Bit16u pseg, Bit16u pofs) {
 }
 
 Bit8u MouseBIOS_GetType() {
-    return static_cast<Bit8u>(type);
+    return static_cast<uint8_t>(type);
 }
 
 static Bitu MouseBIOS_Callback_ret() {
@@ -555,7 +555,7 @@ Bitu MouseBIOS_DoCallback() {
         CPU_Push16(packet[1]);
         CPU_Push16(packet[2]); 
     } else {
-        CPU_Push16((Bit16u) (packet[0] + packet[1] * 0x100));
+        CPU_Push16(static_cast<uint16_t>((packet[0] + packet[1] * 0x100)));
         CPU_Push16(packet[2]);
         CPU_Push16(packet[3]);
     }

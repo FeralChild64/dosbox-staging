@@ -33,20 +33,20 @@
 // - https://github.com/NattyNarwhal/vmwmouse
 // - https://git.javispedro.com/cgit/vbmouse.git (planned support)
 
-enum VMW_CMD:Bit16u {
+enum VMW_CMD:uint16_t {
     GETVERSION         = 10,
     ABSPOINTER_DATA    = 39,
     ABSPOINTER_STATUS  = 40,
     ABSPOINTER_COMMAND = 41,
 };
 
-enum VMW_ABSPNT:Bit32u {
+enum VMW_ABSPNT:uint32_t {
     ENABLE             = 0x45414552,
     RELATIVE           = 0xF5,
     ABSOLUTE           = 0x53424152,
 };
 
-enum VMW_BUTTON:Bit8u {
+enum VMW_BUTTON:uint8_t {
     LEFT               = 0x20,
     RIGHT              = 0x10,
     MIDDLE             = 0x08,
@@ -54,16 +54,16 @@ enum VMW_BUTTON:Bit8u {
 
 static constexpr io_port_t VMW_PORT   = 0x5658u;     // communication port
 static constexpr io_port_t VMW_PORTHB = 0x5659u;     // communication port, high bandwidth
-static constexpr Bit32u    VMW_MAGIC  = 0x564D5868u; // magic number for all VMware calls
+static constexpr uint32_t  VMW_MAGIC  = 0x564D5868u; // magic number for all VMware calls
 
 static bool      updated     = false;                // true = mouse state update waits top be piced up
-static Bit8u     buttons_vmw = 0;                    // state of mouse buttons, in VMware format
-static Bit16u    scaled_x    = 0x7fff;               // absolute mouse position, scaled from 0 to 0xffff
-static Bit16u    scaled_y    = 0x7fff;               // 0x7fff is a center position
-static Bit8s     wheel       = 0;                    // wheel movement counter
+static uint8_t   buttons_vmw = 0;                    // state of mouse buttons, in VMware format
+static uint16_t  scaled_x    = 0x7fff;               // absolute mouse position, scaled from 0 to 0xffff
+static uint16_t  scaled_y    = 0x7fff;               // 0x7fff is a center position
+static int8_t    wheel       = 0;                    // wheel movement counter
 
-static Bit16s    offset_x    = 0;                    // offses between host and guest mouse coordinates (in host pixels)
-static Bit16s    offset_y    = 0;                    // (in host pixels)
+static int16_t   offset_x    = 0;                    // offses between host and guest mouse coordinates (in host pixels)
+static int16_t   offset_y    = 0;                    // (in host pixels)
 
 bool mouse_vmware = false;                           // if true, VMware compatible driver has taken over the mouse
 
@@ -113,7 +113,7 @@ static inline void CmdAbsPointerCommand() {
     }
 }
 
-static Bit16u PortRead_VMW(io_port_t, io_width_t) {
+static uint16_t PortRead_VMW(io_port_t, io_width_t) {
     if (reg_eax != VMW_MAGIC)
         return 0;
 
@@ -130,7 +130,7 @@ static Bit16u PortRead_VMW(io_port_t, io_width_t) {
     return reg_ax;
 }
 
-void MouseVMW_NotifyMoved(Bit32s x_abs, Bit32s y_abs) {
+void MouseVMW_NotifyMoved(int32_t x_abs, int32_t y_abs) {
     float vmw_x, vmw_y;
     if (mouse_video.fullscreen) {
         // We have to maintain the diffs (offsets) between host and guest
@@ -157,13 +157,13 @@ void MouseVMW_NotifyMoved(Bit32s x_abs, Bit32s y_abs) {
         vmw_y = std::max(y_abs - mouse_video.clip_y, 0);
     }
 
-    scaled_x = std::min(0xffffu, static_cast<Bit32u>(vmw_x * 0xffff / (mouse_video.res_x - 1) + 0.499));
-    scaled_y = std::min(0xffffu, static_cast<Bit32u>(vmw_y * 0xffff / (mouse_video.res_y - 1) + 0.499));
+    scaled_x = std::min(0xffffu, static_cast<uint32_t>(vmw_x * 0xffff / (mouse_video.res_x - 1) + 0.499));
+    scaled_y = std::min(0xffffu, static_cast<uint32_t>(vmw_y * 0xffff / (mouse_video.res_y - 1) + 0.499));
 
     updated = true;
 }
 
-void MouseVMW_NotifyPressedReleased(Bit8u buttons_12S) {
+void MouseVMW_NotifyPressedReleased(uint8_t buttons_12S) {
     buttons_vmw = 0;
 
     if (buttons_12S & 1) buttons_vmw |=VMW_BUTTON::LEFT;
@@ -173,19 +173,19 @@ void MouseVMW_NotifyPressedReleased(Bit8u buttons_12S) {
     updated = true;
 }
 
-void MouseVMW_NotifyWheel(Bit32s w_rel) {
+void MouseVMW_NotifyWheel(int32_t w_rel) {
     if (mouse_vmware) {
         wheel   = std::clamp(w_rel + wheel, -0x80, 0x7f);
         updated = true;
     }
 }
 
-void MouseVMW_NewScreenParams(Bit32s x_abs, Bit32s y_abs) {
+void MouseVMW_NewScreenParams(int32_t x_abs, int32_t y_abs) {
 
     // Adjust clipping, toprevent cursor jump with the next mouse move on the host side
 
-    offset_x = std::clamp(static_cast<Bit32s>(offset_x), -mouse_video.clip_x, static_cast<Bit32s>(mouse_video.clip_x));
-    offset_y = std::clamp(static_cast<Bit32s>(offset_y), -mouse_video.clip_y, static_cast<Bit32s>(mouse_video.clip_y));
+    offset_x = std::clamp(static_cast<int32_t>(offset_x), -mouse_video.clip_x, static_cast<int32_t>(mouse_video.clip_x));
+    offset_y = std::clamp(static_cast<int32_t>(offset_y), -mouse_video.clip_y, static_cast<int32_t>(mouse_video.clip_y));
 
     // Report a fake mouse movement
 

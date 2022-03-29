@@ -26,7 +26,7 @@
 #include "pic.h"
 #include "regs.h"
 
-enum DOS_EV:Bit16u { // compatible with DOS driver mask in driver function 0x0c
+enum DOS_EV:uint16_t { // compatible with DOS driver mask in driver function 0x0c
     NOT_DOS_EVENT     =   0x00,
     MOUSE_MOVED       =   0x01,
     PRESSED_LEFT      =   0x02,
@@ -38,23 +38,23 @@ enum DOS_EV:Bit16u { // compatible with DOS driver mask in driver function 0x0c
     WHEEL_MOVED       =   0x80,
 };
 
-static const Bit8u QUEUE_SIZE  = 32; // if over 255, increase 'events' size
+static const uint8_t QUEUE_SIZE  = 32;   // if over 255, increase 'events' size
 
-static const Bit8u KEY_MASKS[] = { 0x01, 0x02, 0x04, 0x08, 0x10 };
+static const uint8_t KEY_MASKS[] = { 0x01, 0x02, 0x04, 0x08, 0x10 };
 
-static Bit8u    buttons_12;                   // state of buttons 1 (left), 2 (right), as visible on host side
-static Bit8u    buttons_345;                  // state of mouse buttons 3 (middle), 4, and 5 as visible on host side
+static uint8_t   buttons_12;             // state of buttons 1 (left), 2 (right), as visible on host side
+static uint8_t   buttons_345;            // state of mouse buttons 3 (middle), 4, and 5 as visible on host side
 
-static struct { Bit8u dos_type; Bit8u buttons; } event_queue[QUEUE_SIZE];
-static Bit8u    events;
-static bool     timer_in_progress;
+static struct { uint8_t dos_type; uint8_t buttons; } event_queue[QUEUE_SIZE];
+static uint8_t   events;
+static bool      timer_in_progress;
 
-static Bitu     int74_ret_callback;
-static bool     int74_used;                   // true = our virtual INT74 callback is actually used, not overridden
-static Bit8u    int74_needed_countdown;       // counter to detect above value
+static uintptr_t int74_ret_callback;
+static bool      int74_used;             // true = our virtual INT74 callback is actually used, not overridden
+static uint8_t   int74_needed_countdown; // counter to detect above value
 
-MouseInfoConfig mouse_config;
-MouseInfoVideo  mouse_video;
+MouseInfoConfig  mouse_config;
+MouseInfoVideo   mouse_video;
 
 // ***************************************************************************
 // Queue / interrupt 74 implementation
@@ -91,14 +91,14 @@ static void EventHandler(uint32_t /*val*/)
     if (events) SendPacket();
 }
 
-static void AddEvent(Bit8u dos_type) {
+static void AddEvent(uint8_t dos_type) {
     if (events < QUEUE_SIZE) {
         if (events > 0) {
             // Skip redundant events
             if (dos_type == DOS_EV::MOUSE_MOVED || dos_type == DOS_EV::WHEEL_MOVED) return;
             // Always put the newest element in the front as that the events are 
             // handled backwards (prevents doubleclicks while moving)
-            for(Bitu i = events ; i ; i--)
+            for (uint8_t i = events ; i ; i--)
                 event_queue[i] = event_queue[i - 1];
         }
         event_queue[0].dos_type = dos_type;
@@ -109,7 +109,7 @@ static void AddEvent(Bit8u dos_type) {
     if (!timer_in_progress) SendPacket();
 }
 
-static inline DOS_EV SelectEventPressed(Bit8u idx, bool changed_12S) {
+static inline DOS_EV SelectEventPressed(uint8_t idx, bool changed_12S) {
     switch (idx) {
     case 0:  return DOS_EV::PRESSED_LEFT;
     case 1:  return DOS_EV::PRESSED_RIGHT;
@@ -120,7 +120,7 @@ static inline DOS_EV SelectEventPressed(Bit8u idx, bool changed_12S) {
     }
 }
 
-static inline DOS_EV SelectEventReleased(Bit8u idx, bool changed_12S) {
+static inline DOS_EV SelectEventReleased(uint8_t idx, bool changed_12S) {
     switch (idx) {
     case 0:  return DOS_EV::RELEASED_LEFT;
     case 1:  return DOS_EV::RELEASED_RIGHT;
@@ -193,7 +193,7 @@ void Mouse_ClearQueue() {
 // External notifications
 // ***************************************************************************
 
-void Mouse_SetSensitivity(Bit32s sensitivity_x, Bit32s sensitivity_y) {
+void Mouse_SetSensitivity(int32_t sensitivity_x, int32_t sensitivity_y) {
     static constexpr float MIN = 0.01f;
     static constexpr float MAX = 100.0f;
 
@@ -210,10 +210,8 @@ void Mouse_SetSensitivity(Bit32s sensitivity_x, Bit32s sensitivity_y) {
         mouse_config.sensitivity_y = std::min(mouse_config.sensitivity_y, -MIN);
 }
 
-void Mouse_NewScreenParams(Bit16u clip_x, Bit16u clip_y,
-                           Bit16u res_x,  Bit16u res_y,
-                           bool fullscreen,
-                           Bit32s x_abs, Bit32s y_abs) {
+void Mouse_NewScreenParams(uint16_t clip_x, uint16_t clip_y, uint16_t res_x, uint16_t res_y,
+                           bool fullscreen, int32_t x_abs, int32_t y_abs) {
 
     mouse_video.clip_x     = clip_x;
     mouse_video.clip_y     = clip_y;
@@ -224,7 +222,7 @@ void Mouse_NewScreenParams(Bit16u clip_x, Bit16u clip_y,
     MouseVMW_NewScreenParams(x_abs, y_abs);
 }
 
-void Mouse_EventMoved(Bit32s x_rel, Bit32s y_rel, Bit32s x_abs, Bit32s y_abs, bool is_captured) {
+void Mouse_EventMoved(int32_t x_rel, int32_t y_rel, int32_t x_abs, int32_t y_abs, bool is_captured) {
     if (x_rel != 0 || y_rel != 0) {
         MousePS2_NotifyMoved(x_rel, y_rel);
         MouseVMW_NotifyMoved(x_abs, y_abs);
@@ -241,8 +239,8 @@ void MousePS2_NotifyMovedDummy() {
     PIC_ActivateIRQ(12);
 }
 
-void Mouse_EventPressed(Bit8u idx) {
-    Bit8u buttons_12S_old = buttons_12 + (buttons_345 ? 4 : 0);
+void Mouse_EventPressed(uint8_t idx) {
+    uint8_t buttons_12S_old = buttons_12 + (buttons_345 ? 4 : 0);
 
     if (idx < 2) {
         // left/right button
@@ -255,9 +253,9 @@ void Mouse_EventPressed(Bit8u idx) {
     } else
         return; // button not supported
 
-    Bit8u buttons_12S = buttons_12 + (buttons_345 ? 4 : 0);
-    bool  changed_12S = (buttons_12S_old != buttons_12S);
-    Bit8u idx_12S     = idx < 2 ? idx : 2;
+    uint8_t buttons_12S = buttons_12 + (buttons_345 ? 4 : 0);
+    bool  changed_12S   = (buttons_12S_old != buttons_12S);
+    uint8_t idx_12S     = idx < 2 ? idx : 2;
 
     MousePS2_NotifyPressedReleased(buttons_12S, buttons_12 | buttons_345);
     if (changed_12S) {
@@ -269,8 +267,8 @@ void Mouse_EventPressed(Bit8u idx) {
     AddEvent(SelectEventPressed(idx, changed_12S));
 }
 
-void Mouse_EventReleased(Bit8u idx) {
-    Bit8u buttons_12S_old = buttons_12 + (buttons_345 ? 4 : 0);
+void Mouse_EventReleased(uint8_t idx) {
+    uint8_t buttons_12S_old = buttons_12 + (buttons_345 ? 4 : 0);
 
     if (idx < 2) {
         // left/right button
@@ -283,9 +281,9 @@ void Mouse_EventReleased(Bit8u idx) {
     } else
         return; // button not supported
 
-    Bit8u buttons_12S = buttons_12 + (buttons_345 ? 4 : 0);
-    bool  changed_12S = (buttons_12S_old != buttons_12S);
-    Bit8u idx_12S     = idx < 2 ? idx : 2;
+    uint8_t buttons_12S = buttons_12 + (buttons_345 ? 4 : 0);
+    bool  changed_12S   = (buttons_12S_old != buttons_12S);
+    uint8_t idx_12S     = idx < 2 ? idx : 2;
 
     MousePS2_NotifyPressedReleased(buttons_12S, buttons_12 | buttons_345);
     if (changed_12S) {
@@ -297,7 +295,7 @@ void Mouse_EventReleased(Bit8u idx) {
     AddEvent(SelectEventReleased(idx, changed_12S));
 }
 
-void Mouse_EventWheel(Bit32s w_rel) {
+void Mouse_EventWheel(int32_t w_rel) {
     if (w_rel != 0) {
         MousePS2_NotifyWheel(w_rel);
         MouseVMW_NotifyWheel(w_rel);
