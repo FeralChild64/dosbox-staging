@@ -41,6 +41,8 @@
 #include "program_biostest.h"
 #endif
 
+#include "dos_resources.h"
+
 extern Bit32u floppytype;
 
 #define WIKI_URL                   "https://github.com/dosbox-staging/dosbox-staging/wiki"
@@ -86,6 +88,12 @@ void Add_VFiles(const bool add_autoexec)
 	if (add_autoexec)
 		VFILE_Register("AUTOEXEC.BAT", (uint8_t *)autoexec_data,
 		               (uint32_t)strlen(autoexec_data));
+	VFILE_Register("CPI", 0, 0, "/");
+
+	for (size_t i = 0; i < FILE_EGA_CPX.size(); i++)
+		VFILE_Register(FILE_EGA_CPX[i], BLOB_EGA_CPX[i], "/CPI/");
+	for (size_t i = 0; i < FILE_KEYBOARD_SYS.size(); i++)
+		VFILE_Register(FILE_KEYBOARD_SYS[i], BLOB_KEYBOARD_SYS[i], "");
 }
 
 void DOS_SetupPrograms(void)

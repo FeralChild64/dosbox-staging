@@ -424,6 +424,7 @@
     <ClCompile Include="..\src\libs\residfp\Filter6581.cpp" />
     <ClCompile Include="..\src\libs\residfp\Filter8580.cpp" />
     <ClCompile Include="..\src\libs\residfp\Filter.cpp" />
+    <ClCompile Include="..\src\libs\residfp\FilterModelConfig.cpp" />
     <ClCompile Include="..\src\libs\residfp\FilterModelConfig6581.cpp" />
     <ClCompile Include="..\src\libs\residfp\FilterModelConfig8580.cpp" />
     <ClCompile Include="..\src\libs\residfp\Integrator6581.cpp" />
@@ -549,6 +550,7 @@
     <ClInclude Include="..\src\dos\cdrom.h" />
     <ClInclude Include="..\src\dos\dev_con.h" />
     <ClInclude Include="..\src\dos\dos_mscdex.h" />
+    <ClInclude Include="..\src\dos\dos_resources.h" />
     <ClInclude Include="..\src\dos\program_autotype.h" />
     <ClInclude Include="..\src\dos\program_ls.h" />
     <ClInclude Include="..\src\dos\program_serial.h" />
@@ -594,6 +596,7 @@
     <ClInclude Include="..\src\libs\residfp\Filter6581.h" />
     <ClInclude Include="..\src\libs\residfp\Filter8580.h" />
     <ClInclude Include="..\src\libs\residfp\Filter.h" />
+    <ClInclude Include="..\src\libs\residfp\FilterModelConfig.h" />
     <ClInclude Include="..\src\libs\residfp\FilterModelConfig6581.h" />
     <ClInclude Include="..\src\libs\residfp\FilterModelConfig8580.h" />
     <ClInclude Include="..\src\libs\residfp\Integrator6581.h" />
