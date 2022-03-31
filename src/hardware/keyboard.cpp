@@ -74,28 +74,25 @@ static struct {
 } keyb;
 
 static void KEYBOARD_SetPort60(Bit8u val, bool is_aux=false) {
-	// LOG_WARNING("XXX - KEYBOARD_SetPort60%s", is_aux ? ", AUX" : "");
 	keyb.auxchanged=is_aux;
 	keyb.p60changed=true;
 	keyb.p60data=val&0xff;
     if (is_aux) {
         if (keyb.cb_irq12) PIC_ActivateIRQ(12);
     } else if (keyb.cb_irq1) {
-    	// LOG_WARNING("XXX - IRQ1");
 		if (machine==MCH_PCJR) PIC_ActivateIRQ(6);
 		else PIC_ActivateIRQ(1);
     }
 }
 
-static void KEYBOARD_TransferBuffer(uint32_t /*val*/)
-{
+static void KEYBOARD_TransferBuffer(uint32_t /*val*/) {
 	keyb.scheduled = false;
 	if (!keyb.used && !keyb.used8042) {
 		LOG(LOG_KEYBOARD,LOG_NORMAL)("Transfer started with empty buffer");
 		return;
 	}
 
-	if (keyb.used8042) { /* 8042 responses have higher priority */
+	if (keyb.auxactive && keyb.used8042) { /* 8042 responses have higher priority */
 		KEYBOARD_SetPort60(keyb.buf8042[keyb.pos8042]);
 		keyb.pos8042 = (keyb.pos8042+1) % RESBUFSIZE;
 		keyb.used8042--;	
@@ -107,7 +104,7 @@ static void KEYBOARD_TransferBuffer(uint32_t /*val*/)
 	}
 }
 
-void KEYBOARD_ClrBuffer(void) {
+void KEYBOARD_ClrBuffer() {
 	keyb.used=0;
 	keyb.pos=0;
 	keyb.used8042=0;
@@ -141,7 +138,6 @@ static void KEYBOARD_AddBuffer(Bit8u data) {
 	keyb.is_aux[start]=false;
 	keyb.used++;
 	/* Start up an event to start the first IRQ */
-	// LOG_WARNING("XXX sheduled:%s, p60changed:%s", keyb.scheduled ? "Y" : "N", keyb.p60changed ? "Y" : "N");
 	if (!keyb.scheduled && !keyb.p60changed) {
 		keyb.scheduled=true;
 		PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);
@@ -191,12 +187,10 @@ void KEYBOARD_ClrMsgAUX() { /* Needed by virtual BIOS/DOS mouse support */
 	}
 }
 
-static uint8_t read_p60(io_port_t, io_width_t)
-{
-	// LOG_WARNING("XXX - read_p60");
+static uint8_t read_p60(io_port_t, io_width_t) {
 	keyb.auxchanged = false;
 	keyb.p60changed = false;
-	if (!keyb.scheduled && (keyb.used>0 || keyb.used8042>0)) {
+	if (!keyb.scheduled && (keyb.used || keyb.used8042)) {
 		keyb.scheduled = true;
 		PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);
 	}
@@ -431,9 +425,8 @@ static void write_p64(io_port_t, io_val_t value, io_width_t)
 	}
 }
 
-static uint8_t read_p64(io_port_t, io_width_t)
-{
-    Bit8u status = 0x1c | (keyb.p60changed ? 0x1 : 0x0) | (keyb.auxchanged ? 0x20 : 0x00);
+static uint8_t read_p64(io_port_t, io_width_t) {
+    uint8_t status = 0x1c | (keyb.p60changed ? 0x1 : 0x0) | (keyb.auxchanged ? 0x20 : 0x00);
 	return status;
 }
 

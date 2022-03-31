@@ -182,9 +182,7 @@ static inline void ResetCounters() {
     wheel   = 0;
 }
 
-uint8_t MousePS2_UpdatePacket() {
-    bool packet_needed = false;
-
+void MousePS2_UpdatePacket() {
     uint8_t mdat = (buttons & 0x07) | 0x08;
     int16_t dx   = static_cast<int16_t>(std::round(delta_x));
     int16_t dy   = static_cast<int16_t>(std::round(delta_y));
@@ -194,9 +192,6 @@ uint8_t MousePS2_UpdatePacket() {
 
     dx = ApplyScaling(dx);
     dy = ApplyScaling(-dy);
-
-    if (dx != 0 || dy != 0)
-        packet_needed = true;
 
     if (type == PS2_TYPE::XP) {
         // There is no overflow for 5-button mouse protocol, see HT82M30A datasheet
@@ -219,45 +214,26 @@ uint8_t MousePS2_UpdatePacket() {
         mdat |= 0x20; // sign bit for y
     }
 
-    if (mdat != packet[0])
-        packet_needed = true;
-
     packet[0] = static_cast<uint8_t>(mdat);
     packet[1] = static_cast<uint8_t>(dx % 0x100);
     packet[2] = static_cast<uint8_t>(dy % 0x100);
 
-    uint8_t packet_size = 3;
-    if (type == PS2_TYPE::IM) {
+    if (type == PS2_TYPE::IM)
         packet[3] = GetResetWheel8bit();
-        packet_size = 4;
-        if (packet[3] != 0)
-            packet_needed = true;
-    }
-    else if (type == PS2_TYPE::XP) {
-        uint8_t old_buttons = packet[3] & 0xf0;
-        uint8_t new_buttons = ((buttons & 0x18) << 1);
-        packet[3] = GetResetWheel4bit() | new_buttons;
-        packet_size = 4;
-        if (old_buttons != new_buttons || (packet[3] & 0x0f) != 0)
-            packet_needed = true;
-    }
+    else if (type == PS2_TYPE::XP)
+        packet[3] = GetResetWheel4bit() | ((buttons & 0x18) << 1);
     else
         packet[3] = 0;
-
-    return packet_needed ? packet_size : 0;
 }
 
 bool MousePS2_SendPacket() {
-    uint8_t packet_size = MousePS2_UpdatePacket();
-
-    if (!modeWrap && !modeRemote && reporting && packet_size) {
-        return KEYBOARD_AddBufferAUX(&packet[0], packet_size);
-    }
+    if (!modeWrap && !modeRemote && reporting)
+        return KEYBOARD_AddBufferAUX(&packet[0], (type == PS2_TYPE::IM || type == PS2_TYPE::XP) ? 4 : 3);
 
     return false;
 }
 
-void MousePS2_WithDrawPacket() {
+void MousePS2_WithdrawPacket() {
     KEYBOARD_ClrMsgAUX();
 }
 
@@ -453,20 +429,26 @@ void MousePS2_PortWrite(uint8_t byte) { // value received from PS/2 port
     }
 }
 
-void MousePS2_NotifyMoved(int32_t x_rel, int32_t y_rel) {
+bool MousePS2_NotifyMoved(int32_t x_rel, int32_t y_rel) {
     delta_x += x_rel * mouse_config.sensitivity_x * counts_coeff;
     delta_y += y_rel * mouse_config.sensitivity_y * counts_coeff;
+
+    return (delta_x >= 0.5 || delta_x <= -0.5 || delta_y >= 0.5 || delta_y <= -0.5);
 }
 
-void MousePS2_NotifyPressedReleased(uint8_t buttons_12S, uint8_t buttons_all) {
+bool MousePS2_NotifyPressedReleased(uint8_t buttons_12S, uint8_t buttons_all) {
     ::buttons_12S = buttons_12S;
     ::buttons_all = buttons_all;
 
     MousePS2_UpdateButtonSquish();
+
+    return true; // XXX optimize: only ask for event if button is relevant
 }
 
-void MousePS2_NotifyWheel(int32_t w_rel) {
+bool MousePS2_NotifyWheel(int32_t w_rel) {
+    if (type != PS2_TYPE::IM && type != PS2_TYPE::XP) return false;
     wheel = std::clamp(w_rel + wheel, -0x80, 0x7f);
+    return true;
 }
 
 // ***************************************************************************

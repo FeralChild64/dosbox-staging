@@ -26,7 +26,7 @@
 #include "pic.h"
 #include "regs.h"
 
-enum DOS_EV:uint16_t { // compatible with DOS driver mask in driver function 0x0c
+enum DOS_EV:uint8_t { // compatible with DOS driver mask in driver function 0x0c
     NOT_DOS_EVENT     =   0x00,
     MOUSE_MOVED       =   0x01,
     PRESSED_LEFT      =   0x02,
@@ -45,16 +45,29 @@ static const uint8_t KEY_MASKS[] = { 0x01, 0x02, 0x04, 0x08, 0x10 };
 static uint8_t   buttons_12;             // state of buttons 1 (left), 2 (right), as visible on host side
 static uint8_t   buttons_345;            // state of mouse buttons 3 (middle), 4, and 5 as visible on host side
 
-static struct { uint8_t dos_type; uint8_t buttons; } event_queue[QUEUE_SIZE];
-static uint8_t   events;
-static bool      timer_in_progress;
+typedef struct MouseEvent {
+    bool req_ps2  = false; // true = PS/2 mouse emulation needs an IRQ12 / INT74 event
+    bool req_vmw  = false; // true = VMWare mouse emulation needs an event
+    bool req_dos  = false; // true = virtual DOS mouse driver needs an event
 
-static uintptr_t int74_ret_callback;
-static bool      int74_used;             // true = our virtual INT74 callback is actually used, not overridden
-static uint8_t   int74_needed_countdown; // counter to detect above value
+    uint8_t dos_type    = 0;
+    uint8_t dos_buttons = 0; 
 
-MouseInfoConfig  mouse_config;
-MouseInfoVideo   mouse_video;
+    MouseEvent() {}
+    MouseEvent(uint8_t dos_type) : dos_type(dos_type) {}
+
+} MouseEvent;
+
+static MouseEvent event_queue[QUEUE_SIZE];
+static uint8_t    events;
+static bool       timer_in_progress;
+
+static uintptr_t  int74_ret_callback;
+static bool       int74_used;             // true = our virtual INT74 callback is actually used, not overridden
+static uint8_t    int74_needed_countdown; // counter to detect above value
+
+MouseInfoConfig   mouse_config;
+MouseInfoVideo    mouse_video;
 
 // ***************************************************************************
 // Queue / interrupt 74 implementation
@@ -63,26 +76,34 @@ MouseInfoVideo   mouse_video;
 static void EventHandler(uint32_t); // forward devlaration
 
 static inline float GetEventDelay() {
-    if (int74_used && MouseDOS_HasCallback(0xff))
+    if (int74_used && MouseDOS_HasCallback())
         return 5.0f; // 200 Hz sampling rate
 
     return MousePS2_GetDelay();
 }
 
 static inline void SendPacket() {
-    if (int74_needed_countdown > 0)
-        int74_needed_countdown--;
-    else
-        int74_used = false;
-
     timer_in_progress = true;
     PIC_AddEvent(EventHandler, GetEventDelay());
-    if (!int74_used || MouseBIOS_HasCallback()) {
+
+    // LOG_WARNING("XXX - SendPacket");
+
+    const auto &event = event_queue[events - 1];
+    if (event.req_ps2 || event.req_vmw)
         MousePS2_UpdatePacket();
+
+    if (int74_used && (MouseBIOS_HasCallback() || MouseDOS_HasCallback())) {
+        if (int74_needed_countdown > 0)
+            int74_needed_countdown--;
+        else
+            int74_used = false;
+
         PIC_ActivateIRQ(12);
     }
-    else if (!MousePS2_SendPacket())
-        PIC_ActivateIRQ(12);
+    else if (!MousePS2_SendPacket()) {
+        // XXX this should be more intelligent, but allow 'int74_used' unlocking
+        // PIC_ActivateIRQ(12);
+    }
 }
 
 static void EventHandler(uint32_t /*val*/)
@@ -91,20 +112,34 @@ static void EventHandler(uint32_t /*val*/)
     if (events) SendPacket();
 }
 
-static void AddEvent(uint8_t dos_type) {
-    if (events < QUEUE_SIZE) {
-        if (events > 0) {
-            // Skip redundant events
-            if (dos_type == DOS_EV::MOUSE_MOVED || dos_type == DOS_EV::WHEEL_MOVED) return;
-            // Always put the newest element in the front as that the events are 
-            // handled backwards (prevents doubleclicks while moving)
-            for (uint8_t i = events ; i ; i--)
-                event_queue[i] = event_queue[i - 1];
+static void AddEvent(const MouseEvent &event) {
+    if (!event.req_ps2 && !event.req_vmw && !event.req_dos)
+        return; // Skip - no driver actually needs this event
+
+    if (int74_used) {
+        if (events < QUEUE_SIZE) {
+            if (events > 0) {
+                // Skip redundant events XXX provide better implementation
+                if (event.dos_type == DOS_EV::MOUSE_MOVED ||
+                    event.dos_type == DOS_EV::WHEEL_MOVED) {
+                    event_queue[0].req_ps2 |= event.req_ps2;
+                    event_queue[0].req_vmw |= event.req_vmw;
+                    event_queue[0].req_dos |= event.req_dos;
+                    return;
+                }
+                // Always put the newest element in the front as that the events are 
+                // handled backwards (prevents doubleclicks while moving)
+                for (uint8_t i = events ; i ; i--)
+                    event_queue[i] = event_queue[i - 1];
+            }
+            event_queue[0] = event;
+            event_queue[0].dos_buttons = buttons_12 + (buttons_345 ? 4 : 0);
+            events++;
+        } else {
+            // XXX add overflow handling
         }
-        event_queue[0].dos_type = dos_type;
-        event_queue[0].buttons  = buttons_12 + (buttons_345 ? 4 : 0);
-        events++;
-    }
+    } else
+        events = 0; // INT74 was taken over, assume guest code handles events
 
     if (!timer_in_progress) SendPacket();
 }
@@ -131,33 +166,47 @@ static inline DOS_EV SelectEventReleased(uint8_t idx, bool changed_12S) {
     }
 }
 
+static Bitu INT74_Exit() {
+    SegSet16(cs, RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
+    reg_ip = RealOff(CALLBACK_RealPointer(int74_ret_callback));
+
+    return CBRET_NONE;  
+}
+
 static Bitu INT74_Handler() {
+    MousePS2_WithdrawPacket();
     int74_used = true;
-    int74_needed_countdown = 3;
+    int74_needed_countdown = 2;
 
-    MousePS2_WithDrawPacket();
-    if (!MouseDOS_CallbackInProgress()) {
+    // If DOS mouse handler is busy - try the next time
+    if (MouseDOS_CallbackInProgress())
+        return INT74_Exit();
 
-        if (events > 0) {
-            events--;
+    if (events > 0) {
+        events--;
 
-            // INT 33h emulation: HERE within the IRQ 12 handler is the appropriate place to
-            // redraw the cursor. OSes like Windows 3.1 expect real-mode code to do it in
-            // response to IRQ 12, not "out of the blue" from the SDL event handler like
-            // the original DOSBox code did it. Doing this allows the INT 33h emulation
-            // to draw the cursor while not causing Windows 3.1 to crash or behave
-            // erratically.
-            MouseDOS_DrawCursor();
+        const auto &event = event_queue[events];
 
-            if (MouseDOS_HasCallback(event_queue[events].dos_type)) {
-                // To be handled by DOS driver
-                CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
-                CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)) + 7);
-                return MouseDOS_DoCallback(event_queue[events].dos_type, event_queue[events].buttons);
-            }
+        // LOG_WARNING("XXX, PS2 %s, VMW %s, DOS:%s", event.req_ps2 ? "Y" : "-", event.req_vmw ? "Y" : "-", event.req_dos ? "Y" : "-");
+
+        // INT 33h emulation: HERE within the IRQ 12 handler is the appropriate place to
+        // redraw the cursor. OSes like Windows 3.1 expect real-mode code to do it in
+        // response to IRQ 12, not "out of the blue" from the SDL event handler like
+        // the original DOSBox code did it. Doing this allows the INT 33h emulation
+        // to draw the cursor while not causing Windows 3.1 to crash or behave
+        // erratically.
+        MouseDOS_DrawCursor();
+
+        if (MouseDOS_HasCallback()) {
+            // To be handled by DOS mouse driver
+            if (!MouseDOS_HasCallback(event.dos_type) || !event.req_dos)
+                return INT74_Exit();
+            CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
+            CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)) + 7);
+            return MouseDOS_DoCallback(event.dos_type, event.dos_buttons);
         }
 
-        if (MouseBIOS_HasCallback()) { // XXX only do this if something new is to be reported
+        if (MouseBIOS_HasCallback() && (event.req_ps2 || event.req_vmw)) {
             // To be handled by BIOS
             CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
             CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)));
@@ -165,19 +214,14 @@ static Bitu INT74_Handler() {
         }
     }
 
-    // No events or handler busy
-    SegSet16(cs, RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
-    reg_ip = RealOff(CALLBACK_RealPointer(int74_ret_callback));
-
-    return CBRET_NONE;
+    // No events
+    return INT74_Exit();
 }
 
 Bitu INT74_Ret_Handler() {
-    if (events) {
-        if (!timer_in_progress) {
-            timer_in_progress = true;
-            PIC_AddEvent(EventHandler, GetEventDelay());
-        }
+    if (events && !timer_in_progress) {
+        timer_in_progress = true;
+        PIC_AddEvent(EventHandler, GetEventDelay());
     }
     return CBRET_NONE;
 }
@@ -223,14 +267,16 @@ void Mouse_NewScreenParams(uint16_t clip_x, uint16_t clip_y, uint16_t res_x, uin
 }
 
 void Mouse_EventMoved(int32_t x_rel, int32_t y_rel, int32_t x_abs, int32_t y_abs, bool is_captured) {
-    if (x_rel != 0 || y_rel != 0) {
-        MousePS2_NotifyMoved(x_rel, y_rel);
-        MouseVMW_NotifyMoved(x_abs, y_abs);
-        MouseDOS_NotifyMoved(x_rel, y_rel, is_captured);
-        MouseSER_NotifyMoved(x_rel, y_rel);
+    if (x_rel == 0 && y_rel == 0) return;
 
-        AddEvent(DOS_EV::MOUSE_MOVED);
-    }
+    MouseEvent event(DOS_EV::MOUSE_MOVED);
+
+    event.req_ps2 = MousePS2_NotifyMoved(x_rel, y_rel);
+    event.req_vmw = MouseVMW_NotifyMoved(x_abs, y_abs);
+    event.req_dos = MouseDOS_NotifyMoved(x_rel, y_rel, is_captured);
+    MouseSER_NotifyMoved(x_rel, y_rel);
+
+    AddEvent(event);
 }
 
 void MousePS2_NotifyMovedDummy() {
@@ -257,14 +303,16 @@ void Mouse_EventPressed(uint8_t idx) {
     bool  changed_12S   = (buttons_12S_old != buttons_12S);
     uint8_t idx_12S     = idx < 2 ? idx : 2;
 
-    MousePS2_NotifyPressedReleased(buttons_12S, buttons_12 | buttons_345);
+    MouseEvent event(SelectEventPressed(idx, changed_12S));
+
+    event.req_ps2 = MousePS2_NotifyPressedReleased(buttons_12S, buttons_12 | buttons_345);
     if (changed_12S) {
-        MouseDOS_NotifyPressed(buttons_12S, idx_12S);
-        MouseVMW_NotifyPressedReleased(buttons_12S);
+        event.req_vmw = MouseVMW_NotifyPressedReleased(buttons_12S);
+        event.req_dos = MouseDOS_NotifyPressed(buttons_12S, idx_12S);
         MouseSER_NotifyPressed(buttons_12S, idx_12S);
     }
 
-    AddEvent(SelectEventPressed(idx, changed_12S));
+    AddEvent(event);
 }
 
 void Mouse_EventReleased(uint8_t idx) {
@@ -285,25 +333,29 @@ void Mouse_EventReleased(uint8_t idx) {
     bool  changed_12S   = (buttons_12S_old != buttons_12S);
     uint8_t idx_12S     = idx < 2 ? idx : 2;
 
-    MousePS2_NotifyPressedReleased(buttons_12S, buttons_12 | buttons_345);
+    MouseEvent event(SelectEventReleased(idx, changed_12S));
+
+    event.req_ps2 = MousePS2_NotifyPressedReleased(buttons_12S, buttons_12 | buttons_345);
     if (changed_12S) {
-        MouseDOS_NotifyReleased(buttons_12S, idx_12S);
-        MouseVMW_NotifyPressedReleased(buttons_12S);
+        event.req_vmw = MouseVMW_NotifyPressedReleased(buttons_12S);
+        event.req_dos = MouseDOS_NotifyReleased(buttons_12S, idx_12S);
         MouseSER_NotifyReleased(buttons_12S, idx_12S);
     }
 
-    AddEvent(SelectEventReleased(idx, changed_12S));
+    AddEvent(event);
 }
 
 void Mouse_EventWheel(int32_t w_rel) {
-    if (w_rel != 0) {
-        MousePS2_NotifyWheel(w_rel);
-        MouseVMW_NotifyWheel(w_rel);
-        MouseDOS_NotifyWheel(w_rel);
-        MouseSER_NotifyWheel(w_rel);
+    if (w_rel == 0) return;
 
-        AddEvent(DOS_EV::WHEEL_MOVED);
-    }
+    MouseEvent event(WHEEL_MOVED);
+
+    event.req_ps2 = MousePS2_NotifyWheel(w_rel);
+    event.req_vmw = MouseVMW_NotifyWheel(w_rel);
+    event.req_dos = MouseDOS_NotifyWheel(w_rel);
+    MouseSER_NotifyWheel(w_rel);
+
+    AddEvent(event);
 }
 
 // ***************************************************************************

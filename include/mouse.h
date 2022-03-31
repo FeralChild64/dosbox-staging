@@ -92,19 +92,19 @@ void  MousePS2_Init();
 void  MousePS2_UpdateButtonSquish();
 float MousePS2_GetDelay();
 void  MousePS2_PortWrite(uint8_t byte);
+void  MousePS2_UpdatePacket();
 bool  MousePS2_SendPacket();
-uint8_t MousePS2_UpdatePacket();
-void  MousePS2_WithDrawPacket();
+void  MousePS2_WithdrawPacket();
 
 // - needs relative movements
 // - understands up to 5 buttons in Intellimouse Explorer mode
 // - understands up to 3 buttons in other modes
 // - provides a way to generate dummy event, for VMware mouse integration
 
-void  MousePS2_NotifyMoved(int32_t x_rel, int32_t y_rel);
+bool  MousePS2_NotifyMoved(int32_t x_rel, int32_t y_rel);
 void  MousePS2_NotifyMovedDummy();
-void  MousePS2_NotifyPressedReleased(uint8_t buttons_12S, uint8_t buttons_all);
-void  MousePS2_NotifyWheel(int32_t w_rel);
+bool  MousePS2_NotifyPressedReleased(uint8_t buttons_12S, uint8_t buttons_all);
+bool  MousePS2_NotifyWheel(int32_t w_rel);
 
 // ***************************************************************************
 // BIOS mouse interface for PS/2 mouse
@@ -131,9 +131,9 @@ void  MouseVMW_NewScreenParams(int32_t x_abs, int32_t y_abs);
 // - needs absolute mouse position
 // - understands up to 3 buttons
 
-void  MouseVMW_NotifyMoved(int32_t x_abs, int32_t y_abs);
-void  MouseVMW_NotifyPressedReleased(uint8_t buttons_12S);
-void  MouseVMW_NotifyWheel(int32_t w_rel);
+bool  MouseVMW_NotifyMoved(int32_t x_abs, int32_t y_abs);
+bool  MouseVMW_NotifyPressedReleased(uint8_t buttons_12S);
+bool  MouseVMW_NotifyWheel(int32_t w_rel);
 
 // ***************************************************************************
 // DOS mouse driver
@@ -144,6 +144,7 @@ void  MouseDOS_BeforeNewVideoMode();
 void  MouseDOS_AfterNewVideoMode(bool setmode);
 void  MouseDOS_DrawCursor();
 
+bool  MouseDOS_HasCallback();
 bool  MouseDOS_HasCallback(uint8_t type);
 bool  MouseDOS_CallbackInProgress();
 uintptr_t MouseDOS_DoCallback(uint8_t type, uint8_t buttons);
@@ -152,9 +153,9 @@ uintptr_t MouseDOS_DoCallback(uint8_t type, uint8_t buttons);
 // - understands up to 3 buttons
 // - needs index of button which changed state
 
-void  MouseDOS_NotifyMoved(int32_t x_rel, int32_t y_rel, bool is_captured);
-void  MouseDOS_NotifyPressed(uint8_t buttons_12S, uint8_t idx);
-void  MouseDOS_NotifyReleased(uint8_t buttons_12S, uint8_t idx);
-void  MouseDOS_NotifyWheel(int32_t w_rel);
+bool  MouseDOS_NotifyMoved(int32_t x_rel, int32_t y_rel, bool is_captured);
+bool  MouseDOS_NotifyPressed(uint8_t buttons_12S, uint8_t idx);
+bool  MouseDOS_NotifyReleased(uint8_t buttons_12S, uint8_t idx);
+bool  MouseDOS_NotifyWheel(int32_t w_rel);
 
 #endif // DOSBOX_MOUSE_H

@@ -130,7 +130,7 @@ static uint16_t PortRead_VMW(io_port_t, io_width_t) {
     return reg_ax;
 }
 
-void MouseVMW_NotifyMoved(int32_t x_abs, int32_t y_abs) {
+bool MouseVMW_NotifyMoved(int32_t x_abs, int32_t y_abs) {
     float vmw_x, vmw_y;
     if (mouse_video.fullscreen) {
         // We have to maintain the diffs (offsets) between host and guest
@@ -157,13 +157,18 @@ void MouseVMW_NotifyMoved(int32_t x_abs, int32_t y_abs) {
         vmw_y = std::max(y_abs - mouse_video.clip_y, 0);
     }
 
+    auto old_x = scaled_x;
+    auto old_y = scaled_y;
+
     scaled_x = std::min(0xffffu, static_cast<uint32_t>(vmw_x * 0xffff / (mouse_video.res_x - 1) + 0.499));
     scaled_y = std::min(0xffffu, static_cast<uint32_t>(vmw_y * 0xffff / (mouse_video.res_y - 1) + 0.499));
 
     updated = true;
+
+    return mouse_vmware && (old_x != scaled_x || old_y != scaled_y);
 }
 
-void MouseVMW_NotifyPressedReleased(uint8_t buttons_12S) {
+bool MouseVMW_NotifyPressedReleased(uint8_t buttons_12S) {
     buttons_vmw = 0;
 
     if (buttons_12S & 1) buttons_vmw |=VMW_BUTTON::LEFT;
@@ -171,13 +176,17 @@ void MouseVMW_NotifyPressedReleased(uint8_t buttons_12S) {
     if (buttons_12S & 4) buttons_vmw |=VMW_BUTTON::MIDDLE;
 
     updated = true;
+
+    return mouse_vmware;
 }
 
-void MouseVMW_NotifyWheel(int32_t w_rel) {
+bool MouseVMW_NotifyWheel(int32_t w_rel) {
     if (mouse_vmware) {
         wheel   = std::clamp(w_rel + wheel, -0x80, 0x7f);
         updated = true;
     }
+
+    return mouse_vmware;
 }
 
 void MouseVMW_NewScreenParams(int32_t x_abs, int32_t y_abs) {
@@ -187,7 +196,7 @@ void MouseVMW_NewScreenParams(int32_t x_abs, int32_t y_abs) {
     offset_x = std::clamp(static_cast<int32_t>(offset_x), -mouse_video.clip_x, static_cast<int32_t>(mouse_video.clip_x));
     offset_y = std::clamp(static_cast<int32_t>(offset_y), -mouse_video.clip_y, static_cast<int32_t>(mouse_video.clip_y));
 
-    // Report a fake mouse movement
+    // Report a fake mouse movement   XXX update this
 
     if (mouse_vmware) MousePS2_NotifyMovedDummy();
     MouseVMW_NotifyMoved(x_abs, y_abs);

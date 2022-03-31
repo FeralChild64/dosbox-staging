@@ -521,7 +521,10 @@ static void Reset()
     in_UIR                = false;
 }
 
-void MouseDOS_NotifyMoved(int32_t x_rel, int32_t y_rel, bool is_captured) {
+bool MouseDOS_NotifyMoved(int32_t x_rel, int32_t y_rel, bool is_captured) {
+
+    auto old_x = GETPOS_X;
+    auto old_y = GETPOS_Y;
 
     float x_rel_sens = x_rel * mouse_config.sensitivity_x;
     float y_rel_sens = y_rel * mouse_config.sensitivity_y;
@@ -566,32 +569,42 @@ void MouseDOS_NotifyMoved(int32_t x_rel, int32_t y_rel, bool is_captured) {
     if (driver_state.x < driver_state.min_x) driver_state.x = driver_state.min_x;
     if (driver_state.y > driver_state.max_y) driver_state.y = driver_state.max_y;
     if (driver_state.y < driver_state.min_y) driver_state.y = driver_state.min_y;
+
+    return (old_x != GETPOS_X || old_y != GETPOS_Y);
 }
 
-void MouseDOS_NotifyPressed(uint8_t buttons_12S, uint8_t idx) {
-    if (idx >= NUM_BUTTONS) return;
+// XXX *_Notify should probably check if callback is registered
+
+bool MouseDOS_NotifyPressed(uint8_t buttons_12S, uint8_t idx) {
+    if (idx >= NUM_BUTTONS) return false;
 
     driver_state.buttons = buttons_12S;
 
     driver_state.times_pressed[idx]++;    
     driver_state.last_pressed_x[idx] = GETPOS_X;
     driver_state.last_pressed_y[idx] = GETPOS_Y;
+
+    return true;
 }
 
-void MouseDOS_NotifyReleased(uint8_t buttons_12S, uint8_t idx) {
-    if (idx >= NUM_BUTTONS) return;
+bool MouseDOS_NotifyReleased(uint8_t buttons_12S, uint8_t idx) {
+    if (idx >= NUM_BUTTONS) return false;
 
     driver_state.buttons = buttons_12S;
 
     driver_state.times_released[idx]++;
     driver_state.last_released_x[idx] = GETPOS_X;
     driver_state.last_released_y[idx] = GETPOS_Y;
+
+    return true;
 }
 
-void MouseDOS_NotifyWheel(int32_t w_rel) {
+bool MouseDOS_NotifyWheel(int32_t w_rel) {
     driver_state.wheel = std::clamp(w_rel + driver_state.wheel, -0x8000, 0x7fff);
     driver_state.last_wheel_moved_x = GETPOS_X;
     driver_state.last_wheel_moved_y = GETPOS_Y;
+
+    return true;
 }
 
 static Bitu INT33_Handler() {
@@ -1023,6 +1036,10 @@ static uintptr_t MOUSE_BD_Handler() {
 uintptr_t UIR_Handler() {
     in_UIR = false;
     return CBRET_NONE;
+}
+
+bool MouseDOS_HasCallback() {
+    return driver_state.sub_mask != 0;
 }
 
 bool MouseDOS_HasCallback(uint8_t type) {
