@@ -33,6 +33,7 @@ void  Mouse_EventWheel(int32_t w_rel);
 void  Mouse_SetSensitivity(int32_t sensitivity_x, int32_t sensitivity_y);
 void  Mouse_NewScreenParams(uint16_t clip_x, uint16_t clip_y, uint16_t res_x,  uint16_t res_y,
                             bool fullscreen, int32_t x_abs, int32_t y_abs);
+void  Mouse_NotifyMovedVMW();
 
 // ***************************************************************************
 // Common structures, please only update via functions above
@@ -102,7 +103,6 @@ void  MousePS2_WithdrawPacket();
 // - provides a way to generate dummy event, for VMware mouse integration
 
 bool  MousePS2_NotifyMoved(int32_t x_rel, int32_t y_rel);
-void  MousePS2_NotifyMovedDummy();
 bool  MousePS2_NotifyPressedReleased(uint8_t buttons_12S, uint8_t buttons_all);
 bool  MousePS2_NotifyWheel(int32_t w_rel);
 

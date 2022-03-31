@@ -92,12 +92,14 @@ static void KEYBOARD_TransferBuffer(uint32_t /*val*/) {
 		return;
 	}
 
-	if (keyb.auxactive && keyb.used8042) { /* 8042 responses have higher priority */
+	if (!keyb.auxactive)
+		keyb.used8042 = 0;
+
+	if (keyb.used8042) { // 8042 responses have higher priority
 		KEYBOARD_SetPort60(keyb.buf8042[keyb.pos8042]);
 		keyb.pos8042 = (keyb.pos8042+1) % RESBUFSIZE;
 		keyb.used8042--;	
-	}
-	else {
+	} else if (keyb.used) {
 		KEYBOARD_SetPort60(keyb.buffer[keyb.pos], keyb.is_aux[keyb.pos]);
 		keyb.pos = (keyb.pos+1) % KEYBUFSIZE;
 		keyb.used--;	

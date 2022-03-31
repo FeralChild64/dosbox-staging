@@ -196,10 +196,10 @@ void MouseVMW_NewScreenParams(int32_t x_abs, int32_t y_abs) {
     offset_x = std::clamp(static_cast<int32_t>(offset_x), -mouse_video.clip_x, static_cast<int32_t>(mouse_video.clip_x));
     offset_y = std::clamp(static_cast<int32_t>(offset_y), -mouse_video.clip_y, static_cast<int32_t>(mouse_video.clip_y));
 
-    // Report a fake mouse movement   XXX update this
+    // Report a fake mouse movement
 
-    if (mouse_vmware) MousePS2_NotifyMovedDummy();
-    MouseVMW_NotifyMoved(x_abs, y_abs);
+    if (MouseVMW_NotifyMoved(x_abs, y_abs) && mouse_vmware)
+        Mouse_NotifyMovedVMW();
 }
 
 void MouseVMW_Init() {

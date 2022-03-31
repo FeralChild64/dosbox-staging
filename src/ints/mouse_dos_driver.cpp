@@ -573,8 +573,6 @@ bool MouseDOS_NotifyMoved(int32_t x_rel, int32_t y_rel, bool is_captured) {
     return (old_x != GETPOS_X || old_y != GETPOS_Y);
 }
 
-// XXX *_Notify should probably check if callback is registered
-
 bool MouseDOS_NotifyPressed(uint8_t buttons_12S, uint8_t idx) {
     if (idx >= NUM_BUTTONS) return false;
 
