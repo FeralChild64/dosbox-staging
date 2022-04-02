@@ -224,7 +224,6 @@ static void write_p60(io_port_t, io_val_t value, io_width_t)
 			break;
 		case 0xf4:	/* Enable keyboard,clear buffer, start scanning */
 			LOG(LOG_KEYBOARD, LOG_NORMAL)("Clear buffer,enable Scanning");
-			KEYBOARD_ClrBuffer(); // XXX check if it shound clear p60changed and auxchanged
 			KEYBOARD_AddBuffer(0xfa); /* Acknowledge */
 			keyb.scanning=true;
 			break;
@@ -386,7 +385,7 @@ static void write_p64(io_port_t, io_val_t value, io_width_t)
 		if (!keyb.active)     bit::set(ret, b3);
 		if (!keyb.auxactive)  bit::set(ret, b4);
 		if (!keyb.xlat)       bit::set(ret, b5);
-        KEYBOARD_Add8042Response(ret);
+        // KEYBOARD_Add8042Response(ret); // XXX - something is wrong with this and Windows 3.1; should we strip it away?
         break;
     case 0x60:      /* Set command byte */
         keyb.command=CMD_SETCOMMAND;

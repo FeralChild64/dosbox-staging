@@ -104,7 +104,8 @@ static void SendPacket() {
     // Send mouse event either via PS/2 bus or activate INT74/IRQ12 directly
     if (event.req_ps2) {
         MousePS2_UpdatePacket();
-        if (!MousePS2_SendPacket())
+         // XXX MouseBIOS_HasCallback() condition breaks CtMouse 2.0 and IntelliPoint 3.0 - find out why
+        if (MouseBIOS_HasCallback() || !MousePS2_SendPacket())
             PIC_ActivateIRQ(12);
     } else if (event.req_dos)
         PIC_ActivateIRQ(12);

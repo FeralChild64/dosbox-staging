@@ -227,7 +227,7 @@ void MousePS2_UpdatePacket() {
 }
 
 bool MousePS2_SendPacket() {
-    if (!MouseBIOS_HasCallback() && !modeWrap && !modeRemote && reporting)
+    if (!modeWrap && !modeRemote && reporting)
         return KEYBOARD_AddBufferAUX(&packet[0], (type == PS2_TYPE::IM || type == PS2_TYPE::XP) ? 4 : 3);
 
     return false;
