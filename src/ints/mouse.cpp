@@ -88,22 +88,16 @@ static void SendPacket() {
     // Detect if our INT74/IRQ12 handler is actually being used
     if (int74_needed_countdown > 0)
         int74_needed_countdown--;
-    else if (int74_used) {
+    else
         int74_used = false;
-        // If INT74 is not used, we do not need DOS-only events
-        if (queue_used) {
-            if (queue[queue_used - 1].req_ps2) {
-                queue[0] = queue[queue_used - 1];
-                queue[0].req_dos = false;
-                queue_used = 1;        
-            } else
-                queue_used = 0;
-        }
-    }
 
     // Filter out unneeded DOS driver events
     auto &event = queue[queue_used - 1];
     event.req_dos &= int74_used && MouseDOS_HasCallback();
+
+    // If our INT74/IRQ12 is not used, there is no need for the queue at all
+    if (!int74_used)
+        queue_used = 0;
 
     // LOG_WARNING("XXX send - PS2 %s, DOS:%s", event.req_ps2 ? "Y" : "-", event.req_dos ? "Y" : "-");
 

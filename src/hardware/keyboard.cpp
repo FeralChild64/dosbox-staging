@@ -224,6 +224,7 @@ static void write_p60(io_port_t, io_val_t value, io_width_t)
 			break;
 		case 0xf4:	/* Enable keyboard,clear buffer, start scanning */
 			LOG(LOG_KEYBOARD, LOG_NORMAL)("Clear buffer,enable Scanning");
+			KEYBOARD_ClrBuffer(); // XXX check if it shound clear p60changed and auxchanged
 			KEYBOARD_AddBuffer(0xfa); /* Acknowledge */
 			keyb.scanning=true;
 			break;
@@ -605,11 +606,11 @@ void KEYBOARD_Init(Section* /*sec*/) {
 	write_p61(0, 0, io_width_t::byte);
 	/* Init the keyb struct - command bits*/
 	keyb.cb_irq1      = true;
-	keyb.cb_irq12     = false;
+	keyb.cb_irq12     = true;
 	keyb.post_passed  = true;
 	keyb.xlat         = true;
 	keyb.active       = true;
-	keyb.auxactive    = false;
+	keyb.auxactive    = true;
 	/* Init the keyb struct - remaining data*/
 	keyb.scanning     = true;
 	keyb.command      = CMD_NONE;
