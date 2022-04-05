@@ -39,24 +39,15 @@ enum KeyCommands {
 	CMD_SETLEDS,
 	CMD_SETTYPERATE,
 	CMD_SETOUTPORT,
-    CMD_SETCOMMAND,
 	CMD_WRITEAUX
 };
 
 static struct {
-	Bit8u buf8042[RESBUFSIZE];
-	Bitu used8042;
-	Bitu pos8042;
-
     Bit8u buffer[KEYBUFSIZE];
     bool  is_aux[KEYBUFSIZE]; // true = corresponding byte came from AUX (mouse) port
 	Bitu used;
 	Bitu pos;
 
-	bool cb_irq1;
-	bool cb_irq12;
-	bool post_passed;
-	bool xlat;        // FIXME: emulate this
 	bool active;
 	bool auxactive;
 
@@ -78,8 +69,8 @@ static void KEYBOARD_SetPort60(Bit8u val, bool is_aux=false) {
 	keyb.p60changed=true;
 	keyb.p60data=val&0xff;
     if (is_aux) {
-        if (keyb.cb_irq12) PIC_ActivateIRQ(12);
-    } else if (keyb.cb_irq1) {
+        PIC_ActivateIRQ(12);
+    } else {
 		if (machine==MCH_PCJR) PIC_ActivateIRQ(6);
 		else PIC_ActivateIRQ(1);
     }
@@ -87,47 +78,20 @@ static void KEYBOARD_SetPort60(Bit8u val, bool is_aux=false) {
 
 static void KEYBOARD_TransferBuffer(uint32_t /*val*/) {
 	keyb.scheduled = false;
-	if (!keyb.used && !keyb.used8042) {
+	if (!keyb.used) {
 		LOG(LOG_KEYBOARD,LOG_NORMAL)("Transfer started with empty buffer");
 		return;
 	}
-
-	if (!keyb.auxactive)
-		keyb.used8042 = 0;
-
-	if (keyb.used8042) { // 8042 responses have higher priority
-		KEYBOARD_SetPort60(keyb.buf8042[keyb.pos8042]);
-		keyb.pos8042 = (keyb.pos8042+1) % RESBUFSIZE;
-		keyb.used8042--;	
-	} else if (keyb.used) {
-		KEYBOARD_SetPort60(keyb.buffer[keyb.pos], keyb.is_aux[keyb.pos]);
-		keyb.pos = (keyb.pos+1) % KEYBUFSIZE;
-		keyb.used--;	
-	}
+	KEYBOARD_SetPort60(keyb.buffer[keyb.pos], keyb.is_aux[keyb.pos]);
+	keyb.pos = (keyb.pos+1) % KEYBUFSIZE;
+	keyb.used--;
 }
 
 void KEYBOARD_ClrBuffer() {
 	keyb.used=0;
 	keyb.pos=0;
-	keyb.used8042=0;
-	keyb.pos8042=0;
 	PIC_RemoveEvents(KEYBOARD_TransferBuffer);
 	keyb.scheduled=false;
-}
-
-static void KEYBOARD_Add8042Response(Bit8u data) {
-	if (keyb.used8042>=RESBUFSIZE) {
-		LOG(LOG_KEYBOARD,LOG_NORMAL)("Buffer full, dropping 8042 response");
-		return;
-	}
-	Bitu start=(keyb.pos8042+keyb.used8042) % RESBUFSIZE;
-	keyb.buf8042[start]=data;
-	keyb.used8042++;
-	/* Start up an event to start the first IRQ */
-	if (!keyb.scheduled && !keyb.p60changed) {
-		keyb.scheduled=true;
-		PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);
-	}
 }
 
 static void KEYBOARD_AddBuffer(Bit8u data) {
@@ -174,16 +138,15 @@ void KEYBOARD_ClrMsgAUX() { /* Needed by virtual BIOS/DOS mouse support */
 	}
 	keyb.scheduled=false;
 	PIC_RemoveEvents(KEYBOARD_TransferBuffer);
-	if (!keyb.used && !keyb.used8042) {
+	if (!keyb.used)
 		return;
-	}
 	/* Drop everything that came from AUX (mouse) */
 	while (keyb.used && keyb.is_aux[(keyb.pos+keyb.used-1) % KEYBUFSIZE]){
 		keyb.pos = (keyb.pos+1) % KEYBUFSIZE;
 		keyb.used--;
 	}
 	/* If there is still something left in the buffer, schedule it */
-	if ((keyb.used || keyb.used8042) && !keyb.p60changed) {
+	if (keyb.used && !keyb.p60changed) {
 		keyb.scheduled=true;
 		PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);		
 	}
@@ -192,7 +155,7 @@ void KEYBOARD_ClrMsgAUX() { /* Needed by virtual BIOS/DOS mouse support */
 static uint8_t read_p60(io_port_t, io_width_t) {
 	keyb.auxchanged = false;
 	keyb.p60changed = false;
-	if (!keyb.scheduled && (keyb.used || keyb.used8042)) {
+	if (!keyb.scheduled && keyb.used) {
 		keyb.scheduled = true;
 		PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);
 	}
@@ -268,19 +231,6 @@ static void write_p60(io_port_t, io_val_t value, io_width_t)
 		KEYBOARD_ClrBuffer();
 		KEYBOARD_AddBuffer(0xfa);	/* Acknowledge */
 		break;
-    case CMD_SETCOMMAND: // 8042 command, not keyboard
-        keyb.command=CMD_NONE;
-        keyb.cb_irq1     = bit::is(val, b0);
-        keyb.cb_irq12    = bit::is(val, b1);
-        keyb.post_passed = bit::is(val, b2);
-        keyb.active      = !bit::is(val, b3);
-        keyb.auxactive   = !bit::is(val, b4);
-        keyb.xlat        = bit::is(val, b5);
-        if (keyb.used && !keyb.scheduled && !keyb.p60changed && keyb.active) {
-            keyb.scheduled=true;
-            PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);
-        }
-        break;
 	}
 }
 
@@ -376,20 +326,8 @@ static uint8_t read_p62(io_port_t, io_width_t)
 static void write_p64(io_port_t, io_val_t value, io_width_t)
 {
 	const auto val = check_cast<uint8_t>(value);
-    Bit8u ret = 0;
 	switch (val) {
-    case 0x20:      /* Read command byte */
-		if (keyb.cb_irq1)     bit::set(ret, b0);
-		if (keyb.cb_irq12)    bit::set(ret, b1);
-		if (keyb.post_passed) bit::set(ret, b2);
-		if (!keyb.active)     bit::set(ret, b3);
-		if (!keyb.auxactive)  bit::set(ret, b4);
-		if (!keyb.xlat)       bit::set(ret, b5);
-        // KEYBOARD_Add8042Response(ret); // XXX - something is wrong with this and Windows 3.1; should we strip it away?
-        break;
-    case 0x60:      /* Set command byte */
-        keyb.command=CMD_SETCOMMAND;
-        break;
+	// 0x20 and 0x60 not implemented for now
 	case 0xa8:      /* Activate AUX (mouse) */
         keyb.auxactive=true;
 		if (keyb.used && !keyb.scheduled && !keyb.p60changed) {
@@ -604,10 +542,6 @@ void KEYBOARD_Init(Section* /*sec*/) {
 	TIMER_AddTickHandler(&KEYBOARD_TickHandler);
 	write_p61(0, 0, io_width_t::byte);
 	/* Init the keyb struct - command bits*/
-	keyb.cb_irq1      = true;
-	keyb.cb_irq12     = true;
-	keyb.post_passed  = true;
-	keyb.xlat         = true;
 	keyb.active       = true;
 	keyb.auxactive    = true;
 	/* Init the keyb struct - remaining data*/

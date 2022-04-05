@@ -135,7 +135,7 @@ static void AddEvent(MouseEvent &event) {
                     return; // Skip - no driver needs what is left
                 event.req_ps2 = false;
             }
-            // Skip redundant events  XXX probably not right - what about filters in DOS driver?
+            // Skip redundant events
             if (event.dos_type == DOS_EV::MOUSE_MOVED ||
                 event.dos_type == DOS_EV::WHEEL_MOVED) {
                 return;
