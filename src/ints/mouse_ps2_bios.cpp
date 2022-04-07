@@ -233,8 +233,8 @@ bool MousePS2_SendPacket() {
     return false;
 }
 
-void MousePS2_WithdrawPacket() {
-    KEYBOARD_ClrMsgAUX();
+void MousePS2_FlushPacket() {
+    KEYBOARD_FlushMsgAUX();
 }
 
 static void CmdSetResolution(Bit8u counts_mm) {
@@ -437,12 +437,13 @@ bool MousePS2_NotifyMoved(int32_t x_rel, int32_t y_rel) {
 }
 
 bool MousePS2_NotifyPressedReleased(uint8_t buttons_12S, uint8_t buttons_all) {
+    auto buttons_old = buttons;
+
     ::buttons_12S = buttons_12S;
     ::buttons_all = buttons_all;
-
     MousePS2_UpdateButtonSquish();
 
-    return true; // XXX optimize: only ask for event if button is relevant
+    return (buttons_old != buttons);
 }
 
 bool MousePS2_NotifyWheel(int32_t w_rel) {

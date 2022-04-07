@@ -139,6 +139,6 @@ void KEYBOARD_ClrBuffer(void);
 void KEYBOARD_AddKey(KBD_KEYS keytype,bool pressed);
 
 bool KEYBOARD_AddBufferAUX(Bit8u *data, Bit8u bytes=1);
-void KEYBOARD_ClrMsgAUX();
+void KEYBOARD_FlushMsgAUX();
 
 #endif

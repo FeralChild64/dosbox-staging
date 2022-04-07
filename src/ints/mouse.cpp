@@ -183,7 +183,7 @@ static Bitu INT74_Exit() {
 }
 
 static Bitu INT74_Handler() {
-    MousePS2_WithdrawPacket();
+    MousePS2_FlushPacket();
     int74_used = true;
     int74_needed_countdown = 2;
 

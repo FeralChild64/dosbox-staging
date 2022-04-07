@@ -131,7 +131,7 @@ bool KEYBOARD_AddBufferAUX(Bit8u *data, Bit8u bytes) { /* For PS/2 mouse */
 	return true;
 }
 
-void KEYBOARD_ClrMsgAUX() { /* Needed by virtual BIOS/DOS mouse support */
+void KEYBOARD_FlushMsgAUX() { /* Needed by virtual BIOS/DOS mouse support */
     if (keyb.auxchanged) {
 		keyb.auxchanged=false;
 		keyb.p60changed=false;

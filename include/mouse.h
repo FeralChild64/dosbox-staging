@@ -95,7 +95,7 @@ float MousePS2_GetDelay();
 void  MousePS2_PortWrite(uint8_t byte);
 void  MousePS2_UpdatePacket();
 bool  MousePS2_SendPacket();
-void  MousePS2_WithdrawPacket();
+void  MousePS2_FlushPacket();
 
 // - needs relative movements
 // - understands up to 5 buttons in Intellimouse Explorer mode
