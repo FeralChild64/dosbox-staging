@@ -104,8 +104,7 @@ static void SendPacket() {
     // Send mouse event either via PS/2 bus or activate INT74/IRQ12 directly
     if (event.req_ps2) {
         MousePS2_UpdatePacket();
-         // XXX MouseBIOS_HasCallback() condition breaks CtMouse 2.0 and IntelliPoint 3.0 - find out why
-        if (MouseBIOS_HasCallback() || !MousePS2_SendPacket())
+        if (!MousePS2_SendPacket())
             PIC_ActivateIRQ(12);
     } else if (event.req_dos)
         PIC_ActivateIRQ(12);
@@ -158,7 +157,7 @@ static inline DOS_EV SelectEventPressed(uint8_t idx, bool changed_12S) {
     case 0:  return DOS_EV::PRESSED_LEFT;
     case 1:  return DOS_EV::PRESSED_RIGHT;
     case 2:  return DOS_EV::PRESSED_MIDDLE;
-    case 3:  return changed_12S ? DOS_EV::PRESSED_MIDDLE : DOS_EV::NOT_DOS_EVENT;
+    case 3:
     case 4:  return changed_12S ? DOS_EV::PRESSED_MIDDLE : DOS_EV::NOT_DOS_EVENT;
     default: return DOS_EV::NOT_DOS_EVENT;
     }
@@ -169,7 +168,7 @@ static inline DOS_EV SelectEventReleased(uint8_t idx, bool changed_12S) {
     case 0:  return DOS_EV::RELEASED_LEFT;
     case 1:  return DOS_EV::RELEASED_RIGHT;
     case 2:  return DOS_EV::RELEASED_MIDDLE;
-    case 3:  return changed_12S ? DOS_EV::RELEASED_MIDDLE : DOS_EV::NOT_DOS_EVENT;
+    case 3:
     case 4:  return changed_12S ? DOS_EV::RELEASED_MIDDLE : DOS_EV::NOT_DOS_EVENT;
     default: return DOS_EV::NOT_DOS_EVENT;
     }
@@ -212,13 +211,15 @@ static Bitu INT74_Handler() {
             CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)) + 7);
             return MouseDOS_DoCallback(event.dos_type, event.dos_buttons);
         }
+    }
 
-        if (MouseBIOS_HasCallback() && event.req_ps2) {
-            // To be handled by PS/2 BIOS
-            CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
-            CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)));
-            return MouseBIOS_DoCallback();
-        }
+    // XXX under Windows 3.1 this part is being called constantly, leading to crash - find out, why
+
+    if (MouseBIOS_HasCallback()) {
+        // To be handled by PS/2 BIOS
+        CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
+        CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)));
+        return MouseBIOS_DoCallback();
     }
 
     // No events
