@@ -131,22 +131,23 @@ bool KEYBOARD_AddBufferAUX(Bit8u *data, Bit8u bytes) { /* For PS/2 mouse */
 	return true;
 }
 
-void KEYBOARD_FlushMsgAUX() { /* Needed by virtual BIOS/DOS mouse support */
-    if (keyb.auxchanged) {
-		keyb.auxchanged=false;
-		keyb.p60changed=false;
-	}
+void KEYBOARD_FlushMsgAUX() { // Needed by virtual BIOS/DOS mouse support
+	if (!keyb.p60changed || !keyb.auxchanged)
+		return; // No mouse event awaiting, nothing to flush
+	// Drop current byte
+	keyb.auxchanged=false;
+	keyb.p60changed=false;
 	keyb.scheduled=false;
 	PIC_RemoveEvents(KEYBOARD_TransferBuffer);
-	if (!keyb.used)
-		return;
-	/* Drop everything that came from AUX (mouse) */
-	while (keyb.used && keyb.is_aux[(keyb.pos+keyb.used-1) % KEYBUFSIZE]){
+	// Drop everything in the buffer that came from AUX (mouse)
+	uint8_t pos=(keyb.pos+keyb.used-1) % KEYBUFSIZE;
+	while (keyb.used && keyb.is_aux[pos]){
 		keyb.pos = (keyb.pos+1) % KEYBUFSIZE;
 		keyb.used--;
+		pos = (pos+1) % KEYBUFSIZE;
 	}
-	/* If there is still something left in the buffer, schedule it */
-	if (keyb.used && !keyb.p60changed) {
+	// If there is still something left in the buffer, schedule it
+	if (keyb.used) {
 		keyb.scheduled=true;
 		PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);		
 	}

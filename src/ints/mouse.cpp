@@ -174,17 +174,21 @@ static inline DOS_EV SelectEventReleased(uint8_t idx, bool changed_12S) {
     }
 }
 
-static Bitu INT74_Exit() {
+static uintptr_t INT74_Exit() {
     SegSet16(cs, RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
     reg_ip = RealOff(CALLBACK_RealPointer(int74_ret_callback));
 
     return CBRET_NONE;  
 }
 
-static Bitu INT74_Handler() {
-    MousePS2_FlushPacket();
+static inline void MarkUseINT74() {
     int74_used = true;
-    int74_needed_countdown = 2;
+    int74_needed_countdown = 2;  
+}
+
+static uintptr_t INT74_Handler() {
+    MarkUseINT74();
+    MousePS2_FlushPacket();
 
     // If DOS mouse handler is busy - try the next time
     if (MouseDOS_CallbackInProgress())
@@ -226,7 +230,7 @@ static Bitu INT74_Handler() {
     return INT74_Exit();
 }
 
-Bitu INT74_Ret_Handler() {
+uintptr_t INT74_Ret_Handler() {
     if (queue_used && !timer_in_progress) {
         timer_in_progress = true;
         PIC_AddEvent(EventHandler, GetEventDelay());
@@ -373,9 +377,10 @@ void Mouse_EventWheel(int32_t w_rel) {
 // ***************************************************************************
 
 void MOUSE_Init(Section* /*sec*/) {
+    MarkUseINT74();
 
     // Callback for ps2 irq
-    Bitu call_int74 = CALLBACK_Allocate();
+    auto call_int74 = CALLBACK_Allocate();
     CALLBACK_Setup(call_int74, &INT74_Handler, CB_IRQ12, "int 74");
     // pseudocode for CB_IRQ12:
     //    sti
