@@ -176,7 +176,12 @@ static Bit32u read_kcl_file(const char* kcl_file_name, const char* layout_id, bo
 		return 0;
 	}
 
-	fseek(tempfile.get(), 7 + rbuf[6], SEEK_SET);
+	const auto seek_pos = 7 + rbuf[6];
+	if (fseek(tempfile.get(), seek_pos, SEEK_SET) != 0) {
+		LOG_WARNING("LAYOUT: could not seek to byte %d in keyboard layout file '%s': %s",
+		            seek_pos, kcl_file_name, strerror(errno));
+		return 0;
+	}
 
 	for (;;) {
 		Bit32u cur_pos = (Bit32u)(ftell(tempfile.get()));
@@ -186,6 +191,8 @@ static Bit32u read_kcl_file(const char* kcl_file_name, const char* layout_id, bo
 		Bit16u len=host_readw(&rbuf[0]);
 
 		Bit8u data_len=rbuf[2];
+		assert (data_len < UINT8_MAX);
+		static_assert(UINT8_MAX < sizeof(rbuf), "rbuf too small");
 
 		char lng_codes[258];
 		fseek(tempfile.get(), -2, SEEK_CUR);
@@ -331,7 +338,12 @@ Bitu keyboard_layout::read_keyboard_file(const char* keyboard_file_name, Bit32s 
 			return KEYB_FILENOTFOUND;
 		}
 		if (tempfile) {
-			fseek(tempfile.get(), start_pos + 2, SEEK_SET);
+			const auto seek_pos = start_pos + 2;
+			if (fseek(tempfile.get(), seek_pos, SEEK_SET) != 0) {
+				LOG_WARNING("LAYOUT: could not seek to byte %d in keyboard layout file '%s': %s",
+				            seek_pos, keyboard_file_name, strerror(errno));
+				return KEYB_INVALIDFILE;
+			}
 			read_buf_size = (Bit32u)fread(read_buf, sizeof(Bit8u),
 			                              65535, tempfile.get());
 		}
@@ -351,8 +363,9 @@ Bitu keyboard_layout::read_keyboard_file(const char* keyboard_file_name, Bit32s 
 		                              tempfile.get());
 	}
 
-	Bit8u data_len,submappings;
-	data_len=read_buf[start_pos++];
+	const auto data_len = read_buf[start_pos++];
+	assert(data_len < UINT8_MAX);
+	static_assert(UINT8_MAX < sizeof(read_buf), "read_buf too small");
 
 	language_codes=new char*[data_len];
 	language_code_count=0;
@@ -362,6 +375,7 @@ Bitu keyboard_layout::read_keyboard_file(const char* keyboard_file_name, Bit32s 
 		i+=2;
 		Bitu lcpos=0;
 		for (;i<data_len;) {
+			assert(start_pos + i < sizeof(read_buf));
 			char lcode=char(read_buf[start_pos+i]);
 			i++;
 			if (lcode==',') break;
@@ -373,35 +387,35 @@ Bitu keyboard_layout::read_keyboard_file(const char* keyboard_file_name, Bit32s 
 
 	start_pos+=data_len;		// start_pos==absolute position of KeybCB block
 
-	submappings=read_buf[start_pos];
-	additional_planes=read_buf[start_pos+1];
+	assert(start_pos < sizeof(read_buf));
+	const auto submappings = read_buf[start_pos];
+
+	assert(start_pos + 1 < sizeof(read_buf));
+	additional_planes = read_buf[start_pos + 1];
 
 	// four pages always occupied by normal,shift,flags,commandbits
 	if (additional_planes>(layout_pages-4)) additional_planes=(layout_pages-4);
 
 	// seek to plane descriptor
-	read_buf_pos=start_pos+0x14+submappings*8;
-	for (Bit16u cplane=0; cplane<additional_planes; cplane++) {
-		Bit16u plane_flags;
+	read_buf_pos = start_pos + 0x14 + submappings * 8;
 
-		// get required-flags (Shift/Alt/Ctrl states, etc.)
-		plane_flags=host_readw(&read_buf[read_buf_pos]);
-		read_buf_pos+=2;
-		current_layout_planes[cplane].required_flags=plane_flags;
-		used_lock_modifiers |= (plane_flags&0x70);
-		// get forbidden-flags
-		plane_flags=host_readw(&read_buf[read_buf_pos]);
-		read_buf_pos+=2;
-		current_layout_planes[cplane].forbidden_flags=plane_flags;
+	assert(read_buf_pos < sizeof(read_buf));
 
-		// get required-userflags
-		plane_flags=host_readw(&read_buf[read_buf_pos]);
-		read_buf_pos+=2;
-		current_layout_planes[cplane].required_userflags=plane_flags;
-		// get forbidden-userflags
-		plane_flags=host_readw(&read_buf[read_buf_pos]);
-		read_buf_pos+=2;
-		current_layout_planes[cplane].forbidden_userflags=plane_flags;
+	for (auto i = 0; i < additional_planes; ++i) {
+		auto &layout = current_layout_planes[i];
+		for (auto p_flags : {
+		             &layout.required_flags,
+		             &layout.forbidden_flags,
+		             &layout.required_userflags,
+		             &layout.forbidden_userflags,
+		     }) {
+			assert(read_buf_pos < sizeof(read_buf));
+			*p_flags = host_readw(&read_buf[read_buf_pos]);
+			read_buf_pos += 2;
+			if (p_flags == &layout.required_flags) {
+				used_lock_modifiers |= ((*p_flags) & 0x70);
+			}
+		}
 	}
 
 	bool found_matching_layout=false;
@@ -712,9 +726,14 @@ Bit16u keyboard_layout::extract_codepage(const char* keyboard_file_name) {
 
 	start_pos+=data_len;		// start_pos==absolute position of KeybCB block
 
+	assert(start_pos < sizeof(read_buf));
 	submappings=read_buf[start_pos];
 
-	// check all submappings and use them if general submapping or same codepage submapping
+	// Make sure we don't read beyond the end of the buffer
+	assert(start_pos + 0x14 + submappings * 8 < sizeof(read_buf));
+
+	// check all submappings and use them if general submapping or same
+	// codepage submapping
 	for (Bit16u sub_map=0; (sub_map<submappings); sub_map++) {
 		Bit16u submap_cp;
 

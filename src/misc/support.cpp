@@ -30,9 +30,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <functional>
 #include <fstream>
 #include <iterator>
+#include <random>
 #include <stdexcept>
 #include <string>
 
@@ -401,24 +403,50 @@ const std_fs::path &GetExecutablePath()
 	return exe_path;
 }
 
+static const std::deque<std_fs::path> &GetResourceParentPaths()
+{
+	static std::deque<std_fs::path> paths = {};
+	if (paths.size())
+		return paths;
+
+#if defined(MACOSX)
+	paths.emplace_back(GetExecutablePath() / "../Resources");
+	paths.emplace_back(GetExecutablePath() / "../../Resources");
+#else
+	paths.emplace_back(GetExecutablePath() / "resources");
+	paths.emplace_back(GetExecutablePath() / "../resources");
+#endif
+	// macOS, POSIX, and even MinGW/MSYS2/Cygwin:
+	paths.emplace_back(std_fs::path("/usr/local/share/dosbox-staging"));
+	paths.emplace_back(std_fs::path("/usr/share/dosbox-staging"));
+	paths.emplace_back(std_fs::path(CROSS_GetPlatformConfigDir()));
+	return paths;
+}
+
+template <typename T>
+std::function<T()> CreateRandomizer(const T min_value, const T max_value)
+{
+	static std::random_device rd;        // one-time call to the host OS
+	static std::mt19937 generator(rd()); // seed the mersenne_twister once
+
+	// Hand back as many generators as needed without further costs
+	// incurred setting up the random number generator.
+	return [=]() {
+		std::uniform_int_distribution<T> distrib(min_value, max_value);
+		return distrib(generator);
+	};
+}
+// Explicit template instantiations
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+template std::function<char()> CreateRandomizer<char>(const char, const char);
+template std::function<uint8_t()> CreateRandomizer<uint8_t>(const uint8_t,
+                                                            const uint8_t);
+
 std_fs::path GetResourcePath(const std_fs::path &name)
 {
-#if defined(MACOSX)
-	const auto bundled_path = GetExecutablePath() / "../Resources";
-	const auto outer_bundled_path = GetExecutablePath() / "../../Resources";
-#else
-	const auto bundled_path = GetExecutablePath() / "resources";
-	const auto outer_bundled_path = GetExecutablePath() / "../resources";
-#endif
-	const auto parents = {bundled_path, outer_bundled_path,
-	                      // macOS, POSIX, and even MinGW/MSYS2/Cygwin:
-	                      std_fs::path("/usr/local/share/dosbox-staging"),
-	                      std_fs::path("/usr/share/dosbox-staging"),
-	                      std_fs::path(CROSS_GetPlatformConfigDir())};
-
 	// return the first existing resource
 	std::error_code ec;
-	for (const auto &parent : parents) {
+	for (const auto &parent : GetResourceParentPaths()) {
 		const auto resource = parent / name;
 		if (std_fs::exists(resource, ec)) {
 			return resource;
@@ -435,25 +463,24 @@ std_fs::path GetResourcePath(const std_fs::path &subdir, const std_fs::path &nam
 std::vector<uint8_t> LoadResource(const std_fs::path &name,
                                   const ResourceImportance importance)
 {
-	const auto resource = GetResourcePath(name);
+	const auto resource_path = GetResourcePath(name);
+	std::ifstream file(resource_path, std::ios::binary);
 
-	if (resource.empty()) {
-		if (importance == ResourceImportance::Mandatory) {
-			E_Exit("Resource %s not found", name.string().c_str());
-		}
-		return {};
-	}
-
-	std::ifstream file(resource, std::ios::binary);
 	if (!file.is_open()) {
-		if (importance == ResourceImportance::Mandatory) {
-			E_Exit("Could not open resource %s", resource.string().c_str());
+		if (importance == ResourceImportance::Optional) {
+			return {};
 		}
-		return {};
+		assert(importance == ResourceImportance::Mandatory);
+		LOG_ERR("RESOURCE: Could not open mandatory resource '%s', tried:", name.string().c_str());
+		for (const auto &path : GetResourceParentPaths()) {
+			LOG_WARNING("RESOURCE:  - '%s'", (path / name).string().c_str());
+		}
+		E_Exit("RESOURCE: Mandatory resource failure (see detailed message)");
 	}
 
 	const std::vector<uint8_t> buffer(std::istreambuf_iterator<char>{file}, {});
-	// LOG_MSG("loaded resource %s [%lu bytes]", resource.string().c_str(), buffer.size());
+	DEBUG_LOG_MSG("RESOURCES: Loaded resource '%s' [%d bytes]",
+	              resource_path.string().c_str(), check_cast<int>(buffer.size()));
 	return buffer;
 }
 
@@ -462,6 +489,82 @@ std::vector<uint8_t> LoadResource(const std_fs::path &subdir,
                                   const ResourceImportance importance)
 {
 	return LoadResource(subdir / name, importance);
+}
+
+bool path_exists(const std_fs::path &path)
+{
+	std::error_code ec; // avoid exceptions
+	return std_fs::exists(path, ec);
+}
+
+bool is_writable(const std_fs::path &p)
+{
+	using namespace std_fs;
+	std::error_code ec; // avoid exceptions
+	const auto perms = status(p, ec).permissions();
+	return ((perms & perms::owner_write) != perms::none ||
+	        (perms & perms::group_write) != perms::none ||
+	        (perms & perms::others_write) != perms::none);
+}
+
+bool is_readable(const std_fs::path &p)
+{
+	using namespace std_fs;
+	std::error_code ec; // avoid exceptions
+	const auto perms = status(p, ec).permissions();
+	return ((perms & perms::owner_read) != perms::none ||
+	        (perms & perms::group_read) != perms::none ||
+	        (perms & perms::others_read) != perms::none);
+}
+
+bool is_readonly(const std_fs::path &p)
+{
+	return is_readable(p) && !is_writable(p);
+}
+
+bool make_writable(const std_fs::path &p)
+{
+	// Check
+	if (is_writable(p))
+		return true;
+
+	// Apply
+	std::error_code ec;
+	using namespace std_fs;
+	permissions(p, perms::owner_write, perm_options::add, ec);
+
+	// Result and verification
+	if (ec)
+		LOG_WARNING("FILESYSTEM: Failed to add write permissions for '%s': %s",
+		            p.string().c_str(), ec.message().c_str());
+	else
+		assert(is_writable(p));
+
+	return (!ec);
+}
+
+bool make_readonly(const std_fs::path &p)
+{
+	// Check
+	if (is_readonly(p))
+		return true;
+
+	// Apply
+	using namespace std_fs;
+	constexpr auto write_perms = (perms::owner_write |
+	                              perms::group_write |
+	                              perms::others_write);
+	std::error_code ec;
+	permissions(p, write_perms, perm_options::remove, ec);
+
+	// Result and verification
+	if (ec)
+		LOG_WARNING("FILESYSTEM: Failed to remove write permissions for '%s': %s",
+		            p.string().c_str(), ec.message().c_str());
+	else
+		assert(is_readonly(p));
+
+	return (!ec);
 }
 
 bool is_date_valid(const uint32_t year, const uint32_t month, const uint32_t day)

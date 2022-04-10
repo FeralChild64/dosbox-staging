@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "bitops.h"
 #include "callback.h"
 #include "cpu.h"		// for 0x3da delay
 #include "inout.h"
@@ -253,17 +254,14 @@ static Bitu GetMixResult(uint32_t mixmode, Bitu srcval, Bitu dstdata)
 	return destval;
 }
 
-void XGA_DrawLineVector(Bitu val) {
-	Bits xat, yat;
-	Bitu srcval = 0;
-	Bits i;
+static void XGA_DrawLineVector(const uint32_t val, const bool skip_last_pixel)
+{
+	// No work to do with a zero-length line
+	if (!xga.MAPcount)
+		return;
 
-	Bits dx, sx, sy;
-
-	dx = xga.MAPcount; 
-	xat = xga.curx;
-	yat = xga.cury;
-
+	int sx = 0;
+	int sy = 0;
 	switch((val >> 5) & 0x7) {
 		case 0x00: /* 0 degrees */
 			sx = 1;
@@ -303,7 +301,14 @@ void XGA_DrawLineVector(Bitu val) {
 			break;
 	}
 
-	for (i = 0; i <= dx; ++i) {
+
+	assert(xga.MAPcount);
+	const auto dx = xga.MAPcount - skip_last_pixel;
+	auto xat = xga.curx;
+	auto yat = xga.cury;
+	auto srcval = decltype(xga.backcolor)(0);
+
+	for (auto i = 0; i <= dx; ++i) {
 		uint32_t mixmode = (xga.pix_cntl >> 6) & 0x3;
 		Bitu dstdata;
 		Bitu destval;
@@ -341,11 +346,19 @@ void XGA_DrawLineVector(Bitu val) {
 		yat += sy;
 	}
 
-	xga.curx = xat-1;
+#if 0
+	LOG_MSG("XGA: DrawLineVector: (%d,%d) to (%d,%d), skip_last_pixel=%d",
+	        xga.curx, xga.cury, xat, yat, skip_last_pixel);
+#endif
+
+	xga.curx = xat - 1;
 	xga.cury = yat;
 }
 
-void XGA_DrawLineBresenham(Bitu val) {
+// NTS: The Windows 3.1 driver does not use this XGA command for horizontal and
+// vertical lines
+static void XGA_DrawLineBresenham(const uint32_t val, const bool skip_last_pixel)
+{
 	Bits xat, yat;
 	Bitu srcval = 0;
 	Bits i;
@@ -356,15 +369,29 @@ void XGA_DrawLineBresenham(Bitu val) {
 
 	Bits dx, sx, dy, sy, e, dmajor, dminor,destxtmp;
 
-	// Probably a lot easier way to do this, but this works.
+	// S3 Trio64 documentation: The "desty" register is both a destination Y
+	// for BitBlt (hence the name) and "Line Parameter Axial Step Constant"
+	// for line drawing, in case the name of the variable is confusing here.
+	// The "desty" variable name exists as inherited from DOSBox SVN source
+	// code.
+	//
+	// lpast = 2 * min(abs(dx),abs(dy))
 
 	dminor = (Bits)((Bit16s)xga.desty);
 	if(xga.desty&0x2000) dminor |= ~0x1fff;
 	dminor >>= 1;
 
-	destxtmp=(Bits)((Bit16s)xga.destx);
-	if(xga.destx&0x2000) destxtmp |= ~0x1fff;
+	// S3 Trio64 documentation: The "destx" register is both a destination X
+	// for BitBlt (hence the name) and "Line Parameter Diagonal Step
+	// Constant" for line drawing, in case the name of the variable is
+	// confusing here. The "destx" variable name exists as inherited from
+	// DOSBox SVN source code.
+	//
+	// lpdst = 2 * min(abs(dx),abs(dy)) - max(abs(dx),abs(dy))
 
+	destxtmp = (Bits)((Bit16s)xga.destx);
+	if (xga.destx & 0x2000)
+		destxtmp |= ~0x1fff;
 
 	dmajor = -(destxtmp - (dminor << 1)) >> 1;
 	
@@ -380,6 +407,11 @@ void XGA_DrawLineBresenham(Bitu val) {
 	} else {
 		sy = -1;
 	}
+
+	// S3 Trio64 documentation:
+	// if x1 < x2: 2 * min(abs(dx),abs(dy)) - max(abs(dx),abs(dy))
+	// if x1 >= x2: 2 * min(abs(dx),abs(dy)) - max(abs(dx),abs(dy)) - 1
+
 	e = (Bits)((Bit16s)xga.ErrTerm);
 	if(xga.ErrTerm&0x2000) e |= ~0x1fff;
 	xat = xga.curx;
@@ -392,60 +424,68 @@ void XGA_DrawLineBresenham(Bitu val) {
 	} else {
 		steep = true;
 	}
-    
-	//LOG_MSG("XGA: Bresenham: ASC %d, LPDSC %d, sx %d, sy %d, err %d, steep %d, length %d, dmajor %d, dminor %d, xstart %d, ystart %d", dx, dy, sx, sy, e, steep, xga.MAPcount, dmajor, dminor,xat,yat);
 
-	for (i = 0; i <= xga.MAPcount; ++i) {
-			uint32_t mixmode = (xga.pix_cntl >> 6) & 0x3;
-			Bitu dstdata;
-			Bitu destval;
-			switch (mixmode) {
-				case 0x00: /* FOREMIX always used */
-					mixmode = xga.foremix;
-					switch ((mixmode >> 5) & 0x03) {
-						case 0x00: /* Src is background color */
-							srcval = xga.backcolor;
-							break;
-						case 0x01: /* Src is foreground color */
-							srcval = xga.forecolor;
-							break;
-						case 0x02: /* Src is pixel data from PIX_TRANS register */
-							//srcval = tmpval;
-							LOG_MSG("XGA: DrawRect: Wants data from PIX_TRANS register");
-							break;
-						case 0x03: /* Src is bitmap data */
-							LOG_MSG("XGA: DrawRect: Wants data from srcdata");
-							//srcval = srcdata;
-							break;
-						default:
-							LOG_MSG("XGA: DrawRect: Shouldn't be able to get here!");
-							break;
-					}
+#if 0
+	LOG_MSG("XGA: Bresenham: ASC %ld, LPDSC %ld, sx %ld, sy %ld, err %ld,"
+	" steep %ld, length %ld, dmajor %ld, dminor %ld, xstart %ld, ystart %ld, skip_last_pixel %u",
+		(signed long)dx, (signed long)dy, (signed long)sx, (signed long)sy, (signed long)e,
+		(signed long)steep, (signed long)xga.MAPcount, (signed long)dmajor, (signed long)dminor,
+		(signed long)xat, (signed long)yat, skip_last_pixel);
+#endif
 
-					if (steep)
-						dstdata = XGA_GetPoint(xat, yat);
-					else
-						dstdata = XGA_GetPoint(yat, xat);
+	const auto run = xga.MAPcount - (xga.MAPcount && skip_last_pixel);
 
-					destval = GetMixResult(mixmode, srcval, dstdata);
-
-					if(steep) {
-						XGA_DrawPoint(xat,yat, destval);
-					} else {
-						XGA_DrawPoint(yat,xat, destval);
-					}
-
-					break;
-				default: 
-					LOG_MSG("XGA: DrawLine: Needs mixmode %x", mixmode);
-					break;
+	for (i = 0; i <= run; ++i) {
+		uint32_t mixmode = (xga.pix_cntl >> 6) & 0x3;
+		Bitu dstdata;
+		Bitu destval;
+		switch (mixmode) {
+		case 0x00: /* FOREMIX always used */
+			mixmode = xga.foremix;
+			switch ((mixmode >> 5) & 0x03) {
+			case 0x00: /* Src is background color */
+				srcval = xga.backcolor;
+				break;
+			case 0x01: /* Src is foreground color */
+				srcval = xga.forecolor;
+				break;
+			case 0x02: /* Src is pixel data from PIX_TRANS register */
+				// srcval = tmpval;
+				LOG_MSG("XGA: DrawRect: Wants data from PIX_TRANS register");
+				break;
+			case 0x03: /* Src is bitmap data */
+				LOG_MSG("XGA: DrawRect: Wants data from srcdata");
+				// srcval = srcdata;
+				break;
+			default:
+				LOG_MSG("XGA: DrawRect: Shouldn't be able to get here!");
+				break;
 			}
-			while (e > 0) {
-				yat += sy;
-				e -= (dx << 1);
+
+			if (steep)
+				dstdata = XGA_GetPoint(xat, yat);
+			else
+				dstdata = XGA_GetPoint(yat, xat);
+
+			destval = GetMixResult(mixmode, srcval, dstdata);
+
+			if (steep) {
+				XGA_DrawPoint(xat, yat, destval);
+			} else {
+				XGA_DrawPoint(yat, xat, destval);
 			}
-			xat += sx;
-			e += (dy << 1);
+
+			break;
+		default:
+			LOG_MSG("XGA: DrawLine: Needs mixmode %x", mixmode);
+			break;
+		}
+		while (e > 0) {
+			yat += sy;
+			e -= (dx << 1);
+		}
+		xat += sx;
+		e += (dy << 1);
 	}
 
 	if(steep) {
@@ -455,14 +495,11 @@ void XGA_DrawLineBresenham(Bitu val) {
 		xga.curx = yat;
 		xga.cury = xat;
 	}
-	//	}
-	//}
 }
 
-void XGA_DrawRectangle(Bitu val) {
-	Bit32u xat, yat;
+static void XGA_DrawRectangle(const uint32_t val, const bool skip_last_pixel)
+{
 	Bitu srcval = 0;
-
 	Bits srcx, srcy, dx, dy;
 
 	dx = -1;
@@ -473,9 +510,14 @@ void XGA_DrawRectangle(Bitu val) {
 
 	srcy = xga.cury;
 
-	for(yat=0;yat<=xga.MIPcount;yat++) {
+	// Undocumented, but seen with Windows 3.1 drivers: Horizontal lines are
+	// drawn with this XGA command and "skip last pixel" set, else they are
+	// one pixel too wide (but don't underflow below zero).
+	const auto xrun = xga.MAPcount - (xga.MAPcount && skip_last_pixel);
+
+	for (auto yat = 0; yat <= xga.MIPcount; ++yat) {
 		srcx = xga.curx;
-		for (xat = 0; xat <= xga.MAPcount; ++xat) {
+		for (auto xat = 0; xat <= xrun; ++xat) {
 			uint32_t mixmode = (xga.pix_cntl >> 6) & 0x3;
 			Bitu dstdata;
 			Bitu destval;
@@ -516,7 +558,10 @@ void XGA_DrawRectangle(Bitu val) {
 	xga.curx = srcx;
 	xga.cury = srcy;
 
-	//LOG_MSG("XGA: Draw rect (%d, %d)-(%d, %d), %d", x1, y1, x2, y2, xga.forecolor);
+#if 0
+	LOG_MSG("XGA: DrawRectangle: %d,%d,%d,%d skip_last_pixel=%d",
+	        xga.curx, xga.cury, xga.MAPcount, xga.MIPcount, skip_last_pixel);
+#endif
 }
 
 bool XGA_CheckX(void) {
@@ -909,7 +954,7 @@ void XGA_DrawPattern(Bitu val) {
 	}
 }
 
-static void XGA_DrawCmd(Bitu val)
+static void XGA_DrawCmd(const uint32_t val)
 {
 	Bit16u cmd;
 	cmd = val >> 13;
@@ -917,6 +962,11 @@ static void XGA_DrawCmd(Bitu val)
 	//LOG_MSG("XGA: Draw command %x", cmd);
 #endif
 	xga.curcommand = val;
+
+	// Do we skip drawing the last pixel? (bit 2), Trio64 documentation This
+	// is needed to correctly draw polylines in Windows
+	const auto skip_last_pixel = bit::is(val, bit::literals::b2);
+
 	switch(cmd) {
 		case 1: /* Draw line */
 			if((val & 0x100) == 0) {
@@ -924,12 +974,12 @@ static void XGA_DrawCmd(Bitu val)
 #if XGA_SHOW_COMMAND_TRACE == 1
 					LOG_MSG("XGA: Drawing Bresenham line");
 #endif
-                    XGA_DrawLineBresenham(val);
+					XGA_DrawLineBresenham(val, skip_last_pixel);
 				} else {
 #if XGA_SHOW_COMMAND_TRACE == 1
 					LOG_MSG("XGA: Drawing vector line");
 #endif
-					XGA_DrawLineVector(val);
+					XGA_DrawLineVector(val, skip_last_pixel);
 				}
 			} else {
 				LOG_MSG("XGA: Wants line drawn from PIX_TRANS register!");
@@ -942,7 +992,7 @@ static void XGA_DrawCmd(Bitu val)
 				LOG_MSG("XGA: Draw immediate rect: xy(%3d/%3d), len(%3d/%3d)",
 					xga.curx,xga.cury,xga.MAPcount,xga.MIPcount);
 #endif
-				XGA_DrawRectangle(val);
+				XGA_DrawRectangle(val, skip_last_pixel);
 
 			} else {
 			        uint16_t xga_bit_depth = 0;

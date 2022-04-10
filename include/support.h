@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <stdexcept>
@@ -105,7 +106,11 @@ inline constexpr T1 ceil_sdivide(const T1 x, const T2 y) noexcept {
 	// https://stackoverflow.com/a/33790603
 }
 
-inline int iround(double x) {
+template <typename T>
+std::function<T()> CreateRandomizer(const T min_value, const T max_value);
+
+inline int iround(double x)
+{
 	assert(std::isfinite(x));
 	assert(x >= (std::numeric_limits<int>::min)());
 	assert(x <= (std::numeric_limits<int>::max)());
@@ -323,8 +328,18 @@ std::vector<uint8_t> LoadResource(const std_fs::path &subdir,
 std::vector<uint8_t> LoadResource(const std_fs::path &name,
                                   const ResourceImportance importance);
 
+bool path_exists(const std_fs::path &path);
+
+bool is_writable(const std_fs::path &path);
+bool is_readable(const std_fs::path &path);
+bool is_readonly(const std_fs::path &path);
+
+bool make_writable(const std_fs::path &path);
+bool make_readonly(const std_fs::path &path);
+
 template <typename container_t>
-bool contains(const container_t &container, const typename container_t::value_type &value)
+bool contains(const container_t &container,
+              const typename container_t::value_type &value)
 {
 	return std::find(container.begin(), container.end(), value) != container.end();
 }
