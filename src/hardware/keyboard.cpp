@@ -208,8 +208,9 @@ static void write_p60(io_port_t, io_val_t value, io_width_t)
 			KEYBOARD_AddBuffer(0xee);	/* Echo */
 			break;
 		case 0xf2:	/* Identify keyboard */
-			/* AT's just send acknowledge */
-			KEYBOARD_AddBuffer(0xfa);	/* Acknowledge */
+			KEYBOARD_AddBuffer(0xfa);   /* Acknowledge */
+			KEYBOARD_AddBuffer(0xab);   /* ID */
+			KEYBOARD_AddBuffer(0x83);
 			break;
 		case 0xf3: /* Typematic rate programming */
 			keyb.command=CMD_SETTYPERATE;
@@ -227,8 +228,8 @@ static void write_p60(io_port_t, io_val_t value, io_width_t)
 			break;
 		case 0xf6:	/* Reset keyboard and enable scanning */
 			LOG(LOG_KEYBOARD,LOG_NORMAL)("Reset, enable scanning");
-			KEYBOARD_AddBuffer(0xfa);	/* Acknowledge */
-			keyb.scanning=false;
+			keyb.scanning=true;         /* JC: Original DOSBox code was wrong, this command enables scanning */
+			KEYBOARD_AddBuffer(0xfa);   /* Acknowledge */
 			break;
 		default:
 			/* Just always acknowledge strange commands */
