@@ -153,7 +153,7 @@ static inline uint8_t GetResetWheel8bit() {
     return (tmp >= 0) ? tmp : 0x100 + tmp;
 }
 
-static Bit16s ApplyScaling(int16_t d) {
+static int16_t ApplyScaling(int16_t d) {
     if (!scaling_21)
         return d;
 
@@ -237,7 +237,7 @@ void MousePS2_FlushPacket() {
     KEYBOARD_FlushMsgAUX();
 }
 
-static void CmdSetResolution(Bit8u counts_mm) {
+static void CmdSetResolution(uint8_t counts_mm) {
     TerminateUnlock();
     if (counts_mm != 1 && counts_mm != 2 && counts_mm != 4 && counts_mm != 8)
         counts_mm = 4; // invalid parameter, set default
@@ -246,7 +246,7 @@ static void CmdSetResolution(Bit8u counts_mm) {
     ::counts_coeff = counts_mm / 4.0f;
 }
 
-static void CmdSetRate(Bit8u rate_hz) {
+static void CmdSetRate(uint8_t rate_hz) {
     ResetCounters();
 
     if (rate_hz != 10 && rate_hz != 20 && rate_hz != 40 && rate_hz != 60 && rate_hz != 80 &&
@@ -259,7 +259,7 @@ static void CmdSetRate(Bit8u rate_hz) {
     ::delay   = 1000.0 / rate_hz;
 
     // handle IntelliMouse protocol unlock sequence
-    static const std::vector<Bit8u> SEQ_IM = { 200, 100, 80 };
+    static const std::vector<uint8_t> SEQ_IM = { 200, 100, 80 };
     if (SEQ_IM[unlock_idx_im] != rate_hz)
         unlock_idx_im = 0;
     else if (SEQ_IM.size() == ++unlock_idx_im) {
@@ -267,7 +267,7 @@ static void CmdSetRate(Bit8u rate_hz) {
     }
 
     // handle IntelliMouse Explorer protocol unlock sequence
-    static const std::vector<Bit8u> SEQ_XP = { 200, 200, 80 };
+    static const std::vector<uint8_t> SEQ_XP = { 200, 200, 80 };
     if (SEQ_XP[unlock_idx_xp] != rate_hz)
         unlock_idx_xp = 0;
     else if (SEQ_XP.size() == ++unlock_idx_xp) {
@@ -374,11 +374,11 @@ void MousePS2_PortWrite(uint8_t byte) { // value received from PS/2 port
             AddBuffer(PS2_RES::ACKNOWLEDGE);
             AddBuffer(PS2_RES::SELF_TEST_PASSED);
             CmdReset();
-            AddBuffer(static_cast<Bit8u>(type));
+            AddBuffer(static_cast<uint8_t>(type));
             break;
         case PS2_CMD::GET_DEV_ID:
             AddBuffer(PS2_RES::ACKNOWLEDGE);
-            AddBuffer(static_cast<Bit8u>(type));
+            AddBuffer(static_cast<uint8_t>(type));
             break;
         case PS2_CMD::ENABLE_DEV:
             AddBuffer(PS2_RES::ACKNOWLEDGE);
@@ -519,7 +519,7 @@ void MouseBIOS_ChangeCallback(uint16_t pseg, uint16_t pofs) {
     }
 }
 
-Bit8u MouseBIOS_GetType() {
+uint8_t MouseBIOS_GetType() {
     return static_cast<uint8_t>(type);
 }
 
@@ -542,7 +542,7 @@ Bitu MouseBIOS_DoCallback() {
         CPU_Push16(packet[2]);
         CPU_Push16(packet[3]);
     }
-    CPU_Push16((Bit16u) 0);
+    CPU_Push16((uint16_t) 0);
 
     CPU_Push16(RealSeg(ps2_callback));
     CPU_Push16(RealOff(ps2_callback));
@@ -554,7 +554,7 @@ Bitu MouseBIOS_DoCallback() {
 
 void MousePS2_Init() {
     // Callback for ps2 user callback handling
-    Bitu call_ps2 = CALLBACK_Allocate();
+    auto call_ps2 = CALLBACK_Allocate();
     CALLBACK_Setup(call_ps2, &MouseBIOS_Callback_ret, CB_RETF, "ps2 bios callback");
     ps2_callback = CALLBACK_RealPointer(call_ps2);
 

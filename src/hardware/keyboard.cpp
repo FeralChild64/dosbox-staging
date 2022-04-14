@@ -65,14 +65,14 @@ static struct {
 		Bitu pause,rate;
 	} repeat;
 	KeyCommands command;
-	Bit8u p60data;
+	uint8_t p60data;
 	bool p60changed;
 	bool auxchanged;
 	bool scanning;
 	bool scheduled;
 } keyb;
 
-static void KEYBOARD_SetPort60(Bit8u val, bool is_aux=false) {
+static void KEYBOARD_SetPort60(uint8_t val, bool is_aux=false) {
 	keyb.auxchanged=is_aux;
 	keyb.p60changed=true;
 	keyb.p60data=val&0xff;
@@ -108,7 +108,7 @@ void KEYBOARD_ClrBuffer() {
 	keyb.scheduled=false;
 }
 
-static void KEYBOARD_Add8042Response(Bit8u data) {
+static void KEYBOARD_Add8042Response(uint8_t data) {
 	if (keyb.used8042>=RESBUFSIZE) {
 		LOG(LOG_KEYBOARD,LOG_NORMAL)("Buffer full, dropping 8042 response");
 		return;
@@ -123,7 +123,7 @@ static void KEYBOARD_Add8042Response(Bit8u data) {
 	}
 }
 
-static void KEYBOARD_AddBuffer(Bit8u data) {
+static void KEYBOARD_AddBuffer(uint8_t data) {
 	if (keyb.used>=KEYBUFSIZE) {
 		LOG(LOG_KEYBOARD,LOG_NORMAL)("Buffer full, dropping code");
 		return;
@@ -139,7 +139,7 @@ static void KEYBOARD_AddBuffer(Bit8u data) {
 	}
 }
 
-bool KEYBOARD_AddBufferAUX(Bit8u *data, Bit8u bytes) { /* For PS/2 mouse */
+bool KEYBOARD_AddBufferAUX(uint8_t *data, uint8_t bytes) { /* For PS/2 mouse */
 	if (!keyb.auxactive)
 		return false;
 	if (keyb.used+bytes>KEYBUFSIZE) {
@@ -147,7 +147,7 @@ bool KEYBOARD_AddBufferAUX(Bit8u *data, Bit8u bytes) { /* For PS/2 mouse */
 		return false;
 	}
 	Bitu start=keyb.pos+keyb.used;
-	for (Bit8u i=0; i<bytes; i++) {
+	for (uint8_t i=0; i<bytes; i++) {
 		keyb.buffer[(start+i) % KEYBUFSIZE]=*(data+i);
 		keyb.is_aux[(start+i) % KEYBUFSIZE]=true;
 	}
@@ -287,7 +287,7 @@ bit 2      reserved, often used as turbo switch
 bit 1 = 1  speaker data enable
 bit 0 = 1  timer 2 gate to speaker enable
 */
-static Bit8u port_61_data = 0;
+static uint8_t port_61_data = 0;
 extern void TIMER_SetGate2(bool);
 static void write_p61(io_port_t, io_val_t value, io_width_t)
 {
@@ -412,7 +412,7 @@ static uint8_t read_p64(io_port_t, io_width_t) {
 }
 
 void KEYBOARD_AddKey(KBD_KEYS keytype,bool pressed) {
-	Bit8u ret=0;bool extend=false;
+	uint8_t ret=0;bool extend=false;
 	switch (keytype) {
 	case KBD_esc:ret=1;break;
 	case KBD_1:ret=2;break;

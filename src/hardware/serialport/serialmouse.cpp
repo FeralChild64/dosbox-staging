@@ -274,7 +274,7 @@ void CSerialMouse::startPacketData(bool extended) {
         packet[1]  = 0x00 | (dx & 0x3f);
         packet[2]  = 0x00 | (dy & 0x3f);
         if (extended) {
-            Bit8u dw   = std::clamp(mouse_delta_w, -0x10, 0x0f) & 0x0f;
+            uint8_t dw = std::clamp(mouse_delta_w, -0x10, 0x0f) & 0x0f;
             packet[3]  = ((bt & 4) ? 0x20 : 0) | dw;
             packet_len = 4;
         } else {

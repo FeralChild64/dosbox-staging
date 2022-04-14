@@ -29,7 +29,7 @@ public:
     virtual ~CSerialMouse();
 
     void onMouseEventMoved(int16_t delta_x, int16_t delta_y);
-    void onMouseEventButton(uint8_t buttons, Bit8u idx); // idx - index of changed button, staring from 0
+    void onMouseEventButton(uint8_t buttons, uint8_t idx); // idx - index of changed button, staring from 0
     void onMouseEventWheel(int8_t delta_w);
 
     void setRTSDTR(bool rts, bool dtr);

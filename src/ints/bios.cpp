@@ -43,16 +43,16 @@
 /* if mem_systems 0 then size_extended is reported as the real size else 
  * zero is reported. ems and xms can increase or decrease the other_memsystems
  * counter using the BIOS_ZeroExtendedSize call */
-static Bit16u size_extended;
+static uint16_t size_extended;
 static Bits other_memsystems=0;
-void CMOS_SetRegister(Bitu regNr, Bit8u val); //For setting equipment word
+void CMOS_SetRegister(Bitu regNr, uint8_t val); //For setting equipment word
 
 static Bitu INT70_Handler(void) {
 	/* Acknowledge irq with cmos */
 	IO_Write(0x70,0xc);
 	IO_Read(0x71);
 	if (mem_readb(BIOS_WAIT_FLAG_ACTIVE)) {
-		Bit32u count=mem_readd(BIOS_WAIT_FLAG_COUNT);
+		uint32_t count=mem_readd(BIOS_WAIT_FLAG_COUNT);
 		if (count>997) {
 			mem_writed(BIOS_WAIT_FLAG_COUNT,count-997);
 		} else {
@@ -73,14 +73,14 @@ static Bitu INT70_Handler(void) {
 
 CALLBACK_HandlerObject* tandy_DAC_callback[2];
 static struct {
-	Bit16u port;
-	Bit8u irq;
-	Bit8u dma;
+	uint16_t port;
+	uint8_t irq;
+	uint8_t dma;
 } tandy_sb;
 static struct {
-	Bit16u port;
-	Bit8u irq;
-	Bit8u dma;
+	uint16_t port;
+	uint8_t irq;
+	uint8_t dma;
 } tandy_dac;
 
 static bool Tandy_InitializeSB() {
@@ -104,9 +104,9 @@ static bool Tandy_InitializeTS() {
 	/* see if Tandy DAC module available and at what port/IRQ/DMA */
 	Bitu tsport, tsirq, tsdma;
 	if (TS_Get_Address(tsport, tsirq, tsdma)) {
-		tandy_dac.port=(Bit16u)(tsport&0xffff);
-		tandy_dac.irq =(Bit8u)(tsirq&0xff);
-		tandy_dac.dma =(Bit8u)(tsdma&0xff);
+		tandy_dac.port=(uint16_t)(tsport&0xffff);
+		tandy_dac.irq =(uint8_t)(tsirq&0xff);
+		tandy_dac.dma =(uint8_t)(tsdma&0xff);
 		return true;
 	} else {
 		/* no Tandy DAC accessible */
@@ -120,12 +120,12 @@ static bool Tandy_TransferInProgress(void) {
 	if (real_readw(0x40,0xd0)) return true;			/* not yet done */
 	if (real_readb(0x40,0xd4)==0xff) return false;	/* still in init-state */
 
-	Bit8u tandy_dma = 1;
+	uint8_t tandy_dma = 1;
 	if (tandy_sb.port) tandy_dma = tandy_sb.dma;
 	else if (tandy_dac.port) tandy_dma = tandy_dac.dma;
 
 	IO_Write(0x0c,0x00);
-	Bit16u datalen=(Bit8u)(IO_ReadB(tandy_dma*2+1)&0xff);
+	uint16_t datalen=(uint8_t)(IO_ReadB(tandy_dma*2+1)&0xff);
 	datalen|=(IO_ReadB(tandy_dma*2+1)<<8);
 	if (datalen==0xffff) return false;	/* no DMA transfer */
 	else if ((datalen<0x10) && (real_readb(0x40,0xd4)==0x0f) && (real_readw(0x40,0xd2)==0x1c)) {
@@ -141,10 +141,10 @@ static void Tandy_SetupTransfer(PhysPt bufpt,bool isplayback) {
 
 	if ((tandy_sb.port==0) && (tandy_dac.port==0)) return;
 
-	Bit8u tandy_irq = 7;
+	uint8_t tandy_irq = 7;
 	if (tandy_sb.port) tandy_irq = tandy_sb.irq;
 	else if (tandy_dac.port) tandy_irq = tandy_dac.irq;
-	Bit8u tandy_irq_vector = tandy_irq;
+	uint8_t tandy_irq_vector = tandy_irq;
 	if (tandy_irq_vector<8) tandy_irq_vector += 8;
 	else tandy_irq_vector += (0x70-8);
 
@@ -155,7 +155,7 @@ static void Tandy_SetupTransfer(PhysPt bufpt,bool isplayback) {
 		RealSetVec(tandy_irq_vector,tandy_DAC_callback[0]->Get_RealPointer());
 	}
 
-	Bit8u tandy_dma = 1;
+	uint8_t tandy_dma = 1;
 	if (tandy_sb.port) tandy_dma = tandy_sb.dma;
 	else if (tandy_dac.port) tandy_dma = tandy_dac.dma;
 
@@ -173,9 +173,9 @@ static void Tandy_SetupTransfer(PhysPt bufpt,bool isplayback) {
 	if (isplayback) IO_Write(0x0b,0x48|tandy_dma);
 	else IO_Write(0x0b,0x44|tandy_dma);
 	/* set physical address of buffer */
-	Bit8u bufpage=(Bit8u)((bufpt>>16)&0xff);
-	IO_Write(tandy_dma*2,(Bit8u)(bufpt&0xff));
-	IO_Write(tandy_dma*2,(Bit8u)((bufpt>>8)&0xff));
+	uint8_t bufpage=(uint8_t)((bufpt>>16)&0xff);
+	IO_Write(tandy_dma*2,(uint8_t)(bufpt&0xff));
+	IO_Write(tandy_dma*2,(uint8_t)((bufpt>>8)&0xff));
 	switch (tandy_dma) {
 	case 0: IO_Write(0x87, bufpage); break;
 	case 1: IO_Write(0x83, bufpage); break;
@@ -185,17 +185,17 @@ static void Tandy_SetupTransfer(PhysPt bufpt,bool isplayback) {
 	real_writeb(0x40,0xd4,bufpage);
 
 	/* calculate transfer size (respects segment boundaries) */
-	Bit32u tlength=length;
+	uint32_t tlength=length;
 	if (tlength+(bufpt&0xffff)>0x10000) tlength=0x10000-(bufpt&0xffff);
-	real_writew(0x40,0xd0,(Bit16u)(length-tlength));	/* remaining buffer length */
+	real_writew(0x40,0xd0,(uint16_t)(length-tlength));	/* remaining buffer length */
 	tlength--;
 
 	/* set transfer size */
-	IO_Write(tandy_dma*2+1,(Bit8u)(tlength&0xff));
-	IO_Write(tandy_dma*2+1,(Bit8u)((tlength>>8)&0xff));
+	IO_Write(tandy_dma*2+1,(uint8_t)(tlength&0xff));
+	IO_Write(tandy_dma*2+1,(uint8_t)((tlength>>8)&0xff));
 
-	Bit16u delay=(Bit16u)(real_readw(0x40,0xd2)&0xfff);
-	Bit8u amplitude=(Bit8u)((real_readw(0x40,0xd2)>>13)&0x7);
+	uint16_t delay=(uint16_t)(real_readw(0x40,0xd2)&0xfff);
+	uint8_t amplitude=(uint8_t)((real_readw(0x40,0xd2)>>13)&0x7);
 	if (tandy_sb.port) {
 		IO_Write(0x0a,tandy_dma);	/* enable DMA channel */
 		/* set frequency */
@@ -205,13 +205,13 @@ static void Tandy_SetupTransfer(PhysPt bufpt,bool isplayback) {
 		if (isplayback) IO_Write(tandy_sb.port+0xc,0x14);
 		else IO_Write(tandy_sb.port+0xc,0x24);
 		/* set transfer size */
-		IO_Write(tandy_sb.port+0xc,(Bit8u)(tlength&0xff));
-		IO_Write(tandy_sb.port+0xc,(Bit8u)((tlength>>8)&0xff));
+		IO_Write(tandy_sb.port+0xc,(uint8_t)(tlength&0xff));
+		IO_Write(tandy_sb.port+0xc,(uint8_t)((tlength>>8)&0xff));
 	} else {
 		if (isplayback) IO_Write(tandy_dac.port,(IO_Read(tandy_dac.port)&0x7c) | 0x03);
 		else IO_Write(tandy_dac.port,(IO_Read(tandy_dac.port)&0x7c) | 0x02);
-		IO_Write(tandy_dac.port+2,(Bit8u)(delay&0xff));
-		IO_Write(tandy_dac.port+3,(Bit8u)(((delay>>8)&0xf) | (amplitude<<5)));
+		IO_Write(tandy_dac.port+2,(uint8_t)(delay&0xff));
+		IO_Write(tandy_dac.port+3,(uint8_t)(((delay>>8)&0xf) | (amplitude<<5)));
 		if (isplayback) IO_Write(tandy_dac.port,(IO_Read(tandy_dac.port)&0x7c) | 0x1f);
 		else IO_Write(tandy_dac.port,(IO_Read(tandy_dac.port)&0x7c) | 0x1e);
 		IO_Write(0x0a,tandy_dma);	/* enable DMA channel */
@@ -219,7 +219,7 @@ static void Tandy_SetupTransfer(PhysPt bufpt,bool isplayback) {
 
 	if (!isplayback) {
 		/* mark transfer as recording operation */
-		real_writew(0x40,0xd2,(Bit16u)(delay|0x1000));
+		real_writew(0x40,0xd2,(uint16_t)(delay|0x1000));
 	}
 }
 
@@ -235,7 +235,7 @@ static Bitu IRQ_TandyDAC(void) {
 		}
 
 		/* buffer starts at the next page */
-		Bit8u npage=real_readb(0x40,0xd4)+1;
+		uint8_t npage=real_readb(0x40,0xd4)+1;
 		real_writeb(0x40,0xd4,npage);
 
 		Bitu rb=real_readb(0x40,0xd3);
@@ -248,10 +248,10 @@ static Bitu IRQ_TandyDAC(void) {
 			Tandy_SetupTransfer(npage<<16,true);
 		}
 	} else {	/* playing/recording is finished */
-		Bit8u tandy_irq = 7;
+		uint8_t tandy_irq = 7;
 		if (tandy_sb.port) tandy_irq = tandy_sb.irq;
 		else if (tandy_dac.port) tandy_irq = tandy_dac.irq;
-		Bit8u tandy_irq_vector = tandy_irq;
+		uint8_t tandy_irq_vector = tandy_irq;
 		if (tandy_irq_vector<8) tandy_irq_vector += 8;
 		else tandy_irq_vector += (0x70-8);
 
@@ -270,7 +270,7 @@ static Bitu IRQ_TandyDAC(void) {
 	return CBRET_NONE;
 }
 
-static void TandyDAC_Handler(Bit8u tfunction) {
+static void TandyDAC_Handler(uint8_t tfunction) {
 	if ((!tandy_sb.port) && (!tandy_dac.port)) return;
 	switch (tfunction) {
 	case 0x81: /* Tandy sound system check */
@@ -308,7 +308,7 @@ static void TandyDAC_Handler(Bit8u tfunction) {
 		break;
 	case 0x85:	/* Tandy sound system reset */
 		if (tandy_dac.port) {
-			IO_Write(tandy_dac.port,(Bit8u)(IO_Read(tandy_dac.port)&0xe0));
+			IO_Write(tandy_dac.port,(uint8_t)(IO_Read(tandy_dac.port)&0xe0));
 		}
 		reg_ah=0x00;
 		CALLBACK_SCF(false);
@@ -320,11 +320,11 @@ static Bitu INT1A_Handler(void) {
 	switch (reg_ah) {
 	case 0x00: /* Get System time */
 	{
-		Bit32u ticks = mem_readd(BIOS_TIMER);
+		uint32_t ticks = mem_readd(BIOS_TIMER);
 		reg_al = mem_readb(BIOS_24_HOURS_FLAG);
 		mem_writeb(BIOS_24_HOURS_FLAG, 0); // reset the "flag"
-		reg_cx = (Bit16u)(ticks >> 16);
-		reg_dx = (Bit16u)(ticks & 0xffff);
+		reg_cx = (uint16_t)(ticks >> 16);
+		reg_dx = (uint16_t)(ticks & 0xffff);
 		break;
 	}
 	case 0x01:	/* Set System time */
@@ -381,7 +381,7 @@ static Bitu INT1A_Handler(void) {
 		case 0x02: { // find device
 			Bitu devnr = 0;
 			Bitu count = 0x100;
-			Bit32u devicetag = (reg_cx << 16) | reg_dx;
+			uint32_t devicetag = (reg_cx << 16) | reg_dx;
 			Bits found = -1;
 			for (Bitu i = 0; i <= count; i++) {
 				IO_WriteD(0xcf8, 0x80000000 | (i << 8)); // query
@@ -402,7 +402,7 @@ static Bitu INT1A_Handler(void) {
 			if (found >= 0) {
 				reg_ah = 0x00;
 				reg_bh = 0x00; // bus 0
-				reg_bl = (Bit8u)(found & 0xff);
+				reg_bl = (uint8_t)(found & 0xff);
 				CALLBACK_SCF(false);
 			} else {
 				reg_ah = 0x86; // device not found
@@ -413,7 +413,7 @@ static Bitu INT1A_Handler(void) {
 			case 0x03: {	// find device by class code
 				Bitu devnr=0;
 				Bitu count=0x100;
-				Bit32u classtag=reg_ecx&0xffffff;
+				uint32_t classtag=reg_ecx&0xffffff;
 				Bits found=-1;
 				for (Bitu i=0; i<=count; i++) {
 					IO_WriteD(0xcf8,0x80000000|(i<<8));	// query unique device/subdevice entries
@@ -433,7 +433,7 @@ static Bitu INT1A_Handler(void) {
 				if (found>=0) {
 					reg_ah=0x00;
 					reg_bh=0x00;	// bus 0
-					reg_bl=(Bit8u)(found&0xff);
+					reg_bl=(uint8_t)(found&0xff);
 					CALLBACK_SCF(false);
 				} else {
 					reg_ah=0x86;	// device not found
@@ -500,7 +500,7 @@ static Bitu INT11_Handler(void) {
 #endif
 
 static void BIOS_HostTimeSync() {
-	Bit32u milli = 0;
+	uint32_t milli = 0;
 	// TODO investigate if clock_gettime and ftime can be replaced
 	// by using C++11 chrono
 #if defined(HAVE_CLOCK_GETTIME) && !defined(WIN32)
@@ -509,7 +509,7 @@ static void BIOS_HostTimeSync() {
 
 	struct tm *loctime;
 	loctime = localtime(&tp.tv_sec);
-	milli = (Bit32u) (tp.tv_nsec / 1000000);
+	milli = (uint32_t) (tp.tv_nsec / 1000000);
 #else
 	/* Setup time and date */
 	struct timeb timebuffer;
@@ -517,7 +517,7 @@ static void BIOS_HostTimeSync() {
 
 	struct tm *loctime;
 	loctime = localtime (&timebuffer.time);
-	milli = (Bit32u) timebuffer.millitm;
+	milli = (uint32_t) timebuffer.millitm;
 #endif
 	/*
 	loctime->tm_hour = 23;
@@ -528,11 +528,11 @@ static void BIOS_HostTimeSync() {
 	loctime->tm_year = 2007 - 1900;
 	*/
 
-	dos.date.day=(Bit8u)loctime->tm_mday;
-	dos.date.month=(Bit8u)loctime->tm_mon+1;
-	dos.date.year=(Bit16u)loctime->tm_year+1900;
+	dos.date.day=(uint8_t)loctime->tm_mday;
+	dos.date.month=(uint8_t)loctime->tm_mon+1;
+	dos.date.year=(uint16_t)loctime->tm_year+1900;
 
-	Bit32u ticks=(Bit32u)(((double)(
+	uint32_t ticks=(uint32_t)(((double)(
 		loctime->tm_hour*3600*1000+
 		loctime->tm_min*60*1000+
 		loctime->tm_sec*1000+
@@ -542,7 +542,7 @@ static void BIOS_HostTimeSync() {
 
 static Bitu INT8_Handler(void) {
 	/* Increase the bios tick counter */
-	Bit32u value = mem_readd(BIOS_TIMER) + 1;
+	uint32_t value = mem_readd(BIOS_TIMER) + 1;
 	if(value >= 0x1800B0) {
 		// time wrap at midnight
 		mem_writeb(BIOS_24_HOURS_FLAG,mem_readb(BIOS_24_HOURS_FLAG)+1);
@@ -556,11 +556,11 @@ static Bitu INT8_Handler(void) {
 			check = false;
 			time_t curtime;struct tm *loctime;
 			curtime = time (NULL);loctime = localtime (&curtime);
-			Bit32u ticksnu = (Bit32u)((loctime->tm_hour * 3600 +
+			uint32_t ticksnu = (uint32_t)((loctime->tm_hour * 3600 +
 			                           loctime->tm_min * 60 + loctime->tm_sec) *
 			                          (double)PIT_TICK_RATE / 65536.0);
-			Bit32s bios = value;Bit32s tn = ticksnu;
-			Bit32s diff = tn - bios;
+			int32_t bios = value;int32_t tn = ticksnu;
+			int32_t diff = tn - bios;
 			if(diff>0) {
 				if(diff < 18) { diff  = 0; } else diff = 9;
 			} else {
@@ -574,7 +574,7 @@ static Bitu INT8_Handler(void) {
 	mem_writed(BIOS_TIMER,value);
 
 	/* decrement FDD motor timeout counter; roll over on earlier PC, stop at zero on later PC */
-	Bit8u val = mem_readb(BIOS_DISK_MOTOR_TIMEOUT);
+	uint8_t val = mem_readb(BIOS_DISK_MOTOR_TIMEOUT);
 	if (val || !IS_EGAVGA_ARCH) mem_writeb(BIOS_DISK_MOTOR_TIMEOUT,val-1);
 	/* clear FDD motor bits when counter reaches zero */
 	if (val == 1) mem_writeb(BIOS_DRIVE_RUNNING,mem_readb(BIOS_DRIVE_RUNNING) & 0xF0);
@@ -606,7 +606,7 @@ static Bitu INT17_Handler(void) {
 	return CBRET_NONE;
 }
 
-static bool INT14_Wait(Bit16u port, Bit8u mask, Bit8u timeout, Bit8u* retval) {
+static bool INT14_Wait(uint16_t port, uint8_t mask, uint8_t timeout, uint8_t* retval) {
 	const auto starttime = PIC_FullIndex();
 	const auto timeout_f = timeout * 1000.0;
 	while (((*retval = IO_ReadB(port)) & mask) != mask) {
@@ -625,8 +625,8 @@ static Bitu INT14_Handler(void) {
 		return CBRET_NONE;
 	}
 	
-	Bit16u port = real_readw(0x40,reg_dx*2); // DX is always port number
-	Bit8u timeout = mem_readb(BIOS_COM1_TIMEOUT + reg_dx);
+	uint16_t port = real_readw(0x40,reg_dx*2); // DX is always port number
+	uint8_t timeout = mem_readb(BIOS_COM1_TIMEOUT + reg_dx);
 	if (port==0)	{
 		LOG(LOG_BIOS,LOG_NORMAL)("BIOS INT14: port %d does not exist.",reg_dx);
 		return CBRET_NONE;
@@ -640,7 +640,7 @@ static Bitu INT14_Handler(void) {
 
 		// set baud rate
 		Bitu baudrate = 9600;
-		Bit16u baudresult;
+		uint16_t baudresult;
 		Bitu rawbaud=reg_al>>5;
 		
 		if (rawbaud==0){ baudrate=110;}
@@ -652,11 +652,11 @@ static Bitu INT14_Handler(void) {
 		else if (rawbaud==6){ baudrate=4800;}
 		else if (rawbaud==7){ baudrate=9600;}
 
-		baudresult = (Bit16u)(115200 / baudrate);
+		baudresult = (uint16_t)(115200 / baudrate);
 
 		IO_WriteB(port+3, 0x80);	// enable divider access
-		IO_WriteB(port, (Bit8u)baudresult&0xff);
-		IO_WriteB(port+1, (Bit8u)(baudresult>>8));
+		IO_WriteB(port, (uint8_t)baudresult&0xff);
+		IO_WriteB(port+1, (uint8_t)(baudresult>>8));
 
 		// set line parameters, disable divider access
 		IO_WriteB(port+3, reg_al&0x1F); // LCR
@@ -665,8 +665,8 @@ static Bitu INT14_Handler(void) {
 		IO_WriteB(port+1, 0); // IER
 
 		// get result
-		reg_ah=(Bit8u)(IO_ReadB(port+5)&0xff);
-		reg_al=(Bit8u)(IO_ReadB(port+6)&0xff);
+		reg_ah=(uint8_t)(IO_ReadB(port+5)&0xff);
+		reg_al=(uint8_t)(IO_ReadB(port+6)&0xff);
 		CALLBACK_SCF(false);
 		break;
 	}
@@ -719,8 +719,8 @@ static Bitu INT14_Handler(void) {
 		CALLBACK_SCF(false);
 		break;
 	case 0x03: // get status
-		reg_ah=(Bit8u)(IO_ReadB(port+5)&0xff);
-		reg_al=(Bit8u)(IO_ReadB(port+6)&0xff);
+		reg_ah=(uint8_t)(IO_ReadB(port+5)&0xff);
+		reg_al=(uint8_t)(IO_ReadB(port+6)&0xff);
 		CALLBACK_SCF(false);
 		break;
 	}
@@ -728,7 +728,7 @@ static Bitu INT14_Handler(void) {
 }
 
 static Bitu INT15_Handler(void) {
-	static Bit16u biosConfigSeg=0;
+	static uint16_t biosConfigSeg=0;
 	switch (reg_ah) {
 	case 0x24: // A20 stuff
 		switch (reg_al) {
@@ -820,7 +820,7 @@ static Bitu INT15_Handler(void) {
 				CALLBACK_SCF(true);
 				break;
 			}
-			Bit32u count=(reg_cx<<16)|reg_dx;
+			uint32_t count=(reg_cx<<16)|reg_dx;
 			mem_writed(BIOS_WAIT_FLAG_POINTER,RealMake(SegValue(es),reg_bx));
 			mem_writed(BIOS_WAIT_FLAG_COUNT,count);
 			mem_writeb(BIOS_WAIT_FLAG_ACTIVE,1);
@@ -843,11 +843,11 @@ static Bitu INT15_Handler(void) {
 			}
 		} else if (reg_dx == 0x0001) {
 			if (JOYSTICK_IsAccessible(0)) {
-				reg_ax = (Bit16u)(JOYSTICK_GetMove_X(0)*127+128);
-				reg_bx = (Bit16u)(JOYSTICK_GetMove_Y(0)*127+128);
+				reg_ax = (uint16_t)(JOYSTICK_GetMove_X(0)*127+128);
+				reg_bx = (uint16_t)(JOYSTICK_GetMove_Y(0)*127+128);
 				if(JOYSTICK_IsAccessible(1)) {
-					reg_cx = (Bit16u)(JOYSTICK_GetMove_X(1)*127+128);
-					reg_dx = (Bit16u)(JOYSTICK_GetMove_Y(1)*127+128);
+					reg_cx = (uint16_t)(JOYSTICK_GetMove_X(1)*127+128);
+					reg_dx = (uint16_t)(JOYSTICK_GetMove_Y(1)*127+128);
 				}
 				else {
 					reg_cx = reg_dx = 0;
@@ -855,8 +855,8 @@ static Bitu INT15_Handler(void) {
 				CALLBACK_SCF(false);
 			} else if (JOYSTICK_IsAccessible(1)) {
 				reg_ax = reg_bx = 0;
-				reg_cx = (Bit16u)(JOYSTICK_GetMove_X(1)*127+128);
-				reg_dx = (Bit16u)(JOYSTICK_GetMove_Y(1)*127+128);
+				reg_cx = (uint16_t)(JOYSTICK_GetMove_X(1)*127+128);
+				reg_dx = (uint16_t)(JOYSTICK_GetMove_Y(1)*127+128);
 				CALLBACK_SCF(false);
 			} else {			
 				reg_ax = reg_bx = reg_cx = reg_dx = 0;
@@ -873,14 +873,14 @@ static Bitu INT15_Handler(void) {
 				CALLBACK_SCF(true);
 				break;
 			}
-			Bit32u count=(reg_cx<<16)|reg_dx;
+			uint32_t count=(reg_cx<<16)|reg_dx;
 		        const auto timeout = PIC_FullIndex() +
 		                             static_cast<double>(count) / 1000.0 + 1.0;
 		        mem_writed(BIOS_WAIT_FLAG_POINTER, RealMake(0, BIOS_WAIT_FLAG_TEMP));
 		        mem_writed(BIOS_WAIT_FLAG_COUNT, count);
 		        mem_writeb(BIOS_WAIT_FLAG_ACTIVE, 1);
 		        /* Unmask IRQ 8 if masked */
-		        Bit8u mask = IO_Read(0xa1);
+		        uint8_t mask = IO_Read(0xa1);
 		        if (mask & 1)
 			        IO_Write(0xa1, mask & ~1);
 		        /* Reprogram RTC to start */
@@ -1096,10 +1096,10 @@ static Bitu Reboot_Handler(void) {
 	return CBRET_NONE;
 }
 
-void BIOS_SetEquipment(Bit16u equipment) {
+void BIOS_SetEquipment(uint16_t equipment) {
 	mem_writew(BIOS_CONFIGURATION,equipment);
 	if (IS_EGAVGA_ARCH) equipment &= ~0x30; //EGA/VGA startup display mode differs in CMOS
-	CMOS_SetRegister(0x14,(Bit8u)(equipment&0xff)); //Should be updated on changes
+	CMOS_SetRegister(0x14,(uint8_t)(equipment&0xff)); //Should be updated on changes
 }
 
 void BIOS_ZeroExtendedSize(bool in) {
@@ -1120,7 +1120,7 @@ public:
 		bool use_tandyDAC=(real_readb(0x40,0xd4)==0xff);
 
 		/* Clear the Bios Data Area (0x400-0x5ff, 0x600- is accounted to DOS) */
-		for (Bit16u i=0;i<0x200;i++) real_writeb(0x40,i,0);
+		for (uint16_t i=0;i<0x200;i++) real_writeb(0x40,i,0);
 
 		/* Setup all the interrupt handlers the bios controls */
 
@@ -1290,10 +1290,10 @@ public:
 				//	pop ax
 				//	iret
 
-				Bit8u tandy_irq = 7;
+				uint8_t tandy_irq = 7;
 				if (tandy_dac_type==1) tandy_irq = tandy_sb.irq;
 				else if (tandy_dac_type==2) tandy_irq = tandy_dac.irq;
-				Bit8u tandy_irq_vector = tandy_irq;
+				uint8_t tandy_irq_vector = tandy_irq;
 				if (tandy_irq_vector<8) tandy_irq_vector += 8;
 				else tandy_irq_vector += (0x70-8);
 
@@ -1357,8 +1357,8 @@ public:
 		/* Setup equipment list */
 		// look http://www.bioscentral.com/misc/bda.htm
 		
-		//Bit16u config=0x4400;	//1 Floppy, 2 serial and 1 parallel 
-		Bit16u config = 0x0;
+		//uint16_t config=0x4400;	//1 Floppy, 2 serial and 1 parallel 
+		uint16_t config = 0x0;
 		
 		// set number of parallel ports
 		// if(ppindex == 0) config |= 0x8000; // looks like 0 ports are not specified
@@ -1407,13 +1407,13 @@ public:
 		}
 		real_writeb(0x40,0xd4,0x00);
 		if (tandy_DAC_callback[0]) {
-			Bit32u orig_vector=real_readd(0x40,0xd6);
+			uint32_t orig_vector=real_readd(0x40,0xd6);
 			if (orig_vector==tandy_DAC_callback[0]->Get_RealPointer()) {
 				/* set IRQ vector to old value */
-				Bit8u tandy_irq = 7;
+				uint8_t tandy_irq = 7;
 				if (tandy_sb.port) tandy_irq = tandy_sb.irq;
 				else if (tandy_dac.port) tandy_irq = tandy_dac.irq;
-				Bit8u tandy_irq_vector = tandy_irq;
+				uint8_t tandy_irq_vector = tandy_irq;
 				if (tandy_irq_vector<8) tandy_irq_vector += 8;
 				else tandy_irq_vector += (0x70-8);
 
@@ -1430,9 +1430,9 @@ public:
 
 // set com port data in bios data area
 // parameter: array of 4 com port base addresses, 0 = none
-void BIOS_SetComPorts(Bit16u baseaddr[]) {
-	Bit16u portcount=0;
-	Bit16u equipmentword;
+void BIOS_SetComPorts(uint16_t baseaddr[]) {
+	uint16_t portcount=0;
+	uint16_t equipmentword;
 	for(Bitu i = 0; i < 4; i++) {
 		if(baseaddr[i]!=0) portcount++;
 		if(i==0)		mem_writew(BIOS_BASE_ADDRESS_COM1,baseaddr[i]);
