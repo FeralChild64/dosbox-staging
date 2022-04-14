@@ -48,8 +48,8 @@ void MouseSER_NotifyMoved(int32_t x_rel, int32_t y_rel) {
     delta_x += std::clamp(x_rel * mouse_config.sensitivity_x, -MAX, MAX);
     delta_y += std::clamp(y_rel * mouse_config.sensitivity_y, -MAX, MAX);
 
-    int16_t dx = static_cast<int16_t>(delta_x);  // XXX round to nearest value instead
-    int16_t dy = static_cast<int16_t>(delta_y);
+    int16_t dx = static_cast<int16_t>(std::round(delta_x));
+    int16_t dy = static_cast<int16_t>(std::round(delta_y));
 
     if (dx != 0 || dy != 0) {
         for (auto &listener : listeners)
