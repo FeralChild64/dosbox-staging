@@ -39,6 +39,7 @@ enum KeyCommands {
 	CMD_SETLEDS,
 	CMD_SETTYPERATE,
 	CMD_SETOUTPORT,
+	CMD_SETCOMMAND,
 	CMD_WRITEAUX
 };
 
@@ -262,6 +263,19 @@ static void write_p60(io_port_t, io_val_t value, io_width_t)
 		KEYBOARD_ClrBuffer();
 		KEYBOARD_AddBuffer(0xfa);	/* Acknowledge */
 		break;
+    case CMD_SETCOMMAND: // 8042 command, not keyboard
+        keyb.command=CMD_NONE;
+        keyb.cb_irq1     = bit::is(val, b0);
+        keyb.cb_irq12    = bit::is(val, b1);
+        keyb.post_passed = bit::is(val, b2);
+        keyb.active      = !bit::is(val, b3);
+        keyb.auxactive   = !bit::is(val, b4);
+        keyb.xlat        = bit::is(val, b5);
+        if (keyb.used && !keyb.scheduled && !keyb.p60changed && keyb.active) {
+            keyb.scheduled=true;
+            PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);
+        }
+        break;
 	}
 }
 
@@ -359,7 +373,6 @@ static void write_p64(io_port_t, io_val_t value, io_width_t)
 	const auto val = check_cast<uint8_t>(value);
 	uint8_t ret = 0;
 	switch (val) {
-	// 0x60 not implemented for now
     case 0x20:      /* Read command byte */
 		if (keyb.cb_irq1)     bit::set(ret, b0);
 		if (keyb.cb_irq12)    bit::set(ret, b1);
@@ -368,6 +381,9 @@ static void write_p64(io_port_t, io_val_t value, io_width_t)
 		if (!keyb.auxactive)  bit::set(ret, b4);
 		if (!keyb.xlat)       bit::set(ret, b5);
         KEYBOARD_Add8042Response(ret);
+        break;
+    case 0x60:      /* Set command byte */
+        keyb.command=CMD_SETCOMMAND;
         break;
 	case 0xa8:      /* Activate AUX (mouse) */
         keyb.auxactive=true;
