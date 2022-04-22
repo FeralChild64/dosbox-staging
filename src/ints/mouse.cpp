@@ -99,8 +99,6 @@ static void SendPacket() {
     if (!int74_used)
         queue_used = 0;
 
-    // LOG_WARNING("XXX send - PS2 %s, DOS:%s", event.req_ps2 ? "Y" : "-", event.req_dos ? "Y" : "-");
-
     // Send mouse event either via PS/2 bus or activate INT74/IRQ12 directly
     if (event.req_ps2) {
         MousePS2_UpdatePacket();
@@ -197,8 +195,6 @@ static uintptr_t INT74_Handler() {
     if (queue_used) {
         const auto &event = queue[--queue_used];
 
-        // LOG_WARNING("XXX irq  - PS2 %s, DOS:%s", event.req_ps2 ? "Y" : "-", event.req_dos ? "Y" : "-");
-
         // INT 33h emulation: HERE within the IRQ 12 handler is the appropriate place to
         // redraw the cursor. OSes like Windows 3.1 expect real-mode code to do it in
         // response to IRQ 12, not "out of the blue" from the SDL event handler like
@@ -216,8 +212,6 @@ static uintptr_t INT74_Handler() {
             return MouseDOS_DoCallback(event.dos_type, event.dos_buttons);
         }
     }
-
-    // XXX under Windows 3.1 this part is being called constantly, leading to crash - find out, why
 
     if (MouseBIOS_HasCallback()) {
         // To be handled by PS/2 BIOS
