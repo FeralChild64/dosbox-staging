@@ -34,6 +34,10 @@
 #include "debug.h"
 #include "debug_inc.h"
 
+#if !PDCURSES
+#error SYSTEM CURSES INCLUDED, SHOULD BE PDCURSES
+#endif
+
 struct _LogGroup {
 	char const *front = nullptr;
 	bool enabled = false;
@@ -289,20 +293,16 @@ void LOG_StartUp(void) {
 
 void DBGUI_StartUp(void) {
 	/* Start the main window */
-	dbg.win_main=initscr();
+	dbg.win_main = initscr();
 	cbreak();       /* take input chars one at a time, no wait for \n */
 	noecho();       /* don't echo input */
-	nodelay(dbg.win_main,true);
-	keypad(dbg.win_main,true);
-	#ifndef WIN32
-	printf("\033[8;50;80t");
-	fflush(NULL);
-	resizeterm(50,80);
+	nodelay(dbg.win_main, true);
+	keypad(dbg.win_main, true);
+	resize_term(50, 80);
 	touchwin(dbg.win_main);
-	#endif
 	old_cursor_state = curs_set(0);
 	start_color();
-	cycle_count=0;
+	cycle_count = 0;
 	MakePairs();
 	MakeSubWindows();
 

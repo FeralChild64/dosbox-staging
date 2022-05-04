@@ -64,7 +64,6 @@ jobs:
           mkdir -p "${reportdir}"
 
           pvs-studio-analyzer analyze \
-            --disableLicenseExpirationCheck \
             -a 63 \
             -e subprojects \
             -s .pvs-suppress \
@@ -104,7 +103,7 @@ jobs:
 
       - name: Summarize report
         env:
-          MAX_BUGS: 288
+          MAX_BUGS: 294
         run: |
           echo "Full report is included in build Artifacts"
           echo

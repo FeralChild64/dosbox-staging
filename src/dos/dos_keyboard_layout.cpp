@@ -227,7 +227,11 @@ static uint32_t read_kcl_file(const char* kcl_file_name, const char* layout_id, 
 				}
 			}
 		}
-		fseek(tempfile.get(), cur_pos + 3 + len, SEEK_SET);
+		if (fseek(tempfile.get(), cur_pos + 3 + len, SEEK_SET) != 0) {
+			LOG_ERR("LAYOUT: could not seek to byte %d in keyboard layout file '%s': %s",
+			        cur_pos + 3 + len, kcl_file_name, strerror(errno));
+			return 0;
+		}
 	}
 
 	return 0;
@@ -729,8 +733,13 @@ uint16_t keyboard_layout::extract_codepage(const char* keyboard_file_name) {
 	assert(start_pos < sizeof(read_buf));
 	submappings=read_buf[start_pos];
 
-	// Make sure we don't read beyond the end of the buffer
-	assert(start_pos + 0x14 + submappings * 8 < sizeof(read_buf));
+	// Make sure the submappings value won't let us read beyond the end of
+	// the buffer
+	if (submappings >= ceil_udivide(sizeof(read_buf) - start_pos - 0x14, 8u)) {
+		LOG(LOG_BIOS, LOG_ERROR)
+		("Keyboard layout file %s is corrupt", keyboard_file_name);
+		return 437;
+	}
 
 	// check all submappings and use them if general submapping or same
 	// codepage submapping

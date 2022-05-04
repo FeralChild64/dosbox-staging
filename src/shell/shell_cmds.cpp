@@ -28,8 +28,10 @@
 #include <cstring>
 #include <ctime>
 #include <limits>
-#include <string>
 #include <map>
+#include <regex>
+#include <stack>
+#include <string>
 #include <vector>
 
 #include "bios.h"
@@ -1415,7 +1417,7 @@ void DOS_Shell::CMD_ATTRIB(char *args)
 		else if (!strcasecmp(arg1, "-R"))
 			min_attr_r = true;
 		else if (*arg1)
-			strcpy(sfull, arg1);
+			safe_strcpy(sfull, arg1);
 	} while (*args);
 
 	char buffer[CROSS_LEN];
@@ -1841,12 +1843,22 @@ void DOS_Shell::CMD_SUBST (char * args) {
 		std::string arg;
 		CommandLine command(0,args);
 
-		if (command.GetCount() != 2) throw 0 ;
+		// Expecting two arguments
+		if (command.GetCount() != 2)
+			throw 0;
 
-		command.FindCommand(1,arg);
-		if ( (arg.size() > 1) && arg[1] !=':')  throw(0);
+		// Found first
+		if (!command.FindCommand(1, arg))
+			throw 0;
+		if ((arg.size() > 1) && arg[1] != ':')
+			throw(0);
+
 		temp_str[0]=(char)toupper(args[0]);
-		command.FindCommand(2,arg);
+
+		// Found second
+		if (!command.FindCommand(2, arg))
+			throw 0;
+
 		const auto drive_idx = drive_index(temp_str[0]);
 		if ((arg == "/D") || (arg == "/d")) {
 			if (!Drives[drive_idx])
@@ -1906,70 +1918,121 @@ void DOS_Shell::CMD_LOADHIGH(char *args){
 	} else this->ParseLine(args);
 }
 
+void MAPPER_AutoType(std::vector<std::string> &sequence,
+                     const uint32_t wait_ms,
+                     const uint32_t pacing_ms);
+void MAPPER_AutoTypeStopImmediately();
+void DOS_21Handler();
+
 void DOS_Shell::CMD_CHOICE(char * args){
 	HELP("CHOICE");
-	static char defchoice[3] = {'y','n',0};
-	char *rem = NULL, *ptr;
-	bool optN = false;
-	bool optS = false;
-	if (args) {
-		optN = ScanCMDBool(args,"N");
-		optS = ScanCMDBool(args,"S"); //Case-sensitive matching
 
-		(void)ScanCMDBool(args, "T"); // Default Choice after timeout
+	// Parse "/n"; does the user want to show choices or not?
+	const bool should_show_choices = !ScanCMDBool(args, "N");
 
-		char *last = strchr(args,0);
-		StripSpaces(args);
-		rem = ScanCMDRemain(args);
+	// Parse "/s"; does the user want choices to be case-sensitive?
+	const bool always_capitalize = !ScanCMDBool(args, "S");
 
-		if (rem && *rem && (tolower(rem[1]) != 'c')) {
-			WriteOut(MSG_Get("SHELL_ILLEGAL_SWITCH"),rem);
-			return;
+	// Prepare the command line for use with regular expressions
+	assert(args);
+	std::string cmdline = args;
+	std::smatch match; // will contain the last valid match
+	std::stack<std::smatch> matches = {};
+
+	// helper to snip the stack of regex matches from the cmdline
+	auto snip_matches_from_cmdline = [&]() {
+		while (!matches.empty()) {
+			const auto &m = matches.top();
+			const auto start = static_cast<size_t>(m.position());
+			const auto length = static_cast<size_t>(m.length());
+			assert(start + length <= cmdline.size());
+			cmdline.erase(start, length);
+			matches.pop();
 		}
-		if (args == rem) {
-			assert(args);
-			if (rem != nullptr) {
-				args = strchr(rem, '\0') + 1;
-			}
-		}
-		if (rem) rem += 2;
-		if (rem && rem[0] == ':') rem++; /* optional : after /c */
-		if (args > last) args = NULL;
+	};
+	// helper to search the cmdline for the last regex match
+	auto search_cmdline_for = [&](const std::regex &r) -> bool {
+		matches = {};
+		auto it = std::sregex_iterator(cmdline.begin(), cmdline.end(), r);
+		while (it != std::sregex_iterator())
+			matches.emplace(*it++);
+		match = matches.size() ? matches.top() : std::smatch();
+		return match.ready();
+	};
+
+	// Parse /c[:]abc ... has the user provided custom choices?
+	static const std::regex re_choices("/[cC]:?([0-9a-zA-Z]+)");
+	const auto has_choices = search_cmdline_for(re_choices);
+	auto choices = has_choices ? match[1].str() : std::string("yn");
+	if (always_capitalize)
+		upcase(choices);
+	remove_duplicates(choices);
+	snip_matches_from_cmdline();
+
+	// Parse /t[:]c,nn ... was a default choice and timeout provided?
+	static const std::regex re_timeout(R"(/[tT]:?([0-9a-zA-Z]),(\d+))");
+	auto has_default = search_cmdline_for(re_timeout);
+	const auto default_wait_s = has_default ? std::stoi(match[2]) : 0;
+	char default_choice = has_default ? match[1].str()[0] : '\0';
+	if (always_capitalize)
+		default_choice = check_cast<char>(toupper(default_choice));
+	snip_matches_from_cmdline();
+
+	// Parse and print any text message(s) witout whitespace and quotes
+	static const std::regex re_trim(R"(^["\s]+|["\s]+$)");
+	const auto messages = split(std::regex_replace(cmdline, re_trim, ""));
+	for (const auto &message : messages)
+		WriteOut("%s ", message.c_str());
+
+	// Show question prompt of the form [a,b]? where a b are the choice values
+	if (should_show_choices) {
+		WriteOut_NoParsing("[");
+		assert(choices.size() > 0);
+		for (size_t i = 0; i < choices.size() - 1; i++)
+			WriteOut("%c,", choices[i]);
+		WriteOut("%c]?", choices.back());
 	}
-	if (!rem || !*rem) rem = defchoice; /* No choices specified use YN */
-	ptr = rem;
-	uint8_t c;
-	if (!optS) while ((c = *ptr)) *ptr++ = (char)toupper(c); /* When in no case-sensitive mode. make everything upcase */
-	if (args && *args ) {
-		StripSpaces(args);
-		size_t argslen = strlen(args);
-		if (argslen > 1 && args[0] == '"' && args[argslen-1] == '"') {
-			args[argslen-1] = 0; //Remove quotes
-			args++;
-		}
-		WriteOut(args);
-	}
-	/* Show question prompt of the form [a,b]? where a b are the choice values */
-	if (!optN) {
-		if (args && *args) WriteOut(" ");
-		WriteOut("[");
-		size_t len = strlen(rem);
-		for (size_t t = 1; t < len; t++) {
-			WriteOut("%c,",rem[t-1]);
-		}
-		WriteOut("%c]?",rem[len-1]);
+
+	// If a default was given, is it in the choices and is the wait valid?
+	const auto using_auto_type = has_default &&
+	                             contains(choices, default_choice) &&
+	                             default_wait_s > 0;
+	if (using_auto_type) {
+		std::vector<std::string> sequence{std::string{default_choice}};
+		const auto start_after_ms = static_cast<uint32_t>(default_wait_s * 1000);
+		MAPPER_AutoType(sequence, start_after_ms, 500);
 	}
 
-	uint16_t n=1;
-	do {
-		DOS_ReadFile(STDIN, &c, &n);
+	// Begin waiting for input, but maybe break on some conditions
+	constexpr char ctrl_c = 3;
+	char choice = '\0';
+	while (!contains(choices, choice)) {
+		uint16_t n = 1;
+		DOS_ReadFile(STDIN, reinterpret_cast<uint8_t *>(&choice), &n);
+		if (always_capitalize)
+			choice = static_cast<char>(toupper(choice));
+		if (using_auto_type)
+			MAPPER_AutoTypeStopImmediately();
 		if (shutdown_requested)
 			break;
-	} while (!c || !(ptr = strchr(rem, (optS ? c : toupper(c)))));
-	c = optS ? c : (uint8_t)toupper(c);
-	DOS_WriteFile(STDOUT, &c, &n);
-	WriteOut_NoParsing("\n");
-	dos.return_code = (uint8_t)(ptr-rem+1);
+		if (choice == ctrl_c)
+			break;
+	}
+
+	// Print the choice and return the index (or zero if aborted)
+	const auto num_choices = static_cast<int>(choices.size());
+	if (contains(choices, choice)) {
+		WriteOut("%c\n", choice);
+		const auto nth_choice = choices.find(choice) % 254 + 1;
+		dos.return_code = check_cast<uint8_t>(nth_choice);
+		LOG_MSG("CHOICE: '%c' (#%u of %d choices)", choice,
+		        dos.return_code, num_choices);
+	} else {
+		WriteOut_NoParsing(MSG_Get("SHELL_CMD_CHOICE_ABORTED"));
+		dos.return_code = 0;
+		LOG_MSG("CHOICE: Aborted, returning %u (from %d choices)",
+		        dos.return_code, num_choices);
+	}
 }
 
 void DOS_Shell::CMD_PATH(char *args){

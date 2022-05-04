@@ -20,6 +20,7 @@
 
 #include "program_boot.h"
 
+#include <limits>
 #include <stdio.h>
 
 #include "bios_disk.h"
@@ -267,27 +268,41 @@ void BOOT::Run(void)
 			uint8_t rombuf[65536];
 			Bits cfound_at = -1;
 			if (!cart_cmd.empty()) {
+				if (!usefile_1) {
+					WriteOut(MSG_Get("PROGRAM_BOOT_IMAGE_NOT_OPEN"), temp_line.c_str());
+					return;
+				}
 				/* read cartridge data into buffer */
-				fseek(usefile_1, 0x200L, SEEK_SET);
+				constexpr auto seek_pos = 0x200;
+				if (fseek(usefile_1, seek_pos, SEEK_SET) != 0) {
+					LOG_ERR("BOOT: Failed seeking to %d in cartridge data file '%s': %s",
+					        seek_pos, temp_line.c_str(), strerror(errno));
+					return;
+				}
 				if (fread(rombuf, 1, rombytesize_1 - 0x200,
 				          usefile_1) < rombytesize_1 - 0x200) {
-					LOG_MSG("Failed to read sufficient cartridge data");
+					LOG_ERR("BOOT: Failed to read sufficient cartridge data");
 					fclose(usefile_1);
 					return;
 				}
 				char cmdlist[1024];
 				cmdlist[0] = 0;
 				Bitu ct = 6;
-				Bits clen = rombuf[ct];
-				char buf[257];
+
+				auto clen = rombuf[ct];
+				static constexpr auto max_clen =
+				        std::numeric_limits<decltype(clen)>::max();
+				std::array<char, max_clen + 1> buf = {0};
+
 				if (cart_cmd == "?") {
 					while (clen != 0) {
-						strncpy(buf, (char *)&rombuf[ct + 1],
+						strncpy(buf.data(),
+						        (char *)&rombuf[ct + 1],
 						        clen);
 						buf[clen] = 0;
-						upcase(buf);
+						upcase(buf.data());
 						safe_strcat(cmdlist, " ");
-						safe_strcat(cmdlist, buf);
+						safe_strcat(cmdlist, buf.data());
 						ct += 1 + clen + 3;
 						if (ct > sizeof(cmdlist))
 							break;
@@ -307,15 +322,16 @@ void BOOT::Run(void)
 					return;
 				} else {
 					while (clen != 0) {
-						strncpy(buf, (char *)&rombuf[ct + 1],
+						strncpy(buf.data(),
+						        (char *)&rombuf[ct + 1],
 						        clen);
 						buf[clen] = 0;
-						upcase(buf);
+						upcase(buf.data());
 						safe_strcat(cmdlist, " ");
-						safe_strcat(cmdlist, buf);
+						safe_strcat(cmdlist, buf.data());
 						ct += 1 + clen;
 
-						if (cart_cmd == buf) {
+						if (cart_cmd == buf.data()) {
 							cfound_at = ct;
 							break;
 						}

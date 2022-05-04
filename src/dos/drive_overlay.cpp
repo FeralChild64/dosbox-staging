@@ -18,6 +18,7 @@
 
 #include "drives.h"
 
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <stdio.h>
@@ -264,10 +265,36 @@ bool OverlayFile::create_copy() {
 	if (logoverlay) LOG_MSG("create_copy called %s",GetName());
 
 	FILE* lhandle = this->fhandle;
-	fseek(lhandle,ftell(lhandle),SEEK_SET);
+	assert(lhandle);
+
+	const auto lhandle_pos = ftell(lhandle);
+	if (lhandle_pos < 0) {
+		LOG_ERR("OVERLAY: Failed getting current position in file '%s': %s",
+		        GetName(), strerror(errno));
+		fclose(lhandle);
+		return false;
+	}
+	if (fseek(lhandle, lhandle_pos, SEEK_SET) != 0) {
+		LOG_ERR("OVERLAY: Failed seeking to position %ld in file '%s': %s",
+		        lhandle_pos, GetName(), strerror(errno));
+		fclose(lhandle);
+		return false;
+	}
+
 	const auto location_in_old_file = ftell(lhandle);
-	fseek(lhandle,0L,SEEK_SET);
-	
+	if (location_in_old_file < 0) {
+		LOG_ERR("OVERLAY: Failed getting current position in file '%s': %s",
+		        GetName(), strerror(errno));
+		fclose(lhandle);
+		return false;
+	}
+	if (fseek(lhandle, 0L, SEEK_SET) != 0) {
+		LOG_ERR("OVERLAY: Failed seeking to the beginning of file '%s': %s",
+		        GetName(), strerror(errno));
+		fclose(lhandle);
+		return false;
+	}
+
 	FILE* newhandle = NULL;
 	uint8_t drive_set = GetDrive();
 	if (drive_set != 0xff && drive_set < DOS_DRIVES && Drives[drive_set]){
@@ -282,8 +309,14 @@ bool OverlayFile::create_copy() {
 	size_t s;
 	while ( (s = fread(buffer,1,BUFSIZ,lhandle)) != 0 ) fwrite(buffer, 1, s, newhandle);
 	fclose(lhandle);
-	//Set copied file handle to position of the old one 
-	fseek(newhandle,location_in_old_file,SEEK_SET);
+
+	//Set copied file handle to position of the old one
+	if (fseek(newhandle, location_in_old_file, SEEK_SET) != 0) {
+		LOG_ERR("OVERLAY: Failed seeking to position %ld in file '%s': %s",
+		        location_in_old_file, GetName(), strerror(errno));
+		fclose(newhandle);
+		return false;
+	}
 	this->fhandle = newhandle;
 	//Flags ?
 	if (logoverlay) LOG_MSG("success");
@@ -616,10 +649,8 @@ void Overlay_Drive::update_cache(bool read_directory_contents) {
 		}
 		close_directory(dirp);
 		dirp = nullptr;
-		//parse directories to add them.
 
-
-		
+		// parse directories to add them.
 		for (i = dirnames.begin(); i != dirnames.end(); ++i) {
 			if ((*i) == ".") continue;
 			if ((*i) == "..") continue;
@@ -668,11 +699,12 @@ void Overlay_Drive::update_cache(bool read_directory_contents) {
 			close_directory(dirp);
 			dirp = nullptr;
 
-			for (i = dirnames.begin(); i != dirnames.end(); ++i) {
-				if ((*i) == backupi)
-					break; // find current directory again,
-					       // for the next round.
-			}
+			// find current directory again, for the next round. But
+			// if it's not there, then bail out before the next
+			// round to avoid incrementing beyond the end.
+			i = std::find(dirnames.begin(), dirnames.end(), backupi);
+			if (i == dirnames.end())
+				break;
 		}
 	}
 
