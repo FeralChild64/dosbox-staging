@@ -59,9 +59,9 @@ constexpr int callback_pos = 12;
 // Persistent program containers
 using comdata_t = std::vector<uint8_t>;
 static std::vector<comdata_t> internal_progs_comdata;
-static std::vector<PROGRAMS_Main *> internal_progs;
+static std::vector<PROGRAMS_Creator> internal_progs;
 
-void PROGRAMS_MakeFile(const char *name, PROGRAMS_Main *main)
+void PROGRAMS_MakeFile(const char *name, PROGRAMS_Creator creator)
 {
 	comdata_t comdata(exe_block.begin(), exe_block.end());
 	comdata.at(callback_pos) = static_cast<uint8_t>(call_program & 0xff);
@@ -80,7 +80,10 @@ void PROGRAMS_MakeFile(const char *name, PROGRAMS_Main *main)
 
 	// Register the program's main pointer
 	// NOTE: This step must come after the index is saved in the COM data
-	internal_progs.push_back(main);
+	internal_progs.emplace_back(creator);
+
+	// Register help for command
+	creator()->AddToHelpList();
 }
 
 static Bitu PROGRAMS_Handler(void) {
@@ -97,12 +100,9 @@ static Bitu PROGRAMS_Handler(void) {
 	                         256 + static_cast<uint16_t>(exec_block_size));
 	HostPt writer=(HostPt)&index;
 	for (;size>0;size--) *writer++=mem_readb(reader++);
-	Program * new_program;
-	if (index >= internal_progs.size()) E_Exit("something is messing with the memory");
-	PROGRAMS_Main * handler = internal_progs[index];
-	(*handler)(&new_program);
+	const PROGRAMS_Creator& creator = internal_progs.at(index);
+	const auto new_program = creator();
 	new_program->Run();
-	delete new_program;
 	return CBRET_NONE;
 }
 
@@ -344,11 +344,28 @@ bool Program::SetEnv(const char * entry,const char * new_string) {
 	return true;
 }
 
+bool Program::HelpRequested() {
+	return cmd->FindExist("/?", false) || cmd->FindExist("-h", false) ||
+	       cmd->FindExist("--help", false);
+}
+
+void Program::AddToHelpList() {
+	if (help_detail.name.size())
+		HELP_AddToHelpList(help_detail.name, help_detail);
+}
+
 bool MSG_Write(const char *);
 void restart_program(std::vector<std::string> & parameters);
 
 class CONFIG final : public Program {
 public:
+	CONFIG()
+	{
+		help_detail = {HELP_Filter::Common,
+		               HELP_Category::Dosbox,
+		               HELP_CmdType::Program,
+		               "CONFIG"};
+	}
 	void Run(void);
 private:
 	void restart(const char* useconfig);
@@ -483,13 +500,13 @@ void CONFIG::Run(void) {
 			[[fallthrough]];
 
 		case P_NOMATCH:
-			WriteOut(MSG_Get("PROGRAM_CONFIG_USAGE"));
+			WriteOut(MSG_Get("SHELL_CMD_CONFIG_HELP_LONG"));
 			return;
 
 		case P_HELP: case P_HELP2: case P_HELP3: {
 			switch(pvars.size()) {
 			case 0:
-				WriteOut(MSG_Get("PROGRAM_CONFIG_USAGE"));
+				WriteOut(MSG_Get("SHELL_CMD_CONFIG_HELP_LONG"));
 				return;
 			case 1: {
 				if (!strcasecmp("sections",pvars[0].c_str())) {
@@ -525,7 +542,7 @@ void CONFIG::Run(void) {
 				break;
 			}
 			default:
-				WriteOut(MSG_Get("PROGRAM_CONFIG_USAGE"));
+				WriteOut(MSG_Get("SHELL_CMD_CONFIG_HELP_LONG"));
 				return;
 			}	
 			// if we have one value in pvars, it's a section
@@ -807,8 +824,8 @@ void CONFIG::Run(void) {
 }
 
 
-void CONFIG_ProgramStart(Program * * make) {
-	*make=new CONFIG;
+std::unique_ptr<Program> CONFIG_ProgramCreate() {
+	return ProgramCreate<CONFIG>();
 }
 
 void PROGRAMS_Destroy([[maybe_unused]] Section* sec) {
@@ -836,7 +853,7 @@ void PROGRAMS_Init(Section* sec) {
 	MSG_Add("PROGRAM_CONFIG_FILE_WHICH", "Writing config file %s\n");
 	
 	// help
-	MSG_Add("PROGRAM_CONFIG_USAGE",
+	MSG_Add("SHELL_CMD_CONFIG_HELP_LONG",
 	        "Config tool:\n"
 	        "-writeconf or -wc without parameter: write to primary loaded config file.\n"
 	        "-writeconf or -wc with filename: write file to config directory.\n"

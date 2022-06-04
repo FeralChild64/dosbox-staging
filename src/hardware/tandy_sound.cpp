@@ -1,4 +1,6 @@
 /*
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *
  *  Copyright (C) 2019-2022  The DOSBox Staging Team
  *  Copyright (C) 2002-2018  The DOSBox Team
  *
@@ -195,7 +197,12 @@ TandyDAC::TandyDAC(const ConfigProfile config_profile)
 
 	// Run the audio channel at the mixer's native rate
 	const auto callback = std::bind(&TandyDAC::AudioCallback, this, _1);
-	channel = MIXER_AddChannel(callback, 0, "TANDYDAC");
+	channel = MIXER_AddChannel(callback,
+	                           0,
+	                           "TANDYDAC",
+	                           {ChannelFeature::ReverbSend,
+	                            ChannelFeature::ChorusSend});
+
 	sample_rate = channel->GetSampleRate();
 
 	// Register DAC per-port read handlers
@@ -242,7 +249,7 @@ void TandyDAC::ChangeMode()
 		    freq > dac_min_freq_hz && freq < dac_max_freq_hz) {
 			assert(channel);
 			channel->FillUp(); // using the prior frequency
-			channel->SetFreq(freq);
+			channel->SetSampleRate(freq);
 			const auto vol = static_cast<float>(regs.amplitude) / 7.0f;
 			channel->SetVolume(vol, vol);
 			if ((regs.mode & 0x0c) == 0x0c) {
@@ -390,7 +397,11 @@ TandyPSG::TandyPSG(const ConfigProfile config_profile, const bool is_dac_enabled
 
 	// Run the audio channel at the mixer's native rate
 	const auto callback = std::bind(&TandyPSG::AudioCallback, this, _1);
-	channel = MIXER_AddChannel(callback, 0, "TANDY");
+	channel = MIXER_AddChannel(callback,
+	                           0,
+	                           "TANDY",
+	                           {ChannelFeature::ReverbSend,
+	                            ChannelFeature::ChorusSend});
 
 	// Setup the resampler
 	const auto sample_rate = channel->GetSampleRate();

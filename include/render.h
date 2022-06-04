@@ -25,6 +25,9 @@
 // 3: complex scalers on
 #define RENDER_USE_ADVANCED_SCALERS 3
 
+#include <deque>
+#include <string>
+
 #include "../src/gui/render_scalers.h"
 
 #define RENDER_SKIP_CACHE	16
@@ -86,7 +89,12 @@ struct Render_t {
 		uint32_t outLine = 0;
 	} scale = {};
 #if C_OPENGL
-	char *shader_src = nullptr;
+	struct {
+		std::string filename = {};
+		std::string source = {};
+		bool use_srgb_texture = false;
+		bool use_srgb_framebuffer = false;
+	} shader = {};
 #endif
 	RenderPal_t pal = {};
 	bool updating = false;
@@ -97,6 +105,9 @@ struct Render_t {
 
 extern Render_t render;
 extern ScalerLineHandler_t RENDER_DrawLine;
+
+std::deque<std::string> RENDER_InventoryShaders();
+
 void RENDER_SetSize(uint32_t width,
                     uint32_t height,
                     unsigned bpp,
@@ -106,6 +117,12 @@ void RENDER_SetSize(uint32_t width,
                     bool dblh);
 bool RENDER_StartUpdate(void);
 void RENDER_EndUpdate(bool abort);
+void RENDER_InitShaderSource([[maybe_unused]] Section *sec);
 void RENDER_SetPal(uint8_t entry,uint8_t red,uint8_t green,uint8_t blue);
+
+#if C_OPENGL
+bool RENDER_UseSRGBTexture();
+bool RENDER_UseSRGBFramebuffer();
+#endif
 
 #endif

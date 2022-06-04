@@ -26,8 +26,7 @@ void RESCAN::Run(void)
 
 	uint8_t drive = DOS_GetDefaultDrive();
 
-	if (cmd->FindExist("/?", false) || cmd->FindExist("-?", false) ||
-	    cmd->FindExist("-h", false) || cmd->FindExist("--help", false)) {
+	if (HelpRequested()) {
 		WriteOut(MSG_Get("SHELL_CMD_RESCAN_HELP_LONG"));
 		return;
 	}
@@ -57,6 +56,24 @@ void RESCAN::Run(void)
 	}
 }
 
-void RESCAN_ProgramStart(Program **make) {
-	*make=new RESCAN;
+void RESCAN::AddMessages() {
+	MSG_Add("SHELL_CMD_RESCAN_HELP_LONG",
+	        "Scans for changes on mounted DOS drives.\n"
+	        "\n"
+	        "Usage:\n"
+	        "  [color=green]rescan[reset] [color=cyan]DRIVE[reset]\n"
+	        "  [color=green]rescan[reset] [/a]\n"
+	        "\n"
+	        "Where:\n"
+	        "  [color=cyan]DRIVE[reset] is the drive to scan for changes.\n"
+	        "\n"
+	        "Notes:\n"
+	        "  - Running [color=green]rescan[reset] without an argument scans for changes of the current drive.\n"
+	        "  - Changes to this drive made on the host will then be reflected inside DOS.\n"
+	        "  - You can also scan for changes on all mounted drives with the /a option.\n"
+	        "\n"
+	        "Examples:\n"
+	        "  [color=green]rescan[reset] [color=cyan]c:[reset]\n"
+	        "  [color=green]rescan[reset] /a\n");
+	MSG_Add("PROGRAM_RESCAN_SUCCESS","Drive re-scanned.\n");
 }

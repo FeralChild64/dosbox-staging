@@ -1,7 +1,7 @@
 /*
  *  SPDX-License-Identifier: GPL-2.0-or-later
  *
- *  Copyright (C) 2022-2022  The DOSBox Staging Team
+ *  Copyright (C) 2022  The DOSBox Staging Team
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -132,7 +132,7 @@ static constexpr void check_state_type()
 
 // Ensure the bits fall within the register's type size
 template <typename T, typename B>
-static constexpr void check_width([[maybe_unused]] const T reg, const B bits)
+static constexpr void check_width([[maybe_unused]] const T reg, [[maybe_unused]] const B bits)
 {
 	check_reg_type<T>();
 	check_bits_type<B>();

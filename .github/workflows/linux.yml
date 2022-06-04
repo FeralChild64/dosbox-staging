@@ -2,7 +2,7 @@ name: Linux builds
 
 on: [push, pull_request]
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -16,7 +16,7 @@ jobs:
   build_ubuntu:
     name: ${{ matrix.conf.name }}
     runs-on: ${{ matrix.conf.os }}
-    if: github.event_name != 'pull_request' || contains('dreamer,kcgen,ant-222,Wengier,kklobe,shermp,jnovak,FeralChild64', github.actor) == false
+    if: github.event_name != 'pull_request' || contains('dreamer,kcgen,ant-222,Wengier,kklobe,shermp,johnnovak,FeralChild64', github.actor) == false
     strategy:
       matrix:
         conf:
@@ -90,7 +90,7 @@ jobs:
       - name: Install dependencies (minimum set)
         if:   matrix.conf.min_dependencies
         run: |
-          sudo apt-get install -y build-essential ccache libsdl2-dev libopusfile-dev python3-setuptools
+          sudo apt-get install -y build-essential ccache libsdl2-dev libopusfile-dev libspeexdsp-dev python3-setuptools
           sudo pip3 install --upgrade meson ninja
 
       - name: Install dependencies
@@ -150,7 +150,7 @@ jobs:
   build_linux_release:
     name: Release build
     runs-on: ubuntu-18.04
-    if: github.event_name != 'pull_request' || contains('dreamer,kcgen,ant-222,Wengier,kklobe,shermp,jnovak,FeralChild64', github.actor) == false
+    if: github.event_name != 'pull_request' || contains('dreamer,kcgen,ant-222,Wengier,kklobe,shermp,johnnovak,FeralChild64', github.actor) == false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2

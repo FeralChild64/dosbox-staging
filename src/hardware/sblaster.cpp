@@ -22,6 +22,8 @@
 #include <iomanip>
 #include <string.h>
 #include <math.h>
+#include <map>
+#include <tuple>
 
 #include "dma.h"
 #include "inout.h"
@@ -68,6 +70,15 @@ enum SB_TYPES {
 	SBT_PRO2 = 4,
 	SBT_16   = 6,
 	SBT_GB   = 7
+};
+
+enum class FilterType {
+	None,
+	SB1,
+	SB2,
+	SBPro1,
+	SBPro2,
+	SB16,
 };
 
 enum SB_IRQS {SB_IRQ_8,SB_IRQ_16,SB_IRQ_MPU};
@@ -117,6 +128,9 @@ struct SB_INFO {
 	uint8_t time_constant = 0;
 	DSP_MODES mode = MODE_NONE;
 	SB_TYPES type = SBT_NONE;
+	FilterType sb_filter_type = FilterType::None;
+	FilterType opl_filter_type = FilterType::None;
+	FilterState sb_filter_state = FilterState::Off;
 	struct {
 		bool pending_8bit;
 		bool pending_16bit;
@@ -292,6 +306,158 @@ static void InitializeSpeakerState()
 	} else {
 		sb.chan->Enable(false);
 	}
+}
+
+static void configure_filters(const Section_prop* config)
+{
+	auto get_filter_params = [&](const char * conf) {
+		static const std::map<SB_TYPES, FilterType> sb_type_to_filter_type_map = {
+				{SBT_NONE, FilterType::None},
+				{SBT_1, FilterType::SB1},
+				{SBT_2, FilterType::SB2},
+				{SBT_PRO1, FilterType::SBPro1},
+				{SBT_PRO2, FilterType::SBPro2},
+				{SBT_16, FilterType::SB16},
+				{SBT_GB, FilterType::None},
+		};
+
+		static const std::map<std::string, FilterType> filter_map = {
+				{"none", FilterType::None},
+				{"sb1", FilterType::SB1},
+				{"sb2", FilterType::SB2},
+				{"sbpro1", FilterType::SBPro1},
+				{"sbpro2", FilterType::SBPro2},
+				{"sb16", FilterType::SB16},
+		};
+		assert(conf);
+		const auto filter_prefs = split(config->Get_string(conf));
+		const auto filter = filter_prefs.empty() ? "auto" : filter_prefs[0];
+
+		FilterType filter_type = FilterType::None;
+		if (filter == "auto") {
+			auto it = sb_type_to_filter_type_map.find(sb.type);
+			if (it != sb_type_to_filter_type_map.end())
+				filter_type = it->second;
+		} else {
+			auto it = filter_map.find(filter);
+			if (it != filter_map.end())
+				filter_type = it->second;
+		}
+
+		FilterState filter_state = FilterState::Off;
+		if (filter_type != FilterType::None) {
+			if (filter_prefs.size() > 1 && filter_prefs[1] == "always_on") {
+				filter_state = FilterState::ForcedOn;
+			} else {
+				filter_state = FilterState::On;
+			}
+		}
+		return std::make_tuple(filter_type, filter_state);
+	};
+	using std::tie;
+	tie(sb.sb_filter_type, sb.sb_filter_state) = get_filter_params("sb_filter");
+	tie(sb.opl_filter_type, std::ignore) = get_filter_params("opl_filter");
+}
+
+static void log_filter_config(const char *output_type, const FilterType filter)
+{
+	static const std::map<FilterType, std::string> filter_name_map = {
+	        {FilterType::SB1, "Sound Blaster 1.0"},
+	        {FilterType::SB2, "Sound Blaster 2.0"},
+	        {FilterType::SBPro1, "Sound Blaster Pro 1"},
+	        {FilterType::SBPro2, "Sound Blaster Pro 2"},
+	        {FilterType::SB16, "Sound Blaster 16"},
+	};
+
+	if (filter == FilterType::None) {
+		LOG_MSG("%s: %s filter disabled", CardType(), output_type);
+	} else {
+		auto it = filter_name_map.find(filter);
+		if (it != filter_name_map.end()) {
+			auto filter_type = it->second;
+			LOG_MSG("%s: %s %s output filter enabled",
+			        CardType(),
+			        filter_type.c_str(),
+			        output_type);
+		}
+	}
+}
+
+static void configure_sb_filter()
+{
+	auto set_filter = [](const uint8_t order, const uint16_t cutoff_freq) {
+		sb.chan->ConfigureLowPassFilter(order, cutoff_freq);
+		sb.chan->SetLowPassFilter(sb.sb_filter_state);
+	};
+
+	auto disable_filter = [] { sb.chan->SetLowPassFilter(FilterState::Off); };
+
+	auto enable_zoh_upsampler = [] {
+		constexpr auto dac_rate = 45454;
+		sb.chan->ConfigureZeroOrderHoldUpsampler(dac_rate);
+		sb.chan->EnableZeroOrderHoldUpsampler();
+	};
+
+	switch (sb.sb_filter_type) {
+	case FilterType::None:
+		disable_filter();
+		enable_zoh_upsampler();
+		break;
+
+	case FilterType::SB1:
+		set_filter(2, 3800);
+		enable_zoh_upsampler();
+		break;
+
+	case FilterType::SB2:
+		set_filter(2, 4800);
+		enable_zoh_upsampler();
+		break;
+
+	case FilterType::SBPro1:
+	case FilterType::SBPro2:
+		set_filter(2, 3200);
+		enable_zoh_upsampler();
+		break;
+
+	case FilterType::SB16:
+		// Resampling from the SB channel rate to the mixer rate applies
+		// brickwall filtering at half the SB channel rate, which
+		// perfectly emulates the dynamic brickwall filter of the SB16.
+		disable_filter();
+		sb.chan->EnableZeroOrderHoldUpsampler(false);
+		break;
+	}
+
+	log_filter_config("PCM", sb.sb_filter_type);
+}
+
+static void configure_opl_filter()
+{
+	auto set_filter = [](mixer_channel_t chan,
+	                     const uint8_t order,
+	                     const uint16_t cutoff_freq) {
+		chan->ConfigureLowPassFilter(order, cutoff_freq);
+		chan->SetLowPassFilter(FilterState::On);
+	};
+
+	auto chan = MIXER_FindChannel("FM");
+	assert(chan);
+	if (!chan)
+		return;
+
+	switch (sb.opl_filter_type) {
+	case FilterType::SB1:
+	case FilterType::SB2: set_filter(chan, 1, 12000); break;
+
+	case FilterType::SBPro1:
+	case FilterType::SBPro2: set_filter(chan, 1, 8000); break;
+
+	case FilterType::SB16:
+	case FilterType::None: chan->SetLowPassFilter(FilterState::Off); break;
+	}
+
+	log_filter_config("OPL", sb.opl_filter_type);
 }
 
 static void SB_RaiseIRQ(SB_IRQS type)
@@ -804,7 +970,7 @@ static void DSP_DoDMATransfer(const DMA_MODES mode, uint32_t freq, bool autoinit
 		sb.dma.mul*=2;
 	sb.dma.rate=(sb.freq*sb.dma.mul) >> SB_SH;
 	sb.dma.min=(sb.dma.rate*3)/1000;
-	sb.chan->SetFreq(freq);
+	sb.chan->SetSampleRate(freq);
 
 	PIC_RemoveEvents(ProcessDMATransfer);
 	//Set to be masked, the dma call can change this again.
@@ -908,7 +1074,7 @@ static void DSP_Reset() {
 	sb.e2.count=0;
 	sb.irq.pending_8bit=false;
 	sb.irq.pending_16bit=false;
-	sb.chan->SetFreq(22050);
+	sb.chan->SetSampleRate(22050);
 	InitializeSpeakerState();
 	PIC_RemoveEvents(ProcessDMATransfer);
 }
@@ -954,7 +1120,7 @@ static void DSP_ChangeRate(uint32_t freq)
 {
 	if (sb.freq != freq && sb.dma.mode != DSP_DMA_NONE) {
 		sb.chan->FillUp();
-		sb.chan->SetFreq(freq / (sb.mixer.stereo ? 2 : 1));
+		sb.chan->SetSampleRate(freq / (sb.mixer.stereo ? 2 : 1));
 		sb.dma.rate=(freq*sb.dma.mul) >> SB_SH;
 		sb.dma.min=(sb.dma.rate*3)/1000;
 	}
@@ -1355,12 +1521,12 @@ static void CTMIXER_Reset() {
 
 static void DSP_ChangeStereo(bool stereo) {
 	if (!sb.dma.stereo && stereo) {
-		sb.chan->SetFreq(sb.freq/2);
+		sb.chan->SetSampleRate(sb.freq/2);
 		sb.dma.mul*=2;
 		sb.dma.rate=(sb.freq*sb.dma.mul) >> SB_SH;
 		sb.dma.min=(sb.dma.rate*3)/1000;
 	} else if (sb.dma.stereo && !stereo) {
-		sb.chan->SetFreq(sb.freq);
+		sb.chan->SetSampleRate(sb.freq);
 		sb.dma.mul/=2;
 		sb.dma.rate=(sb.freq*sb.dma.mul) >> SB_SH;
 		sb.dma.min=(sb.dma.rate*3)/1000;
@@ -1404,6 +1570,11 @@ static void CTMIXER_Write(uint8_t val) {
 	case 0x0e:		/* Output/Stereo Select */
 		sb.mixer.stereo=(val & 0x2) > 0;
 		sb.mixer.filtered=(val & 0x20) > 0;
+		if (sb.sb_filter_state != FilterState::ForcedOn) {
+			sb.sb_filter_state = sb.mixer.filtered ? FilterState::On
+			                                       : FilterState::Off;
+			sb.chan->SetLowPassFilter(sb.sb_filter_state);
+		}
 		DSP_ChangeStereo(sb.mixer.stereo);
 		LOG(LOG_SB,LOG_WARN)("Mixer set to %s",sb.dma.stereo ? "STEREO" : "MONO");
 		break;
@@ -1789,6 +1960,7 @@ public:
 		sb.mixer.stereo=false;
 
 		Find_Type_And_Opl(section,sb.type,oplmode);
+		configure_filters(section);
 
 		switch (oplmode) {
 		case OPL_none: WriteHandler[0].Install(0x388, adlib_gusforward, io_width_t::byte); break;
@@ -1803,11 +1975,20 @@ public:
 		case OPL_opl3:
 		case OPL_opl3gold:
 			OPL_Init(section,oplmode);
+			configure_opl_filter();
 			break;
 		}
 		if (sb.type==SBT_NONE || sb.type==SBT_GB) return;
 
-		sb.chan = MIXER_AddChannel(&SBLASTER_CallBack, 22050, "SB");
+		std::set channel_features = {ChannelFeature::ReverbSend,
+		                             ChannelFeature::ChorusSend};
+
+		if (sb.type == SBT_PRO1 || sb.type == SBT_PRO2 || sb.type == SBT_16)
+			channel_features.insert(ChannelFeature::Stereo);
+
+		sb.chan = MIXER_AddChannel(&SBLASTER_CallBack, 22050, "SB", channel_features);
+		configure_sb_filter();
+
 		sb.dsp.state=DSP_S_NORMAL;
 		sb.dsp.out.lastval=0xaa;
 		sb.dma.chan=NULL;
@@ -1850,6 +2031,13 @@ public:
 			             sb.hw.base, sb.hw.irq, sb.hw.dma8,
 			             static_cast<int>(sb.type));
 		}
+
+		LOG_MSG("%s: Running on port %xh, irq=%d, dma8=%d, dma16=%d",
+		        CardType(),
+		        sb.hw.base,
+		        sb.hw.irq,
+		        sb.hw.dma8,
+		        sb.hw.dma16);
 
 		LOG_MSG("%s: %s", CardType(), set_blaster);
 		autoexecline.Install(set_blaster);

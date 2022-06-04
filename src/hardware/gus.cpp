@@ -1,7 +1,7 @@
 /*
  *  SPDX-License-Identifier: GPL-2.0-or-later
  *
- *  Copyright (C) 2020-2021  The DOSBox Staging Team
+ *  Copyright (C) 2020-2022  The DOSBox Staging Team
  *  Copyright (C) 2002-2021  The DOSBox Team
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -602,7 +602,12 @@ Gus::Gus(uint16_t port, uint8_t dma, uint8_t irq, const std::string &ultradir)
 	// Register the Audio and DMA channels
 	const auto mixer_callback = std::bind(&Gus::AudioCallback, this,
 	                                      std::placeholders::_1);
-	audio_channel = MIXER_AddChannel(mixer_callback, 1, "GUS");
+	audio_channel = MIXER_AddChannel(mixer_callback,
+	                                 0,
+	                                 "GUS",
+	                                 {ChannelFeature::Stereo,
+	                                  ChannelFeature::ReverbSend,
+	                                  ChannelFeature::ChorusSend});
 
 	// Let the mixer command adjust the GUS's internal amplitude level's
 	const auto set_level_callback = std::bind(&Gus::SetLevelCallback, this, _1);
@@ -625,7 +630,7 @@ void Gus::ActivateVoices(uint8_t requested_voices)
 		active_voice_mask = 0xffffffffu >> (MAX_VOICES - active_voices);
 		playback_rate = static_cast<int>(
 		        round(1000000.0 / (1.619695497 * active_voices)));
-		audio_channel->SetFreq(playback_rate);
+		audio_channel->SetSampleRate(playback_rate);
 	}
 }
 

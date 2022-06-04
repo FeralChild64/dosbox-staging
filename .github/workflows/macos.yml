@@ -2,7 +2,7 @@ name: macOS builds
 
 on: [push, pull_request]
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -16,7 +16,7 @@ jobs:
   build_macos:
     name: ${{ matrix.conf.name }} (${{ matrix.conf.arch }})
     runs-on: ${{ matrix.conf.host }}
-    if: github.event_name != 'pull_request' || contains('dreamer,kcgen,ant-222,Wengier,kklobe,shermp,jnovak,FeralChild64', github.actor) == false
+    if: github.event_name != 'pull_request' || contains('dreamer,kcgen,ant-222,Wengier,kklobe,shermp,johnnovak,FeralChild64', github.actor) == false
     strategy:
       fail-fast: false
       matrix:
@@ -139,7 +139,7 @@ jobs:
   build_macos_release:
     name: Release build (${{ matrix.runner.arch }})
     runs-on: ${{ matrix.runner.host }}
-    if: github.event_name != 'pull_request' || contains('dreamer,kcgen,ant-222,Wengier,kklobe,shermp,jnovak,FeralChild64', github.actor) == false
+    if: github.event_name != 'pull_request' || contains('dreamer,kcgen,ant-222,Wengier,kklobe,shermp,johnnovak,FeralChild64', github.actor) == false
     env:
       MIN_SUPPORTED_MACOSX_DEPLOYMENT_TARGET: ${{ matrix.runner.minimum_deployment }}
 
@@ -188,7 +188,7 @@ jobs:
         if:   matrix.runner.needs_deps
         run: >-
           arch -arch=${{ matrix.runner.arch }} brew install librsvg tree
-          ccache libpng meson opusfile sdl2 sdl2_net
+          ccache libpng meson opusfile sdl2 sdl2_net speexdsp
 
       # Workaround frequent HTTPS-based connectivity issues
       # https://gitlab.freedesktop.org/freedesktop/freedesktop/-/issues/407
@@ -243,7 +243,7 @@ jobs:
           -Db_lto=true
           -Db_asneeded=true
           -Ddefault_library=static
-          -Dtry_static_libs=opusfile,sdl2,sdl2_net
+          -Dtry_static_libs=opusfile,sdl2,sdl2_net,speexdsp,zlib
           -Dfluidsynth:try-static-deps=true
           build
 
@@ -259,7 +259,7 @@ jobs:
         with:
           name: dosbox-${{ matrix.runner.arch }}
           path: build/dosbox
-        
+
       - name: Upload resources
         uses: actions/upload-artifact@v2
         with:
@@ -282,11 +282,11 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Install brew depedencies
-        run: brew install librsvg          
+        run: brew install librsvg
 
       - name: Download binaries
         uses: actions/download-artifact@v2
-      
+
       - name: Package
         run: |
           mv Resources ../
@@ -296,13 +296,13 @@ jobs:
             -f \
             "$(pwd)" \
             "$(pwd)"
-          
+
       - name: Create dmg
         run: |
           ln -s /Applications dist/
 
           codesign -s "-" dist/dosbox-staging.app --force --deep -v
-          
+
           hdiutil create \
               -volname "dosbox-staging" \
               -srcfolder dist \
@@ -322,7 +322,7 @@ jobs:
         with:
           name: dosbox-staging-macOS-universal
           path: dosbox-staging-macOS-${{ env.VERSION }}.dmg
-    
+
   # This job exists only to publish an artifact with version info when building
   # from main branch, so snapshot build version will be visible on:
   # https://dosbox-staging.github.io/downloads/devel/

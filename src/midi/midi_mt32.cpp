@@ -1,9 +1,9 @@
 /*
  *  SPDX-License-Identifier: GPL-2.0-or-later
  *
+ *  Copyright (C) 2020-2022  The DOSBox Staging Team
  *  Copyright (C) 2012-2021  sergm <sergm@bigmir.net>
  *  Copyright (C) 2020-2021  Nikos Chantziaras <realnc@gmail.com> (settings)
- *  Copyright (C) 2020-2021  The DOSBox Staging Team
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -531,7 +531,11 @@ bool MidiHandler_mt32::Open([[maybe_unused]] const char *conf)
 
 	const auto mixer_callback = std::bind(&MidiHandler_mt32::MixerCallBack,
 	                                      this, std::placeholders::_1);
-	const auto mixer_channel = MIXER_AddChannel(mixer_callback, 0, "MT32");
+
+	const auto mixer_channel = MIXER_AddChannel(mixer_callback,
+	                                            0,
+	                                            "MT32",
+	                                            {ChannelFeature::Stereo});
 
 	// Let the mixer command adjust the MT32's services gain-level
 	const auto set_mixer_level = std::bind(&MidiHandler_mt32::SetMixerLevel,

@@ -1,7 +1,7 @@
 /*
  *  SPDX-License-Identifier: GPL-2.0-or-later
  *
- *  Copyright (C) 2020-2021  The DOSBox Staging Team
+ *  Copyright (C) 2020-2022  The DOSBox Staging Team
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -27,12 +27,19 @@
 
 class SERIAL final : public Program {
 public:
+	SERIAL()
+	{
+		AddMessages();
+		help_detail = {HELP_Filter::All,
+		               HELP_Category::Dosbox,
+		               HELP_CmdType::Program,
+		               "SERIAL"};
+	}
 	void Run();
 
 private:
+	void AddMessages();
 	void showPort(int port);
 };
-
-void SERIAL_ProgramStart(Program **make);
 
 #endif // DOSBOX_PROGRAM_SERIAL_H

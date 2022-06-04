@@ -1,7 +1,7 @@
 /*
  *  SPDX-License-Identifier: GPL-2.0-or-later
  *
- *  Copyright (C) 2021-2021  The DOSBox Staging Team
+ *  Copyright (C) 2021-2022  The DOSBox Staging Team
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -26,17 +26,31 @@ void PLACEHOLDER::Run()
 {
 	const auto command = cmd->GetFileName();
 
-	LOG_WARNING("%s: %s", command, MSG_Get("PROGRAM_PLACEHOLDER_SHORT_HELP"));
+	LOG_WARNING("%s: %s", command, MSG_Get("SHELL_CMD_PLACEHOLDER_HELP"));
 	LOG_WARNING("%s: %s", command, MSG_Get("VISIT_FOR_MORE_HELP"));
 	LOG_WARNING("%s: %s/%s", command, MSG_Get("WIKI_URL"), "Add-Utilities");
 
-	WriteOut(MSG_Get("PROGRAM_PLACEHOLDER_LONG_HELP"), command);
+	WriteOut(MSG_Get("SHELL_CMD_PLACEHOLDER_HELP_LONG"), command);
 	WriteOut_NoParsing(MSG_Get("UTILITY_DRIVE_EXAMPLE_NO_TRANSLATE"));
 
 	result_errorcode = dos.return_code;
 }
 
-void PLACEHOLDER_ProgramStart(Program **make)
-{
-	*make = new PLACEHOLDER;
+void PLACEHOLDER::AddMessages() {
+	MSG_Add("SHELL_CMD_PLACEHOLDER_HELP", "This program is a placeholder");
+	MSG_Add("SHELL_CMD_PLACEHOLDER_HELP_LONG",
+	        "%s is only a placeholder.\n"
+	        "\nInstall a 3rd-party and give its PATH precedence.\n"
+	        "\nFor example:");
+			
+	MSG_Add("UTILITY_DRIVE_EXAMPLE_NO_TRANSLATE",
+	        "\n   [autoexec]\n"
+#if defined(WIN32)
+	        "   mount u C:\\Users\\username\\dos\\utils\n"
+#else
+	        "   mount u ~/dos/utils\n"
+#endif
+	        "   set PATH=u:\\;%PATH%\n\n");
+	
+	MSG_Add("VISIT_FOR_MORE_HELP", "Visit the following for more help:");
 }

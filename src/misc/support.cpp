@@ -1,7 +1,7 @@
 /*
  *  SPDX-License-Identifier: GPL-2.0-or-later
  *
- *  Copyright (C) 2020-2021  The DOSBox Staging Team
+ *  Copyright (C) 2020-2022  The DOSBox Staging Team
  *  Copyright (C) 2002-2021  The DOSBox Team
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -34,6 +34,7 @@
 #include <functional>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -409,6 +410,10 @@ static const std::deque<std_fs::path> &GetResourceParentPaths()
 	if (paths.size())
 		return paths;
 
+	// Prioritize portable configuration: allow the entire resource tree or
+	// just a single resource to be included in the current working directory.
+	paths.emplace_back(std_fs::path("."));
+	paths.emplace_back(std_fs::path("resources"));
 #if defined(MACOSX)
 	paths.emplace_back(GetExecutablePath() / "../Resources");
 	paths.emplace_back(GetExecutablePath() / "../../Resources");
@@ -460,6 +465,38 @@ std_fs::path GetResourcePath(const std_fs::path &subdir, const std_fs::path &nam
 	return GetResourcePath(subdir / name);
 }
 
+static std::vector<std_fs::path> GetFilesInPath(const std_fs::path &dir,
+                                                const std::string_view files_ext)
+{
+	std::vector<std_fs::path> files;
+
+	// Check if the directory exists
+	if (!std_fs::is_directory(dir))
+		return files;
+
+	// Ensure the extension is valid
+	assert(files_ext.length() && files_ext[0] == '.');
+
+	for (const auto &entry : std_fs::recursive_directory_iterator(dir))
+		if (entry.is_regular_file() && entry.path().extension() == files_ext)
+			files.emplace_back(entry.path().lexically_relative(dir));
+
+	std::sort(files.begin(), files.end());
+	return files;
+}
+
+std::map<std_fs::path, std::vector<std_fs::path>> GetFilesInResource(
+        const std_fs::path &res_name, const std::string_view files_ext)
+{
+	std::map<std_fs::path, std::vector<std_fs::path>> paths_and_files;
+	for (const auto &parent : GetResourceParentPaths()) {
+		auto res_path = parent / res_name;
+		auto res_files = GetFilesInPath(res_path, files_ext);
+		paths_and_files.emplace(std::move(res_path), std::move(res_files));
+	}
+	return paths_and_files;
+}
+
 std::vector<uint8_t> LoadResource(const std_fs::path &name,
                                   const ResourceImportance importance)
 {
@@ -479,8 +516,9 @@ std::vector<uint8_t> LoadResource(const std_fs::path &name,
 	}
 
 	const std::vector<uint8_t> buffer(std::istreambuf_iterator<char>{file}, {});
-	DEBUG_LOG_MSG("RESOURCES: Loaded resource '%s' [%d bytes]",
-	              resource_path.string().c_str(), check_cast<int>(buffer.size()));
+	// DEBUG_LOG_MSG("RESOURCE: Loaded resource '%s' [%d bytes]",
+	//               resource_path.string().c_str(),
+	//               check_cast<int>(buffer.size()));
 	return buffer;
 }
 

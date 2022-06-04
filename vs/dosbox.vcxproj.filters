@@ -454,6 +454,9 @@
     <ClCompile Include="..\src\misc\fs_utils_win32.cpp">
       <Filter>src\misc</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\misc\help_util.cpp">
+      <Filter>src\misc</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\main.cpp">
       <Filter>src</Filter>
     </ClCompile>
@@ -709,6 +712,30 @@
     <ClCompile Include="..\src\libs\PDCurses\pdcurses\window.c">
       <Filter>src\libs\pdcurses</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\libs\iir1\iir\Biquad.cpp">
+      <Filter>src\libs\iir1</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libs\iir1\iir\Butterworth.cpp">
+      <Filter>src\libs\iir1</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libs\iir1\iir\Cascade.cpp">
+      <Filter>src\libs\iir1</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libs\iir1\iir\ChebyshevI.cpp">
+      <Filter>src\libs\iir1</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libs\iir1\iir\ChebyshevII.cpp">
+      <Filter>src\libs\iir1</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libs\iir1\iir\Custom.cpp">
+      <Filter>src\libs\iir1</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libs\iir1\iir\PoleFilter.cpp">
+      <Filter>src\libs\iir1</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libs\iir1\iir\RBJ.cpp">
+      <Filter>src\libs\iir1</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\include\bios.h">
@@ -760,6 +787,9 @@
       <Filter>include</Filter>
     </ClInclude>
     <ClInclude Include="..\include\hardware.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\help_util.h">
       <Filter>include</Filter>
     </ClInclude>
     <ClInclude Include="..\include\inout.h">
@@ -966,6 +996,9 @@
     <ClInclude Include="..\src\hardware\font-switch.h">
       <Filter>src\hardware</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\hardware\gameblaster.h">
+      <Filter>src\hardware\mame</Filter>
+    </ClInclude>
     <ClInclude Include="..\src\hardware\mame\emu.h">
       <Filter>src\hardware\mame</Filter>
     </ClInclude>
@@ -1086,12 +1119,6 @@
     <ClInclude Include="..\src\gui\gui_msgs.h">
       <Filter>src\gui</Filter>
     </ClInclude>
-    <ClInclude Include="..\src\gui\render_crt_glsl.h">
-      <Filter>src\gui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\src\gui\render_glsl.h">
-      <Filter>src\gui</Filter>
-    </ClInclude>
     <ClInclude Include="..\src\libs\residfp\array.h">
       <Filter>src\libs\residfp</Filter>
     </ClInclude>
@@ -1170,6 +1197,48 @@
     <ClInclude Include="..\src\libs\PDCurses\sdl2_queue\pdcsdl.h">
       <Filter>src\libs\pdcurses</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\libs\iir1\iir\Biquad.h">
+      <Filter>src\libs\iir1</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\iir1\iir\Butterworth.h">
+      <Filter>src\libs\iir1</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\iir1\iir\Cascade.h">
+      <Filter>src\libs\iir1</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\iir1\iir\ChebyshevI.h">
+      <Filter>src\libs\iir1</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\iir1\iir\ChebyshevII.h">
+      <Filter>src\libs\iir1</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\iir1\iir\Common.h">
+      <Filter>src\libs\iir1</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\iir1\iir\Custom.h">
+      <Filter>src\libs\iir1</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\iir1\iir\Layout.h">
+      <Filter>src\libs\iir1</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\iir1\iir\MathSupplement.h">
+      <Filter>src\libs\iir1</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\iir1\iir\PoleFilter.h">
+      <Filter>src\libs\iir1</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\iir1\iir\RBJ.h">
+      <Filter>src\libs\iir1</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\iir1\iir\State.h">
+      <Filter>src\libs\iir1</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\iir1\iir\Types.h">
+      <Filter>src\libs\iir1</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\iir1\iir.h">
+      <Filter>src\libs\iir1</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\src\winres.rc">
@@ -1238,6 +1307,9 @@
     </Filter>
     <Filter Include="src\libs\gui_tk">
       <UniqueIdentifier>{c1d4aca1-2ddd-4dc2-ba93-8b2279ef4d30}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\libs\iir1">
+      <UniqueIdentifier>{7c8fbcd1-aca6-40ad-b24d-df51c89fbf2f}</UniqueIdentifier>
     </Filter>
     <Filter Include="src\libs\nuked">
       <UniqueIdentifier>{69d13cb3-0db7-4e3c-92a0-c2b1a79b5b63}</UniqueIdentifier>

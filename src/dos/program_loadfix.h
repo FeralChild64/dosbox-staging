@@ -25,9 +25,17 @@
 
 class LOADFIX final : public Program {
 public:
+	LOADFIX()
+	{
+		AddMessages();
+		help_detail = {HELP_Filter::All,
+		               HELP_Category::Dosbox,
+		               HELP_CmdType::Program,
+		               "LOADFIX"};
+	}
 	void Run(void);
+private:
+    void AddMessages();
 };
-
-void LOADFIX_ProgramStart(Program **make);
 
 #endif // DOSBOX_PROGRAM_LOADFIX_H

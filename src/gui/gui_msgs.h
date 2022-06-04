@@ -1,7 +1,7 @@
 /*
  *  SPDX-License-Identifier: GPL-2.0-or-later
  *
- *  Copyright (C) 2020-2021  The DOSBox Staging Team
+ *  Copyright (C) 2020-2022  The DOSBox Staging Team
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -24,7 +24,7 @@
 constexpr char version_msg[] =
         R"(dosbox (dosbox-staging), version %s
 
-Copyright (C) 2020-2021  The DOSBox Staging Team
+Copyright (C) 2020-2022  The DOSBox Staging Team
 License: GNU GPL-2.0-or-later <https://www.gnu.org/licenses/gpl-2.0.html>
 
 This is free software, and you are welcome to change and redistribute it under
@@ -61,6 +61,9 @@ These are common options:
 
   -lang <langfile>    Start dosbox with the language specified in
                       <langfile>.
+
+  --list-glshaders    List available GLSL shaders and their directories.
+                      Results are useable in the "glshader = " conf setting.
 
   -machine <type>     Setup dosbox to emulate a specific type of machine.
                       The machine type has influence on both the videocard

@@ -1,7 +1,7 @@
 /*
  *  SPDX-License-Identifier: GPL-2.0-or-later
  *
- *  Copyright (C) 2020-2021  The DOSBox Staging Team
+ *  Copyright (C) 2020-2022  The DOSBox Staging Team
  *  Copyright (C) 2002-2021  The DOSBox Team
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -32,9 +32,11 @@
 #include <cstring>
 #include <functional>
 #include <limits>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <sys/types.h>
 #include <thread>
 #include <type_traits>
@@ -52,6 +54,15 @@
 // such as 'toupper'. This function asserts that a given int
 // is in-range of a char and returns it as such.
 char int_to_char(int val);
+
+constexpr bool char_is_negative([[maybe_unused]] char c)
+{
+#if (CHAR_MIN < 0) // char is signed
+	return c < 0;
+#else // char is unsigned
+	return false;
+#endif
+}
 
 // Given a case-insensitive drive letter (a/A .. z/Z),
 // returns a zero-based index starting at 0 for drive A
@@ -321,6 +332,9 @@ FILE_unique_ptr make_fopen(const char *fname, const char *mode);
 const std_fs::path &GetExecutablePath();
 std_fs::path GetResourcePath(const std_fs::path &name);
 std_fs::path GetResourcePath(const std_fs::path &subdir, const std_fs::path &name);
+
+std::map<std_fs::path, std::vector<std_fs::path>> GetFilesInResource(
+        const std_fs::path &res_name, const std::string_view files_ext);
 
 enum class ResourceImportance { Mandatory, Optional };
 std::vector<uint8_t> LoadResource(const std_fs::path &subdir,

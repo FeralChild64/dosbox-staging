@@ -24,10 +24,18 @@
 #include "programs.h"
 
 class MEM final : public Program {
-    public:
-        void Run(void);
+public:
+	MEM()
+	{
+		AddMessages();
+		help_detail = {HELP_Filter::All,
+		               HELP_Category::Misc,
+		               HELP_CmdType::Program,
+		               "MEM"};
+	}
+	void Run(void);
+private:
+        void AddMessages();
 };
-
-void MEM_ProgramStart(Program **make);
 
 #endif // DOSBOX_PROGRAM_MEM_H

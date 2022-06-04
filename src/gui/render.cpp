@@ -21,7 +21,10 @@
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
+#include <functional>
+#include <regex>
 #include <sstream>
 #include <unordered_map>
 
@@ -39,8 +42,6 @@
 #include "string_utils.h"
 #include "vga.h"
 
-#include "render_crt_glsl.h"
-#include "render_glsl.h"
 #include "render_scalers.h"
 
 Render_t render;
@@ -457,7 +458,7 @@ forcenormal:
 		gfx_flags |= GFX_DBL_W;
 
 #if C_OPENGL
-	GFX_SetShader(render.shader_src);
+	GFX_SetShader(render.shader.source);
 #endif
 
 	// The pixel aspect ratio of the source image, assuming 4:3 screen
@@ -624,75 +625,203 @@ static void ChangeScaler(bool pressed) {
 } */
 
 #if C_OPENGL
-static bool RENDER_GetShader(std::string &shader_path, char *old_src)
-{
-	const std::unordered_map<std::string, const char *> builtin_shaders = {
-	        {"advinterp2x", advinterp2x_glsl},
-	        {"advinterp3x", advinterp3x_glsl},
-	        {"advmame2x", advmame2x_glsl},
-	        {"advmame3x", advmame3x_glsl},
-	        {"crt-easymode-flat", crt_easymode_tweaked_glsl},
-	        {"crt-fakelottes-flat", crt_fakelottes_tweaked_glsl},
-	        {"default", sharp_glsl},
-	        {"rgb2x", rgb2x_glsl},
-	        {"rgb3x", rgb3x_glsl},
-	        {"scan2x", scan2x_glsl},
-	        {"scan3x", scan3x_glsl},
-	        {"sharp", sharp_glsl},
-	        {"tv2x", tv2x_glsl},
-	        {"tv3x", tv3x_glsl},
-	};
 
-	char* src;
-	std::stringstream buf;
-	std::ifstream fshader(shader_path.c_str(), std::ios_base::binary);
+// Reads the given shader path into the string
+static bool read_shader(const std_fs::path &shader_path, std::string &shader_str)
+{
+	std::ifstream fshader(shader_path, std::ios_base::binary);
 	if (!fshader.is_open())
-		fshader.open(shader_path + ".glsl", std::ios_base::binary);
-	if (fshader.is_open()) {
-		buf << fshader.rdbuf();
-		fshader.close();
-	} else if (builtin_shaders.count(shader_path) > 0) {
-		buf << builtin_shaders.at(shader_path);
+		return false;
+
+	std::stringstream buf;
+	buf << fshader.rdbuf();
+	fshader.close();
+	if (buf.str().empty())
+		return false;
+
+	shader_str = buf.str();
+	shader_str += '\n';
+	return true;
+}
+
+std::deque<std::string> RENDER_InventoryShaders()
+{
+	std::deque<std::string> inventory;
+	inventory.emplace_back("");
+	inventory.emplace_back("List of available GLSL shaders");
+	inventory.emplace_back("------------------------------");
+
+	const std::string dir_prefix = "Path '";
+	const std::string file_prefix = "        ";
+	for (auto &[dir, shaders] : GetFilesInResource("glshaders", ".glsl")) {
+		const auto dir_exists = std_fs::is_directory(dir);
+		auto shader = shaders.begin();
+		const auto dir_has_shaders = shader != shaders.end();
+		const auto dir_postfix = dir_exists ? (dir_has_shaders
+		                                               ? "' has:"
+		                                               : "' has no shaders")
+		                                    : "' does not exist";
+
+		inventory.emplace_back(dir_prefix + dir.string() + dir_postfix);
+
+		while (shader != shaders.end()) {
+			shader->replace_extension("");
+			const auto is_last = (shader + 1 == shaders.end());
+			inventory.emplace_back(file_prefix +
+			                       (is_last ? "`- " : "|- ") +
+			                       shader->string());
+			shader++;
+		}
+		inventory.emplace_back("");
+	}
+	inventory.emplace_back("The above shaders can be used exactly as listed in the \"glshader\"");
+	inventory.emplace_back("conf setting, without the need for the resource path or .glsl extension.");
+	inventory.emplace_back("");
+	return inventory;
+}
+
+static bool RENDER_GetShader(const std::string &shader_path, std::string &source)
+{
+	// Start with the path as-is and then try from resources
+	const auto candidate_paths = {std_fs::path(shader_path),
+	                              std_fs::path(shader_path + ".glsl"),
+	                              GetResourcePath("glshaders", shader_path),
+	                              GetResourcePath("glshaders",
+	                                              shader_path + ".glsl")};
+
+	std::string s; // to be populated with the shader source
+	for (const auto &p : candidate_paths)
+		if (read_shader(p, s))
+			break;
+
+	if (s.empty()) {
+		source.clear();
+		return false;
 	}
 
-	if (!buf.str().empty()) {
-		std::string s = buf.str() + '\n';
-		if (first_shell) {
-			std::string pre_defs;
-			Bitu count = first_shell->GetEnvCount();
-			for (Bitu i=0; i < count; i++) {
-				std::string env;
-				if (!first_shell->GetEnvNum(i, env))
+	if (first_shell) {
+		std::string pre_defs;
+		const size_t count = first_shell->GetEnvCount();
+		for (size_t i = 0; i < count; ++i) {
+			std::string env;
+			if (!first_shell->GetEnvNum(i, env))
+				continue;
+			if (env.compare(0, 9, "GLSHADER_") == 0) {
+				const auto brk = env.find('=');
+				if (brk == std::string::npos)
 					continue;
-				if (env.compare(0, 9, "GLSHADER_")==0) {
-					size_t brk = env.find('=');
-					if (brk == std::string::npos) continue;
-					env[brk] = ' ';
-					pre_defs += "#define " + env.substr(9) + '\n';
-				}
-			}
-			if (!pre_defs.empty()) {
-				// if "#version" occurs it must be before anything except comments and whitespace
-				size_t pos = s.find("#version ");
-
-				if (pos != std::string::npos)
-					pos = s.find('\n', pos + 9);
-
-				s.insert(pos, pre_defs);
+				env[brk] = ' ';
+				pre_defs += "#define " + env.substr(9) + '\n';
 			}
 		}
-		// keep the same buffer if contents aren't different
-		if (old_src==NULL || s != old_src) {
-			src = strdup(s.c_str());
-			if (src==NULL) LOG_MSG("WARNING: Couldn't copy shader source");
-		} else src = old_src;
-	} else src = NULL;
-	render.shader_src = src;
-	return src != NULL;
+		if (pre_defs.length()) {
+			// if "#version" occurs it must be before anything
+			// except comments and whitespace
+			auto pos = s.find("#version ");
+
+			if (pos != std::string::npos)
+				pos = s.find('\n', pos + 9);
+
+			s.insert(pos, pre_defs);
+		}
+	}
+	if (s.empty()) {
+		source.clear();
+		LOG_ERR("RENDER: Failed to read shader source");
+		return false;
+	}
+	source = std::move(s);
+	assert(source.length());
+	return true;
 }
+
+static void parse_shader_options(const std::string &source)
+{
+	try {
+		const std::regex re("^\\s*#pragma\\s+(\\w+)");
+		std::sregex_iterator next(source.begin(), source.end(), re);
+		const std::sregex_iterator end;
+
+		while (next != end) {
+			std::smatch match = *next;
+			auto pragma = match[1].str();
+			if (pragma == "use_srgb_texture")
+				render.shader.use_srgb_texture = true;
+			else if (pragma == "use_srgb_framebuffer")
+				render.shader.use_srgb_framebuffer = true;
+			++next;
+		}
+	} catch (std::regex_error &e) {
+		LOG_ERR("Regex error while parsing OpenGL shader for pragmas: %d", e.code());
+	}
+}
+
+bool RENDER_UseSRGBTexture()
+{
+	return render.shader.use_srgb_texture;
+}
+
+bool RENDER_UseSRGBFramebuffer()
+{
+	return render.shader.use_srgb_framebuffer;
+}
+
 #endif
 
-void RENDER_Init(Section * sec) {
+void RENDER_InitShaderSource([[maybe_unused]] Section *sec)
+{
+#if C_OPENGL
+	assert(control);
+	const Section *sdl_sec = control->GetSection("sdl");
+	assert(sdl_sec);
+	const bool using_opengl = starts_with("opengl",
+	                                      sdl_sec->GetPropValue("output"));
+
+	const auto section = static_cast<Section_prop *>(sec);
+	Prop_path *sh = section->Get_path("glshader");
+	auto filename = (std::string)sh->GetValue();
+
+	constexpr auto fallback_shader = "none";
+	if (filename.empty())
+		filename = fallback_shader;
+	else if (filename == "default")
+		filename = "sharp";
+
+	std::string source = {};
+	if (!RENDER_GetShader(sh->realpath, source) &&
+	    (sh->realpath == filename || !RENDER_GetShader(filename, source))) {
+		sh->SetValue("none");
+		source.clear();
+
+		// List all the existing shaders for the user
+		LOG_ERR("RENDER: Shader file '%s' not found", filename.c_str());
+		for (const auto &line : RENDER_InventoryShaders()) {
+			LOG_WARNING("RENDER: %s", line.c_str());
+		}
+		// Fallback to the 'none' shader and otherwise fail
+		if (RENDER_GetShader(fallback_shader, source)) {
+			filename = fallback_shader;
+		} else {
+			E_Exit("RENDER: Fallback shader file '%s' not found and is mandatory",
+			       fallback_shader);
+		}
+	}
+	if (using_opengl && source.length() && render.shader.filename != filename) {
+		LOG_MSG("RENDER: Using GLSL shader '%s'", filename.c_str());
+		parse_shader_options(source);
+
+		// Move the temporary filename and source into the memebers
+		render.shader.filename = std::move(filename);
+		render.shader.source = std::move(source);
+
+		// Pass the shader source up to the GFX engine
+		GFX_SetShader(render.shader.source);
+	}
+#endif
+}
+
+void RENDER_Init(Section *sec)
+{
 	Section_prop * section=static_cast<Section_prop *>(sec);
 
 	//For restarting the renderer.
@@ -749,37 +878,20 @@ void RENDER_Init(Section * sec) {
 #endif
 
 #if C_OPENGL
-	assert(control);
-	const Section *sdl_sec = control->GetSection("sdl");
-	assert(sdl_sec);
-	const bool using_opengl = starts_with("opengl",
-	                                      sdl_sec->GetPropValue("output"));
-	char* shader_src = render.shader_src;
-	Prop_path *sh = section->Get_path("glshader");
-	f = (std::string)sh->GetValue();
-	if (f.empty() || f=="none") render.shader_src = NULL;
-	else if (!RENDER_GetShader(sh->realpath,shader_src)) {
-		std::string path;
-		Cross::GetPlatformConfigDir(path);
-		path = path + "glshaders" + CROSS_FILESPLIT + f;
-		if (!RENDER_GetShader(path,shader_src) && (sh->realpath==f || !RENDER_GetShader(f,shader_src))) {
-			sh->SetValue("none");
-			LOG_MSG("RENDER: Shader file '%s' not found", f.c_str());
-		} else if (using_opengl) {
-			LOG_MSG("RENDER: Using GLSL shader '%s'", f.c_str());
-		}
-	}
-	if (shader_src!=render.shader_src) free(shader_src);
+	const auto previous_shader_filename = render.shader.filename;
+	RENDER_InitShaderSource(section);
 #endif
 
 	//If something changed that needs a ReInit
 	// Only ReInit when there is a src.bpp (fixes crashes on startup and directly changing the scaler without a screen specified yet)
-	if(running && render.src.bpp && ((render.aspect != aspect) || (render.scale.op != scaleOp) || 
-				  (render.scale.size != scalersize) || (render.scale.forced != scalerforced) ||
+	if (running && render.src.bpp &&
+	    ((render.aspect != aspect) || (render.scale.op != scaleOp) ||
+	     (render.scale.size != scalersize) ||
+	     (render.scale.forced != scalerforced) ||
 #if C_OPENGL
-				  (render.shader_src != shader_src) ||
+	     (previous_shader_filename != render.shader.filename) ||
 #endif
-				   render.scale.forced))
+	     render.scale.forced))
 		RENDER_CallBack( GFX_CallBackReset );
 
 	if(!running) render.updating=true;

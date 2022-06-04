@@ -42,7 +42,7 @@ summary('Build type',     get_option('buildtype'), section : 'Build Summary')
 summary('Install prefix', get_option('prefix'),    section : 'Build Summary')
 
 # extra compiler flags
-extra_flags = []
+extra_flags = ['-Wno-unknown-pragmas']
 
 # If the compiler provides std::filesystem, then we consider it modern enough
 # that we can trust it's extra helpful warnings to let us improve the code quality.
@@ -238,6 +238,10 @@ opus_dep           = dependency('opusfile',
 threads_dep        = dependency('threads')
 sdl2_dep           = dependency('sdl2', version : '>= 2.0.5',
                                 static : ('sdl2' in static_libs_list))
+zlib_dep           = dependency('zlib', version : '>= 1.2.11',
+                                static : ('zlib' in static_libs_list))
+speexdsp_dep       = dependency('speexdsp', version : '> 1.1.9',
+                                static : ('speexdsp' in static_libs_list))
 sdl2_net_dep       = optional_dep
 opengl_dep         = optional_dep
 fluid_dep          = optional_dep
@@ -409,6 +413,7 @@ subdir('src/libs/residfp')
 subdir('src/libs/sdlcd')
 subdir('src/libs/whereami')
 subdir('src/libs/PDCurses')
+subdir('src/libs/iir1')
 
 # internal libs
 #
@@ -448,6 +453,7 @@ executable('dosbox', dosbox_sources,
                            stdcppfs_dep,
                            sdl2_dep,
                            threads_dep,
+                           libiir1_dep,
                            libghc_dep,
                            libloguru_dep,
                            libpdcurses_dep,
@@ -462,6 +468,7 @@ libdosbox = static_library('dosbox', ['src/dosbox.cpp', version_file],
                         dependencies : [atomic_dep,
                                         threads_dep,
                                         sdl2_dep,
+                                        libiir1_dep,
                                         libghc_dep,
                                         libloguru_dep,
                                         libsdlcd_dep]

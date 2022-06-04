@@ -2,7 +2,7 @@ name: MSYS2 builds
 
 on: [push, pull_request]
 
-concurrency: 
+concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -10,7 +10,7 @@ env:
   CCACHE_DIR:      "/c/ccache"
   CCACHE_MAXSIZE:  "64M"
   CCACHE_COMPRESS: "true"
-  BUILD_FLAGS: "-Dbuildtype=release -Db_asneeded=true --force-fallback-for=fluidsynth,mt32emu -Dtry_static_libs=fluidsynth,mt32emu,opusfile,png,slirp -Dfluidsynth:try-static-deps=true"
+  BUILD_FLAGS: "-Dbuildtype=release -Db_asneeded=true --force-fallback-for=fluidsynth,mt32emu -Dtry_static_libs=fluidsynth,mt32emu,opusfile,png,slirp,zlib,speexdsp -Dfluidsynth:try-static-deps=true"
   BUILD_RELEASE_DIR: build/release
   BUILD_DEBUGGER_DIR: build/debugger
 
@@ -18,7 +18,7 @@ jobs:
   build_msys2:
     name: ${{ matrix.conf.name }}
     runs-on: windows-latest
-    if: github.event_name != 'pull_request' || contains('dreamer,kcgen,ant-222,Wengier,kklobe,shermp,jnovak,FeralChild64', github.actor) == false
+    if: github.event_name != 'pull_request' || contains('dreamer,kcgen,ant-222,Wengier,kklobe,shermp,johnnovak,FeralChild64', github.actor) == false
 
     strategy:
       matrix:
@@ -28,44 +28,44 @@ jobs:
             arch: i686
             sys: MINGW32
             cc: gcc
-            max_warnings: 1
+            max_warnings: 0
           - name: GCC (MinGW) x86_64
             toolchain: ""
             arch: x86_64
             sys: MINGW64
             cc: gcc
-            max_warnings: 1
+            max_warnings: 0
           - name: GCC (UCRT) x86_64
             toolchain: ucrt-
             arch: x86_64
             sys: UCRT64
             cc: gcc
-            max_warnings: 1
+            max_warnings: 0
           - name: Clang x86_64
             toolchain: clang-
             arch: x86_64
             sys: CLANG64
             cc: clang
-            max_warnings: 5
+            max_warnings: 0
           - name: GCC +tests
             toolchain: ""
             arch: x86_64
             sys: MINGW64
             run_tests: true
             cc: gcc
-            max_warnings: -1
+            max_warnings: 0
           - name: GCC +debugger
             toolchain: ""
             arch: x86_64
             sys: MINGW64
             cc: gcc
-            max_warnings: 3
+            max_warnings: 0
             build_flags: -Denable_debugger=normal
-    
+
     defaults:
       run:
         shell: msys2 {0}
-    
+
     steps:
       - name: Disable git line ending conversion
         shell: powershell
@@ -75,7 +75,7 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v2
-      
+
       - name: Setup MSYS2 and install packages
         uses: msys2/setup-msys2@v2
         with:
@@ -95,7 +95,8 @@ jobs:
             mingw-w64-${{matrix.conf.toolchain}}${{matrix.conf.arch}}-SDL2
             mingw-w64-${{matrix.conf.toolchain}}${{matrix.conf.arch}}-SDL2_net
             mingw-w64-${{matrix.conf.toolchain}}${{matrix.conf.arch}}-zlib
-      
+            mingw-w64-${{matrix.conf.toolchain}}${{matrix.conf.arch}}-speexdsp
+
       - name:  Prepare compiler cache
         id:    prep-ccache
         run: |
@@ -125,13 +126,13 @@ jobs:
       - name: Setup build
         run: |
           meson setup ${{ matrix.conf.build_flags }} build
-      
+
       - name: Build
         run: |
           set -xo pipefail
           ninja -C build |& tee build.log
           ccache -s
-      
+
       - name: Run tests
         if:   matrix.conf.run_tests
         run:  meson test -C build --print-errorlogs
@@ -145,19 +146,19 @@ jobs:
   build_msys2_release:
     name: ${{ matrix.conf.name }} Release
     runs-on: windows-latest
-    if: github.event_name != 'pull_request' || contains('dreamer,kcgen,ant-222,Wengier,kklobe,shermp,jnovak,FeralChild64', github.actor) == false
-    
+    if: github.event_name != 'pull_request' || contains('dreamer,kcgen,ant-222,Wengier,kklobe,shermp,johnnovak,FeralChild64', github.actor) == false
+
     strategy:
       matrix:
         conf:
           - name: Clang x86_64
             arch: x86_64
             sys: CLANG64
-    
+
     defaults:
       run:
         shell: msys2 {0}
-   
+
     steps:
       - name: Disable git line ending conversion
         shell: powershell
@@ -190,7 +191,8 @@ jobs:
             mingw-w64-clang-${{matrix.conf.arch}}-SDL2
             mingw-w64-clang-${{matrix.conf.arch}}-SDL2_net
             mingw-w64-clang-${{matrix.conf.arch}}-zlib
-            
+            mingw-w64-clang-${{matrix.conf.arch}}-speexdsp
+
       - name:  Prepare compiler cache
         id:    prep-ccache
         run: |
@@ -212,7 +214,7 @@ jobs:
         with:
           path: subprojects/packagecache
           key:  subprojects-${{ hashFiles('subprojects/*.wrap') }}-1
-      
+
       - name: Log environment
         run:  ./scripts/log-env.sh
 
@@ -222,24 +224,24 @@ jobs:
           git fetch --prune --unshallow
           export VERSION=$(git describe --abbrev=5)
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-      
+
       - name: Inject package name
         run: |
           set -x
           echo "PKG_RELEASE=dosbox-staging-windows-msys2-${{ matrix.conf.arch }}-${{ env.VERSION }}" >> $GITHUB_ENV
-           
+
       - name: Setup release build
         run: meson setup -Db_lto=true -Db_lto_threads=$(nproc) $BUILD_FLAGS $BUILD_RELEASE_DIR
 
       - name: Setup debugger build
         run: meson setup -Db_lto=true -Db_lto_threads=$(nproc) $BUILD_FLAGS -Denable_debugger=normal $BUILD_DEBUGGER_DIR
-      
+
       - name: Build release
         run: ninja -C $BUILD_RELEASE_DIR
-      
+
       - name: Build debugger
         run: ninja -C $BUILD_DEBUGGER_DIR
-            
+
       - name: Package
         run: |
           # Package the debug build to bring in required dependencies such as ncurses
@@ -249,7 +251,7 @@ jobs:
             "$PKG_RELEASE"
           mv "${PKG_RELEASE}/dosbox.exe" "${PKG_RELEASE}/dosbox_with_debugger.exe"
           install -DT "${BUILD_RELEASE_DIR}/dosbox.exe" "${PKG_RELEASE}/dosbox.exe"
-      
+
       - name: Windows Defender AV Scan
         shell: powershell
         run: |

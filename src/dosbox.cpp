@@ -1,7 +1,7 @@
 /*
  *  SPDX-License-Identifier: GPL-2.0-or-later
  *
- *  Copyright (C) 2020-2021  The DOSBox Staging Team
+ *  Copyright (C) 2020-2022  The DOSBox Staging Team
  *  Copyright (C) 2002-2021  The DOSBox Team
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -82,7 +82,6 @@ void FPU_Init(Section*);
 
 void DMA_Init(Section*);
 
-void MIXER_Init(Section*);
 void HARDWARE_Init(Section*);
 
 #if defined(PCI_FUNCTIONALITY_ENABLED)
@@ -425,10 +424,6 @@ void DOSBOX_Init() {
 	constexpr auto only_at_start = Property::Changeable::OnlyAtStart;
 	constexpr auto when_idle = Property::Changeable::WhenIdle;
 
-	// Some frequently used option sets
-	const char *rates[] = {"44100", "48000", "32000", "22050", "16000",
-	                       "11025", "8000",  "49716", 0};
-
 	/* Setup all the different modules making up DOSBox */
 	const char *machines[] = {"hercules",      "cga",
 	                          "cga_mono",      "tandy",
@@ -539,6 +534,7 @@ void DOSBOX_Init() {
 	        "auto        | 'low' if exec or dir is passed, otherwise 'high'");
 
 	secprop = control->AddSection_prop("render", &RENDER_Init, true);
+	secprop->AddEarlyInitFunction(&RENDER_InitShaderSource, true);
 	pint = secprop->Add_int("frameskip", always, 0);
 	pint->SetMinMax(0, 10);
 	pint->Set_help("How many frames DOSBox skips before drawing one.");
@@ -590,7 +586,7 @@ void DOSBOX_Init() {
 	pstring->Set_help("Either 'none' or a GLSL shader name. Works only with\n"
 	                  "OpenGL output.  Can be either an absolute path, a file\n"
 	                  "in the 'glshaders' subdirectory of the DOSBox\n"
-	                  "configuration directory, or one of the built-in shaders:\n"
+	                  "configuration directory, one of the bundled shaders:\n"
 	                  "advinterp2x, advinterp3x, advmame2x, advmame3x,\n"
 	                  "crt-easymode-flat, crt-fakelottes-flat, rgb2x, rgb3x,\n"
 	                  "scan2x, scan3x, tv2x, tv3x, sharp (default).");
@@ -658,42 +654,8 @@ void DOSBOX_Init() {
 #endif
 
 
-	// Mixer defaults
-	constexpr int default_mixer_rate = 48000;
-#if defined(WIN32)
-	// Long stading known-good defaults for Windows
-	constexpr int default_mixer_blocksize = 1024;
-	constexpr int default_mixer_prebuffer = 25;
-	constexpr bool default_mixer_allow_negotiate = false;
-
-#else
-	// Non-Windows platforms tollerate slightly lower latency
-	constexpr int default_mixer_blocksize = 512;
-	constexpr int default_mixer_prebuffer = 20;
-	constexpr bool default_mixer_allow_negotiate = true;
-#endif
-
-	secprop=control->AddSection_prop("mixer",&MIXER_Init);
-	Pbool = secprop->Add_bool("nosound", only_at_start, false);
-	Pbool->Set_help("Enable silent mode, sound is still emulated though.");
-
-	Pint = secprop->Add_int("rate", only_at_start, default_mixer_rate);
-	Pint->Set_values(rates);
-	Pint->Set_help("Mixer sample rate, setting any device's rate higher than this will probably lower their sound quality.");
-
-	const char *blocksizes[] = {
-		 "1024", "2048", "4096", "8192", "512", "256", "128", 0};
-	Pint = secprop->Add_int("blocksize", only_at_start, default_mixer_blocksize);
-	Pint->Set_values(blocksizes);
-	Pint->Set_help("Mixer block size, larger blocks might help sound stuttering but sound will also be more lagged.");
-
-	Pint = secprop->Add_int("prebuffer",only_at_start, default_mixer_prebuffer);
-	Pint->SetMinMax(0,100);
-	Pint->Set_help("How many milliseconds of data to keep on top of the blocksize.");
-
-	Pbool = secprop->Add_bool("negotiate", only_at_start,
-	                          default_mixer_allow_negotiate);
-	Pbool->Set_help("Let the system audio driver negotiate (possibly) better rate and blocksize settings.");
+	// Configure mixer
+	MIXER_AddConfigSection(control);
 
 	secprop = control->AddSection_prop("midi", &MIDI_Init, true);
 	secprop->AddInitFunction(&MPU401_Init, true);
@@ -832,6 +794,28 @@ void DOSBOX_Init() {
 	Pstring->Set_help(
 	        "Provider for the OPL emulation. 'compat' provides better quality,\n"
 	        "'nuked' is the default and most accurate (but the most CPU-intensive).");
+
+	Pstring = secprop->Add_string("sb_filter", when_idle, "auto");
+	Pstring->Set_help(
+	        "Type of filter to emulate for the Sound Blaster digital sound output:\n"
+	        "  auto:    Use the appropriate filter determined by 'sbtype' (default).\n"
+	        "  sb1, sb2, sbpro1, sbpro2, sb16:\n"
+	        "           Use the filter of this Sound Blaster model.\n"
+	        "  none:    Don't filter the output.\n"
+	        "A second 'always_on' parameter can be provided to disallow programs from turning the filter off.\n"
+	        "(Example: sbpro1 always_on)");
+
+	Pstring = secprop->Add_string("opl_filter", when_idle, "auto");
+	Pstring->Set_help("Type of filter to emulate for the Sound Blaster OPL output:\n"
+	                  "  auto:    Use the appropriate filter determined by 'sbtype' (default).\n"
+	                  "  sb1, sb2, sbpro1, sbpro2, sb16:\n"
+	                  "           Use the filter of this Sound Blaster model.\n"
+	                  "  none:    Don't filter the output.");
+
+	Pstring = secprop->Add_string("cms_filter", when_idle, "on");
+	Pstring->Set_help("Filter for the Sound Blaster CMS output:\n"
+	                  "  on:    Filter the output (default).\n"
+	                  "  none:  Don't filter the output.");
 
 	// Configure Gravis UltraSound emulation
 	GUS_AddConfigSection(control);

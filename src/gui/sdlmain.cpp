@@ -283,24 +283,6 @@ SDL_Window *GFX_GetSDLWindow(void)
 #endif
 
 #if C_OPENGL
-static char const shader_src_default[] = R"GLSL(
-varying vec2 v_texCoord;
-#if defined(VERTEX)
-uniform vec2 rubyTextureSize;
-uniform vec2 rubyInputSize;
-attribute vec4 a_position;
-void main() {
-	gl_Position = a_position;
-	v_texCoord = vec2(a_position.x+1.0,1.0-a_position.y)/2.0*rubyInputSize/rubyTextureSize;
-}
-#elif defined(FRAGMENT)
-uniform sampler2D rubyTexture;
-void main() {
-	gl_FragColor = texture2D(rubyTexture, v_texCoord);
-}
-#endif
-)GLSL";
-
 #ifdef DB_OPENGL_ERROR
 void OPENGL_ERROR(const char* message) {
 	GLenum r = glGetError();
@@ -666,16 +648,11 @@ static SDL_Point refine_window_size(const SDL_Point &size,
 // Logs the source and target resolution including describing scaling method
 // and pixel-aspect ratios. Note that this function deliberately doesn't use
 // any global structs to disentangle it from the existing sdl-main design.
-static void log_display_properties(int in_x,
-                                   int in_y,
-                                   const double in_par,
-                                   const SCALING_MODE scaling_mode,
-                                   const PPScale &pp_scale,
-                                   int out_x,
-                                   int out_y)
+static void log_display_properties(int in_x, int in_y, const SCALING_MODE scaling_mode,
+                                   const PPScale &pp_scale, int out_x, int out_y)
 {
 	// Sanity check expectations
-	assert(in_x > 0 && in_y > 0 && in_par > 0);
+	assert(in_x > 0 && in_y > 0);
 	assert(out_x > 0 && out_y > 0);
 
 	if (scaling_mode == SCALING_MODE::PERFECT) {
@@ -1052,8 +1029,6 @@ static void setup_presentation_mode(FRAME_MODE &previous_mode)
 		               : FRAME_MODE::THROTTLED_VFR;
 	};
 
-	const bool in_text_mode = CurMode->type & M_TEXT_MODES;
-
 	const bool wants_vsync = sdl.vsync.current == VSYNC_STATE::ON ||
 	                         get_vsync_preference().requested == VSYNC_STATE::ON;
 
@@ -1062,7 +1037,7 @@ static void setup_presentation_mode(FRAME_MODE &previous_mode)
 
 	// Manual full CFR
 	if (sdl.frame.desired_mode == FRAME_MODE::CFR) {
-		if (configure_cfr_mode() != FRAME_MODE::CFR && !in_text_mode && wants_vsync) {
+		if (configure_cfr_mode() != FRAME_MODE::CFR && wants_vsync) {
 			LOG_WARNING("SDL: CFR performance warning: the DOS rate of %2.5g"
 			            " Hz exceeds the host's %2.5g Hz vsynced rate",
 			            dos_rate, host_rate);
@@ -1072,12 +1047,18 @@ static void setup_presentation_mode(FRAME_MODE &previous_mode)
 	}
 	// Manual full VFR
 	else if (sdl.frame.desired_mode == FRAME_MODE::VFR) {
-		if (configure_vfr_mode() != FRAME_MODE::VFR && !in_text_mode) {
+		if (configure_vfr_mode() != FRAME_MODE::VFR) {
 			LOG_WARNING("SDL: VFR performance warning: the DOS rate of %2.5g"
 			            " Hz exceeds the host's %2.5g Hz handling rate",
 			            dos_rate, host_rate);
 		}
 		mode = sdl.frame.desired_mode;
+	}
+	// Auto VFR, if in a text mode with a non-VRR display
+	else if (CurMode->type & M_TEXT_MODES &&
+	         !atleast_as_fast(host_rate, REFRESH_RATE_HOST_VRR_MIN)) {
+		mode = FRAME_MODE::VFR;
+		save_rate_to_frame_period(dos_rate);
 	}
 	// Auto CFR
 	else if (wants_vsync) {
@@ -1086,12 +1067,6 @@ static void setup_presentation_mode(FRAME_MODE &previous_mode)
 	// Auto VFR
 	else {
 		mode = configure_vfr_mode();
-	}
-
-	// Text-mode mode on a standard system: just use VFR
-	if (in_text_mode && !atleast_as_fast(host_rate, REFRESH_RATE_HOST_VRR_MIN)) {
-		mode = FRAME_MODE::VFR;
-		save_rate_to_frame_period(dos_rate);
 	}
 
 	// If the mode is unchanged, do nothing
@@ -1213,9 +1188,12 @@ finish:
 
 	if (sdl.draw.has_changed) {
 		setup_presentation_mode(sdl.frame.mode);
-		log_display_properties(sdl.draw.width, sdl.draw.height,
-		                       sdl.draw.pixel_aspect, sdl.scaling_mode,
-		                       sdl.pp_scale, width, height);
+		log_display_properties(sdl.draw.width,
+		                       sdl.draw.height,
+		                       sdl.scaling_mode,
+		                       sdl.pp_scale,
+		                       width,
+		                       height);
 	}
 
     // Ensure mouse enumation knows the current parameters
@@ -1347,10 +1325,14 @@ static SDL_Window *SetupWindowScaled(SCREEN_TYPES screen_type, bool resizable)
 
 #if C_OPENGL
 /* Create a GLSL shader object, load the shader source, and compile the shader. */
-static GLuint BuildShader ( GLenum type, const char *shaderSrc ) {
-	GLuint shader;
-	GLint compiled;
-	const char* src_strings[2];
+static GLuint BuildShader(GLenum type, const std::string_view source_sv)
+{
+	GLuint shader = 0;
+	GLint compiled = 0;
+
+	assert(source_sv.length());
+	const char *shaderSrc = source_sv.data();
+	const char *src_strings[2] = {nullptr, nullptr};
 	std::string top;
 
 	// look for "#version" because it has to occur first
@@ -1400,11 +1382,19 @@ static GLuint BuildShader ( GLenum type, const char *shaderSrc ) {
 	return shader;
 }
 
-static bool LoadGLShaders(const char *src, GLuint *vertex, GLuint *fragment) {
-	GLuint s = BuildShader(GL_VERTEX_SHADER, src);
+static bool LoadGLShaders(const std::string_view source_sv, GLuint *vertex,
+                          GLuint *fragment)
+{
+	if (source_sv.empty())
+		return false;
+
+	assert(vertex);
+	assert(fragment);
+
+	GLuint s = BuildShader(GL_VERTEX_SHADER, source_sv);
 	if (s) {
 		*vertex = s;
-		s = BuildShader(GL_FRAGMENT_SHADER, src);
+		s = BuildShader(GL_FRAGMENT_SHADER, source_sv);
 		if (s) {
 			*fragment = s;
 			return true;
@@ -1426,15 +1416,6 @@ static bool LoadGLShaders(const char *src, GLuint *vertex, GLuint *fragment) {
 	}
 #endif // C_OPENGL
 	return "";
-}
-
-[[maybe_unused]] static bool is_sharp_shader()
-{
-	constexpr std::array<std::string_view, 2> sharp_shader_names{{
-	        "sharp",
-	        "default",
-	}};
-	return contains(sharp_shader_names, get_glshader_value());
 }
 
 [[maybe_unused]] static bool is_shader_flexible()
@@ -1761,13 +1742,11 @@ dosurface:
 				// does program need to be rebuilt?
 				if (sdl.opengl.program_object == 0) {
 					GLuint vertexShader, fragmentShader;
-					const char *src = sdl.opengl.shader_src;
-					if (src && !LoadGLShaders(src, &vertexShader, &fragmentShader)) {
-						LOG_WARNING("SDL:OPENGL: Failed to compile shader, falling back to default");
-						src = NULL;
-					}
-					if (src == NULL && !LoadGLShaders(shader_src_default, &vertexShader, &fragmentShader)) {
-						LOG_WARNING("SDL:OPENGL: Failed to compile default shader!");
+
+					if (!LoadGLShaders(sdl.opengl.shader_source_sv,
+					                   &vertexShader,
+					                   &fragmentShader)) {
+						LOG_ERR("SDL:OPENGL: Failed to compile shader!");
 						goto dosurface;
 					}
 
@@ -1911,13 +1890,13 @@ dosurface:
 		SDL_GL_GetAttribute(SDL_GL_FRAMEBUFFER_SRGB_CAPABLE,
 		                    &is_framebuffer_srgb_capable);
 
-		sdl.opengl.framebuffer_is_srgb_encoded = is_sharp_shader() && is_framebuffer_srgb_capable > 0;
+		sdl.opengl.framebuffer_is_srgb_encoded = RENDER_UseSRGBFramebuffer() && is_framebuffer_srgb_capable > 0;
 
-		if (is_sharp_shader() && !sdl.opengl.framebuffer_is_srgb_encoded)
+		if (RENDER_UseSRGBFramebuffer() && !sdl.opengl.framebuffer_is_srgb_encoded)
 			LOG_WARNING("OPENGL: sRGB framebuffer not supported");
 
 		// Using GL_SRGB8_ALPHA8 because GL_SRGB8 doesn't work properly with Mesa drivers on certain integrated Intel GPUs
-		const auto texformat = sdl.opengl.framebuffer_is_srgb_encoded ? GL_SRGB8_ALPHA8 : GL_RGB8;
+		const auto texformat = RENDER_UseSRGBTexture() ? GL_SRGB8_ALPHA8 : GL_RGB8;
 		glTexImage2D(GL_TEXTURE_2D, 0, texformat, texsize_w, texsize_h,
 		             0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, emptytex);
 		delete[] emptytex;
@@ -1996,13 +1975,15 @@ dosurface:
 	return retFlags;
 }
 
-void GFX_SetShader([[maybe_unused]] const char *src)
+void GFX_SetShader([[maybe_unused]] const std::string &source)
 {
 #if C_OPENGL
-	if (!sdl.opengl.use_shader || src == sdl.opengl.shader_src)
+	if (sdl.opengl.shader_source_sv != source)
+		sdl.opengl.shader_source_sv = source;
+
+	if (!sdl.opengl.use_shader)
 		return;
 
-	sdl.opengl.shader_src = src;
 	if (sdl.opengl.program_object) {
 		glDeleteProgram(sdl.opengl.program_object);
 		sdl.opengl.program_object = 0;
@@ -2157,8 +2138,10 @@ void GFX_SwitchFullScreen()
 	GFX_ResetScreen();
 	FocusInput();
 	setup_presentation_mode(sdl.frame.mode);
-	log_display_properties(sdl.draw.width, sdl.draw.height,
-	                       sdl.draw.pixel_aspect, sdl.scaling_mode, sdl.pp_scale,
+	log_display_properties(sdl.draw.width,
+	                       sdl.draw.height,
+	                       sdl.scaling_mode,
+	                       sdl.pp_scale,
 	                       sdl.desktop.fullscreen ? sdl.desktop.full.width
 	                                              : sdl.desktop.window.width,
 	                       sdl.desktop.fullscreen ? sdl.desktop.full.height
@@ -3711,19 +3694,6 @@ bool GFX_Events()
 					sdl.draw.callback(GFX_CallBackRedraw);
 				GFX_UpdateMouseState();
 
-				// When we're fullscreen, the DOS program might
-				// change underlying draw resolutions, which can
-				// pose a problem when switching back to
-				// window-mode (beacuse the prior window-size
-				// may not longer accomodate the new draw-size).
-				// So in this case, we want to reset the screen
-				// size - but only if we're not in the middle of
-				// resizing the window (which also fires EXPOSED
-				// events).
-				if (!sdl.desktop.fullscreen &&
-					sdl.desktop.last_size_event != SDL_WINDOWEVENT_RESIZED)
-					GFX_ResetScreen();
-
 				FocusInput();
 				continue;
 
@@ -4310,6 +4280,17 @@ static void launchcaptures(std::string const& edit) {
 	exit(1);
 }
 
+static void ListGlShaders()
+{
+#if C_OPENGL
+	for (const auto &line : RENDER_InventoryShaders())
+		printf("%s\n", line.c_str());
+#else
+	LOG_ERR("OpenGL is not supported by this executable "
+	        "and is missing the functionality to list shaders");
+#endif
+}
+
 static int PrintConfigLocation()
 {
 	std::string path, file;
@@ -4390,9 +4371,24 @@ void GFX_GetSize(int &width, int &height, bool &fullscreen)
 extern "C" int SDL_CDROMInit(void);
 int sdl_main(int argc, char *argv[])
 {
-	int rcode = 0; // assume good until proven otherwise
-	
-	// Setup logging right away
+	CommandLine com_line(argc, argv);
+	control = std::make_unique<Config>(&com_line);
+
+	if (control->cmdline->FindExist("--version") ||
+	    control->cmdline->FindExist("-version") ||
+	    control->cmdline->FindExist("-v")) {
+		printf(version_msg, DOSBOX_GetDetailedVersion());
+		return 0;
+	}
+
+	if (control->cmdline->FindExist("--help") ||
+	    control->cmdline->FindExist("-help") ||
+	    control->cmdline->FindExist("-h")) {
+		printf(help_msg); // -V618
+		return 0;
+	}
+
+	// Setup logging after commandline is parsed and trivial arguments handled
 	loguru::g_preamble_date    = true; // The date field
 	loguru::g_preamble_time    = true; // The time of the current day
 	loguru::g_preamble_uptime  = false; // The time since init call
@@ -4409,15 +4405,12 @@ int sdl_main(int argc, char *argv[])
 	LOG_MSG("LOG: Loguru version %d.%d.%d initialized", LOGURU_VERSION_MAJOR,
 	        LOGURU_VERSION_MINOR, LOGURU_VERSION_PATCH);
 
+	int rcode = 0; // assume good until proven otherwise
 	try {
 		Disable_OS_Scaling(); //Do this early on, maybe override it through some parameter.
 		OverrideWMClass(); // Before SDL2 video subsystem is initialized
 
 		CROSS_DetermineConfigPaths();
-
-		CommandLine com_line(argc,argv);
-
-		control = std::make_unique<Config>(&com_line);
 
 		/* Init the configuration system and add default values */
 		Config_Add_SDL();
@@ -4459,25 +4452,16 @@ int sdl_main(int argc, char *argv[])
 		}
 #endif  //defined(WIN32) && !(C_DEBUG)
 
-		if (control->cmdline->FindExist("--version") ||
-		    control->cmdline->FindExist("-version") ||
-		    control->cmdline->FindExist("-v")) {
-			printf(version_msg, DOSBOX_GetDetailedVersion());
-			return 0;
-		}
-
-		//If command line includes --help or -h, print help message and exit.
-		if (control->cmdline->FindExist("--help") ||
-		    control->cmdline->FindExist("-help") ||
-		    control->cmdline->FindExist("-h")) {
-			printf(help_msg); // -V618
-			return 0;
-		}
-
 		if (control->cmdline->FindExist("--printconf") ||
 		    control->cmdline->FindExist("-printconf")) {
 			const int err = PrintConfigLocation();
 			return err;
+		}
+
+		if (control->cmdline->FindExist("--list-glshaders") ||
+		    control->cmdline->FindExist("-list-glshaders")) {
+			ListGlShaders();
+			return 0;
 		}
 
 #if C_DEBUG

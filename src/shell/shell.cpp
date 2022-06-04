@@ -41,13 +41,8 @@ static Bitu shellstop_handler()
 	return CBRET_STOP;
 }
 
-void SHELL_ProgramStart(Program * * make) {
-	*make = new DOS_Shell;
-}
-//Repeat it with the correct type, could do it in the function below, but this way it should be 
-//clear that if the above function is changed, this function might need a change as well.
-static void SHELL_ProgramStart_First_shell(DOS_Shell * * make) {
-	*make = new DOS_Shell;
+std::unique_ptr<Program> SHELL_ProgramCreate() {
+	return ProgramCreate<DOS_Shell>();
 }
 
 char autoexec_data[autoexec_maxsize] = { 0 };
@@ -175,7 +170,13 @@ DOS_Shell::DOS_Shell()
           bf(nullptr),
           echo(true),
           call(false)
-{}
+{
+	AddShellCmdsToHelpList();
+	help_detail = {HELP_Filter::All,
+	               HELP_Category::Misc,
+	               HELP_CmdType::Program,
+	               "COMMAND"};
+}
 
 void DOS_Shell::GetRedirection(char *line,
                                std::string &in_file,
@@ -617,13 +618,14 @@ public:
 		const bool exit_arg_exists = cmdline->FindExist("-exit");
 
 		// Check if instant-launch is active
-		const bool using_instant_launch = control->GetStartupVerbosity() ==
-		                                  Verbosity::InstantLaunch;
+		const bool using_instant_launch_with_executable =
+		        control->GetStartupVerbosity() == Verbosity::InstantLaunch &&
+		        cmdline->HasExecutableName();
 
 		// Should we add an 'exit' call to the end of autoexec.bat?
-		const bool addexit = exit_call_exists
-		                     || exit_arg_exists
-		                     || using_instant_launch;
+		const bool addexit = exit_call_exists ||
+		                     exit_arg_exists ||
+		                     using_instant_launch_with_executable;
 
 		/* Check for first command being a directory or file */
 		char buffer[CROSS_LEN + 1];
@@ -1446,6 +1448,9 @@ void SHELL_Init() {
 	                             "DOS version %d.%02d\n");
 	MSG_Add("SHELL_CMD_VER_INVALID", "The specified DOS version is not correct.\n");
 
+	/* Ensure help categories are loaded into the message vector */
+	HELP_AddMessages();
+
 	/* Regular startup */
 	call_shellstop=CALLBACK_Allocate();
 	/* Setup the startup CS:IP to kill the last running machine when exitted */
@@ -1454,7 +1459,7 @@ void SHELL_Init() {
 	reg_ip=RealOff(newcsip);
 
 	CALLBACK_Setup(call_shellstop,shellstop_handler,CB_IRET,"shell stop");
-	PROGRAMS_MakeFile("COMMAND.COM",SHELL_ProgramStart);
+	PROGRAMS_MakeFile("COMMAND.COM",SHELL_ProgramCreate);
 
 	/* Now call up the shell for the first time */
 	uint16_t psp_seg=DOS_FIRST_SHELL;
@@ -1536,7 +1541,9 @@ void SHELL_Init() {
 	dos.psp(psp_seg);
 
 
-	SHELL_ProgramStart_First_shell(&first_shell);
+	// first_shell is only setup here, so may as well invoke
+	// it's constructor directly
+	first_shell = new DOS_Shell;
 	first_shell->Run();
 	delete first_shell;
 	first_shell = nullptr; // Make clear that it shouldn't be used anymore

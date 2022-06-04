@@ -97,7 +97,7 @@ static void DISNEY_enable(uint32_t freq)
 	LOG(LOG_MISC,LOG_NORMAL)("DISNEY: enabled at %d Hz in %s", freq,
 	                         disney.stereo ? "stereo" : "mono");
 #endif
-	disney.chan->SetFreq(freq);
+	disney.chan->SetSampleRate(freq);
 	disney.chan->Enable(true);
 	disney.state = DISNEY_STATE::RUNNING;
 }
@@ -396,7 +396,11 @@ void DISNEY_Init(Section* sec) {
 		return;
 
 	// Setup the mixer callback
-	disney.chan = MIXER_AddChannel(DISNEY_CallBack, 10000, "DISNEY");
+	disney.chan = MIXER_AddChannel(DISNEY_CallBack,
+	                               10000,
+	                               "DISNEY",
+	                               {ChannelFeature::ReverbSend,
+	                                ChannelFeature::ChorusSend});
 
 	// Register port handlers for 8-bit IO
 	disney.write_handler.Install(DISNEY_BASE, disney_write, io_width_t::byte, 3);

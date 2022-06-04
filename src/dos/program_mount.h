@@ -25,11 +25,19 @@
 
 class MOUNT final : public Program {
     public:
-        void Move_Z(char new_z);
-        void ListMounts();
-        void Run();
+	    MOUNT()
+	    {
+		    AddMessages();
+		    help_detail = {HELP_Filter::Common,
+		                   HELP_Category::Dosbox,
+		                   HELP_CmdType::Program,
+		                   "MOUNT"};
+	    }
+	    void Move_Z(char new_z);
+	    void ListMounts();
+	    void Run();
+    private:
+        void AddMessages();
 };
-
-void MOUNT_ProgramStart(Program **make);
 
 #endif // DOSBOX_PROGRAM_MOUNT_H

@@ -25,9 +25,18 @@
 
 class KEYB final : public Program {
 public:
+	KEYB()
+	{
+		AddMessages();
+		help_detail = {HELP_Filter::All,
+		               HELP_Category::Dosbox,
+		               HELP_CmdType::Program,
+		               "KEYB"};
+	}
 	void Run(void);
-};
+private:
+	void AddMessages();
 
-void KEYB_ProgramStart(Program **make);
+};
 
 #endif // DOSBOX_PROGRAM_KEYB_H

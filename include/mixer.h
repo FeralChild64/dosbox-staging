@@ -1,7 +1,7 @@
 /*
  *  SPDX-License-Identifier: GPL-2.0-or-later
  *
- *  Copyright (C) 2020-2021  The DOSBox Staging Team
+ *  Copyright (C) 2020-2022  The DOSBox Staging Team
  *  Copyright (C) 2002-2021  The DOSBox Team
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -24,12 +24,15 @@
 
 #include "dosbox.h"
 
+#include <array>
 #include <atomic>
 #include <functional>
 #include <memory>
-#include <string_view>
+#include <set>
 
 #include "envelope.h"
+
+#include "../src/libs/iir1/Iir.h"
 
 typedef void (*MIXER_MixHandler)(uint8_t *sampdate, uint32_t len);
 
@@ -61,6 +64,8 @@ extern uint8_t MixTemp[MIXER_BUFSIZE];
 
 #define MAX_AUDIO ((1<<(16-1))-1)
 #define MIN_AUDIO -(1<<(16-1))
+
+static constexpr auto max_filter_order = 16;
 
 // Get a DOS-formatted silent-sample when there's a chance it will
 // be processed using AddSamples_nonnative()
@@ -94,11 +99,22 @@ enum LINE_INDEX : uint8_t {
 	// standard at the host-level, then additional line indexes would go here.
 };
 
+enum class ChannelFeature { Stereo, ReverbSend, ChorusSend };
+
+enum class FilterState { Off, On, ForcedOn };
+
+// forward declarations
+struct SpeexResamplerState_;
+typedef SpeexResamplerState_ SpeexResamplerState;
+
 class MixerChannel {
 public:
-	MixerChannel(MIXER_Handler _handler, const char *name);
+	MixerChannel(MIXER_Handler _handler, const char *name,
+	             const std::set<ChannelFeature> &features);
+	~MixerChannel();
+
+	bool HasFeature(ChannelFeature feature);
 	int GetSampleRate() const;
-	bool IsInterpolated() const;
 	using apply_level_callback_f = std::function<void(const AudioFrame &level)>;
 	void RegisterLevelCallBack(apply_level_callback_f cb);
 	void SetVolume(float _left, float _right);
@@ -106,12 +122,21 @@ public:
 	void SetScale(float _left, float _right);
 	void ChangeChannelMap(const LINE_INDEX left, const LINE_INDEX right);
 	bool ChangeLineoutMap(std::string choice);
-	std::string_view DescribeLineout() const;
+	std::string DescribeLineout() const;
 	void UpdateVolume();
-	void SetFreq(int _freq);
+	void SetSampleRate(int _freq);
 	void SetPeakAmplitude(int peak);
 	void Mix(int _needed);
 	void AddSilence(); // Fill up until needed
+
+	void SetLowPassFilter(const FilterState state);
+	void ConfigureLowPassFilter(const uint8_t order, const uint16_t cutoff_freq);
+
+	void EnableZeroOrderHoldUpsampler(const bool enabled = true);
+	void ConfigureZeroOrderHoldUpsampler(const uint16_t target_freq);
+
+	void SetCrossfeedStrength(const float strength);
+	float GetCrossfeedStrength();
 
 	template <class Type, bool stereo, bool signeddata, bool nativeorder>
 	void AddSamples(uint16_t len, const Type *data);
@@ -133,14 +158,16 @@ public:
 	void AddSamples_m32_nonnative(uint16_t len, const int32_t *data);
 	void AddSamples_s32_nonnative(uint16_t len, const int32_t *data);
 
-	void AddStretched(uint16_t len, int16_t *data); // Stretch block up into needed data
+	void AddStretched(uint16_t len, int16_t *data); // Stretch block up into
+	                                                // needed data
 
 	void FillUp();
 	void Enable(bool should_enable);
 	void FlushSamples();
 
 	float volmain[2] = {1.0f, 1.0f};
-	std::atomic<int> done = 0; // Timing on how many samples have been done by the mixer
+	std::atomic<int> done = 0; // Timing on how many samples have been done
+	                           // by the mixer
 	bool is_enabled = false;
 
 private:
@@ -149,8 +176,19 @@ private:
 	MixerChannel(const MixerChannel &) = delete;
 	MixerChannel &operator=(const MixerChannel &) = delete;
 
+	template <class Type, bool stereo, bool signeddata, bool nativeorder>
+	void ConvertSamples(const Type *data, const uint16_t frames,
+	                    std::vector<float> &out);
+
+	void ConfigureResampler();
+	void UpdateZOHUpsamplerState();
+
+	AudioFrame ApplyCrossfeed(const AudioFrame &frame) const;
+
+	std::string name = {};
 	Envelope envelope;
 	MIXER_Handler handler = nullptr;
+	std::set<ChannelFeature> features = {};
 	int freq_add = 0u;           // This gets added the frequency counter each mixer step
 	int freq_counter = 0u;       // When this flows over a new sample needs to be read from the device
 	int needed = 0u;             // Timing on how many samples were needed by the mixer
@@ -160,7 +198,7 @@ private:
 	// >0. Still work in progress and thus disabled for now.
 	int offset[2] = {0, 0};
 	int sample_rate = 0u;
-	int volmul[2] = {1, 1};
+	float volmul[2] = {1.0f, 1.0f};
 	float scale[2] = {1.0f, 1.0f};
 
 	// Defines the peak sample amplitude we can expect in this channel.
@@ -176,8 +214,6 @@ private:
 
 	static constexpr StereoLine STEREO = {LEFT, RIGHT};
 	static constexpr StereoLine REVERSE = {RIGHT, LEFT};
-	static constexpr StereoLine LEFT_MONO = {LEFT, LEFT};
-	static constexpr StereoLine RIGHT_MONO = {RIGHT, RIGHT};
 
 	// User-configurable that defines how the channel's stereo line maps
 	// into the mixer.
@@ -192,17 +228,45 @@ private:
 	// in-place of scaling by volmain[]
 	apply_level_callback_f apply_level = nullptr;
 
-	bool interpolate = false;
 	bool last_samples_were_stereo = false;
 	bool last_samples_were_silence = true;
+
+	struct {
+		bool enabled = false;
+		SpeexResamplerState *state = nullptr;
+	} resampler = {};
+
+	struct {
+		bool enabled = false;
+		uint16_t target_freq = 0;
+		float pos = 0.0f;
+		float step = 0.0f;
+	} zoh_upsampler = {};
+
+	struct {
+		FilterState state = FilterState::Off;
+		std::array<Iir::Butterworth::LowPass<max_filter_order>, 2> lpf = {};
+	} filter = {};
+
+	struct {
+		float strength = 0.0f;
+		float pan_left = 0.0f;
+		float pan_right = 0.0f;
+	} crossfeed = {};
 };
 using mixer_channel_t = std::shared_ptr<MixerChannel>;
 
-mixer_channel_t MIXER_AddChannel(MIXER_Handler handler, const int freq, const char *name);
+mixer_channel_t MIXER_AddChannel(MIXER_Handler handler, const int freq,
+                                 const char *name,
+                                 const std::set<ChannelFeature> &features);
+
 mixer_channel_t MIXER_FindChannel(const char *name);
 
 /* PC Speakers functions, tightly related to the timer functions */
 void PCSPEAKER_SetCounter(int cntr, int mode);
 void PCSPEAKER_SetType(int mode);
+
+// Mixer configuration and initialization
+void MIXER_AddConfigSection(const config_ptr_t &conf);
 
 #endif

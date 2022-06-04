@@ -1,7 +1,7 @@
 /*
  *  SPDX-License-Identifier: GPL-2.0-or-later
  *
- *  Copyright (C) 2020-2021  The DOSBox Staging Team
+ *  Copyright (C) 2020-2022  The DOSBox Staging Team
  *  Copyright (C) 2002-2021  The DOSBox Team
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -32,8 +32,9 @@ extern uint8_t MIDI_evt_len[256];
 
 constexpr auto MIDI_SYSEX_SIZE = 8192;
 
-void MIDI_Init(Section *sec);
 bool MIDI_Available();
+void MIDI_HaltSequence();
+void MIDI_Init(Section *sec);
 void MIDI_ListAll(Program *output_handler);
 void MIDI_RawOutByte(uint8_t data);
 

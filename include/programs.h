@@ -21,11 +21,17 @@
 
 #include "dosbox.h"
 
+#include <functional>
 #include <list>
+#include <memory>
 #include <string>
 #include "std_filesystem.h"
 
 #include "dos_inc.h"
+#include "help_util.h"
+
+#define WIKI_URL                   "https://github.com/dosbox-staging/dosbox-staging/wiki"
+#define WIKI_ADD_UTILITIES_ARTICLE WIKI_URL "/Add-Utilities"
 
 constexpr int autoexec_maxsize = 4096;
 
@@ -89,12 +95,25 @@ public:
 	bool SuppressWriteOut(const char *format); // prevent writing to DOS stdout
 	void InjectMissingNewline();
 	void ChangeToLongCmd();
+	bool HelpRequested();
 
 	static void ResetLastWrittenChar(char c);
+
+	void AddToHelpList();
+
+protected:
+	HELP_Detail help_detail {};
 };
 
-typedef void (PROGRAMS_Main)(Program * * make);
+using PROGRAMS_Creator = std::function<std::unique_ptr<Program>()>;
 void PROGRAMS_Destroy([[maybe_unused]] Section* sec);
-void PROGRAMS_MakeFile(char const * const name,PROGRAMS_Main * main);
+void PROGRAMS_MakeFile(char const * const name, PROGRAMS_Creator creator);
+
+template<class P>
+std::unique_ptr<Program> ProgramCreate() {
+	// ensure that P is derived from Program
+	static_assert(std::is_base_of_v<Program, P>, "class not derived from Program");
+	return std::make_unique<P>();
+}
 
 #endif

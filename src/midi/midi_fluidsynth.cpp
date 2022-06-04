@@ -1,7 +1,7 @@
 /*
  *  SPDX-License-Identifier: GPL-2.0-or-later
  *
- *  Copyright (C) 2020-2021  The DOSBox Staging Team
+ *  Copyright (C) 2020-2022  The DOSBox Staging Team
  *  Copyright (C) 2020-2020  Nikos Chantziaras <realnc@gmail.com>
  *  Copyright (C) 2002-2011  The DOSBox Team
  *
@@ -223,7 +223,11 @@ bool MidiHandlerFluidsynth::Open([[maybe_unused]] const char *conf)
 	// Setup the mixer channel and level callback
 	const auto mixer_callback = std::bind(&MidiHandlerFluidsynth::MixerCallBack,
 	                                      this, std::placeholders::_1);
-	const auto mixer_channel = MIXER_AddChannel(mixer_callback, 0, "FSYNTH");
+
+	const auto mixer_channel = MIXER_AddChannel(mixer_callback,
+	                                            0,
+	                                            "FSYNTH",
+	                                            {ChannelFeature::Stereo});
 
 	const auto set_mixer_level = std::bind(&MidiHandlerFluidsynth::SetMixerLevel,
 	                                       this, std::placeholders::_1);
