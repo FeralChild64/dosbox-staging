@@ -97,9 +97,9 @@ void MousePS2_UpdateButtonSquish() {
     //   mouse buttons 4 and 5, this would be asking for trouble
     // - for PS/2 modes other than IntelliMouse Explorer there is
     //   no standard way to report buttons 4 and 5
-    bool sqush_mode = mouse_vmware || (type != PS2_TYPE::XP);
+    bool squish_mode = mouse_vmware || (type != PS2_TYPE::XP);
 
-    buttons = sqush_mode ? buttons_12S : buttons_all;
+    buttons = squish_mode ? buttons_12S : buttons_all;
 }
 
 static inline void TerminateUnlock() {

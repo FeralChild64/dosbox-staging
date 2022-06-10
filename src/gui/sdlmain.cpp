@@ -1196,7 +1196,7 @@ finish:
 		                       height);
 	}
 
-    // Ensure mouse enumation knows the current parameters
+    // Ensure mouse emulation knows the current parameters
     int abs_x, abs_y;
     SDL_GetMouseState(&abs_x, &abs_y);
 	Mouse_NewScreenParams(sdl.clip.x, sdl.clip.y, sdl.clip.w, sdl.clip.h, sdl.desktop.fullscreen, abs_x, abs_y);
@@ -2075,7 +2075,7 @@ void GFX_UpdateMouseState()
 
 		/*
 		 * If we've switched-back from fullscreen, then release the
-		 * mouse if it is conrolled by a VMware compatible driver or
+		 * mouse if it is controlled by a VMware compatible driver or
 		 * it's auto-captured (but not manually requested) and
 		 * in seamless-mode.
 		 */

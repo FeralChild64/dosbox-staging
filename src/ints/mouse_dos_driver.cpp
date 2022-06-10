@@ -45,6 +45,7 @@
 static struct { // DOS driver state, can be stored/restored to/from guest memory
 
     bool      enabled;
+    bool      cute_mouse;
 
     uint8_t   buttons;
     float     x, y;
@@ -374,12 +375,14 @@ void MouseDOS_DrawCursor() {
 // ***************************************************************************
 
 static inline uint8_t GetResetWheel8bit() {
-    int8_t tmp = std::clamp(driver_state.wheel, static_cast<int16_t>(-0x80), static_cast<int16_t>(0x7F));
+    if (!driver_state.cute_mouse) return 0;
+    int8_t tmp = std::clamp(driver_state.wheel, static_cast<int16_t>(-0x80), static_cast<int16_t>(0x7f));
     driver_state.wheel = 0;
     return (tmp >= 0) ? tmp : 0x100 + tmp;
 }
 
 static inline uint16_t GetResetWheel16bit() {
+    if (!driver_state.cute_mouse) return 0;
     int16_t tmp = (driver_state.wheel >= 0) ? driver_state.wheel : 0x10000 + driver_state.wheel;
     driver_state.wheel = 0;
     return tmp;
@@ -502,6 +505,7 @@ static void Reset()
     driver_state.mickey_x   = 0;
     driver_state.mickey_y   = 0;
     driver_state.wheel      = 0;
+    driver_state.cute_mouse = false;
 
     driver_state.last_wheel_moved_x = 0;
     driver_state.last_wheel_moved_y = 0;
@@ -598,6 +602,8 @@ bool MouseDOS_NotifyReleased(uint8_t buttons_12S, uint8_t idx) {
 }
 
 bool MouseDOS_NotifyWheel(int32_t w_rel) {
+    if (!driver_state.cute_mouse) return false;
+
     driver_state.wheel = std::clamp(w_rel + driver_state.wheel, -0x8000, 0x7fff);
     driver_state.last_wheel_moved_x = GETPOS_X;
     driver_state.last_wheel_moved_y = GETPOS_Y;
@@ -631,7 +637,7 @@ static Bitu INT33_Handler() {
     case 0x03: // MS MOUSE v1.0+ / CuteMouse - return position and button status
         {
             reg_bl = driver_state.buttons;
-            reg_bh = GetResetWheel8bit(); // CuteMouse clears mouse wheel status here
+            reg_bh = GetResetWheel8bit(); // original CuteMouse clears mouse wheel status here
             reg_cx = GETPOS_X;
             reg_dx = GETPOS_Y;
         }
@@ -652,7 +658,7 @@ static Bitu INT33_Handler() {
     case 0x05: // MS MOUSE v1.0+ / CuteMouse - return button press data / mouse wheel data
         {
             uint16_t but = reg_bx;
-            if (but == 0xffff){
+            if (but == 0xffff && driver_state.cute_mouse) {
                 reg_bx = GetResetWheel16bit();
                 reg_cx = driver_state.last_wheel_moved_x;
                 reg_dx = driver_state.last_wheel_moved_y;
@@ -669,7 +675,7 @@ static Bitu INT33_Handler() {
     case 0x06: // MS MOUSE v1.0+ / CuteMouse - return button release data / mouse wheel data
         {
             uint16_t but = reg_bx;
-            if (but == 0xffff){
+            if (but == 0xffff && driver_state.cute_mouse) {
                 reg_bx = GetResetWheel16bit();
                 reg_cx = driver_state.last_wheel_moved_x;
                 reg_dx = driver_state.last_wheel_moved_y;
@@ -780,9 +786,11 @@ static Bitu INT33_Handler() {
         MouseDOS_DrawCursor();
         break;
     case 0x11: // CuteMouse - get mouse capabilities
-        reg_ax = 0x574D; // Identifier for detection purposes
+        reg_ax = 0x574d; // Identifier for detection purposes
         reg_bx = 0;      // Reserved capabilities flags
         reg_cx = 1;      // Wheel is supported
+        driver_state.cute_mouse = true; // This call enables CuteMouse extensions
+        driver_state.wheel = 0;
         // Previous implementation provided Genius Mouse 9.06 function to get
         // number of buttons (https://sourceforge.net/p/dosbox/patches/32/), it was
         // returning 0xffff in reg_ax and number of buttons in reg_bx; I suppose
@@ -793,9 +801,9 @@ static Bitu INT33_Handler() {
         break;
     case 0x13: // MS MOUSE v5.0+ - set double-speed threshold
         driver_state.doubleSpeedThreshold = (reg_bx ? reg_bx : 64);
-         break;
-    case 0x14: // MS MOUSE v3.0+ - exchange event-handler 
-        {    
+        break;
+    case 0x14: // MS MOUSE v3.0+ - exchange event-handler
+        {
             uint16_t oldSeg  = driver_state.sub_seg;
             uint16_t oldOfs  = driver_state.sub_ofs;
             uint16_t oldMask = driver_state.sub_mask;
@@ -808,7 +816,7 @@ static Bitu INT33_Handler() {
             reg_dx = oldOfs;
             SegSet16(es, oldSeg);
         }
-        break;        
+        break;
     case 0x15: // MS MOUSE v6.0+ - get driver storage space requirements
         reg_bx = sizeof(driver_state);
         break;
@@ -915,10 +923,10 @@ static Bitu INT33_Handler() {
         LOG(LOG_MOUSE,LOG_ERROR)("Enumerate video modes not implemented");
         break;
     case 0x2a: // MS MOUSE v7.01+ - get cursor hot spot
-        reg_al = (uint8_t) -driver_state.hidden;    // Microsoft uses a negative byte counter for cursor visibility
+        reg_al = (uint8_t) -driver_state.hidden; // Microsoft uses a negative byte counter for cursor visibility
         reg_bx = (uint16_t) driver_state.hotx;
         reg_cx = (uint16_t) driver_state.hoty;
-        reg_dx = 0x04;    // PS/2 mouse type
+        reg_dx = 0x04; // PS/2 mouse type
         break;
     case 0x2b: // MS MOUSE v7.0+ - load acceleration profiles
         LOG(LOG_MOUSE,LOG_ERROR)("Load acceleration profiles not implemented");

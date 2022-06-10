@@ -122,7 +122,7 @@ bool  MouseBIOS_HasCallback();
 uintptr_t MouseBIOS_DoCallback();
 
 // ***************************************************************************
-// Vmware protocol extension for PS/2 mouse
+// VMware protocol extension for PS/2 mouse
 // ***************************************************************************
 
 void  MouseVMW_Init();

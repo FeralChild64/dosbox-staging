@@ -273,7 +273,6 @@ void Mouse_NewScreenParams(uint16_t clip_x, uint16_t clip_y, uint16_t res_x, uin
 }
 
 void Mouse_EventMoved(int32_t x_rel, int32_t y_rel, int32_t x_abs, int32_t y_abs, bool is_captured) {
-    if (x_rel == 0 && y_rel == 0) return;
 
     MouseEvent event(DOS_EV::MOUSE_MOVED);
 
@@ -356,7 +355,7 @@ void Mouse_EventReleased(uint8_t idx) {
 void Mouse_EventWheel(int32_t w_rel) {
     if (w_rel == 0) return;
 
-    MouseEvent event(WHEEL_MOVED);
+    MouseEvent event(DOS_EV::WHEEL_MOVED);
 
     event.req_ps2 = MousePS2_NotifyWheel(w_rel);
     event.req_ps2 = MouseVMW_NotifyWheel(w_rel) || event.req_ps2;
