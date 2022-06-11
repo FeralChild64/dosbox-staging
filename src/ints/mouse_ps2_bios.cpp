@@ -21,11 +21,14 @@
 
 #include "bios.h"
 #include "callback.h"
+#include "checks.h"
 #include "cpu.h"
 #include "int10.h"
 #include "keyboard.h"
 #include "pic.h"
 #include "regs.h"
+
+CHECK_NARROWING();
 
 
 // Here two very closely related mouse interfaces are implemented:
@@ -144,13 +147,13 @@ static inline void AddBuffer(uint8_t byte) {
 static inline uint8_t GetResetWheel4bit() {
     int8_t tmp = std::clamp(wheel, static_cast<int8_t>(-0x08), static_cast<int8_t>(0x07));
     wheel = 0;
-    return (tmp >= 0) ? tmp : 0x10 + tmp;
+    return static_cast<uint8_t>((tmp >= 0) ? tmp : 0x10 + tmp);
 }
 
 static inline uint8_t GetResetWheel8bit() {
     int8_t tmp = wheel;
     wheel = 0;
-    return (tmp >= 0) ? tmp : 0x100 + tmp;
+    return static_cast<uint8_t>((tmp >= 0) ? tmp : 0x100 + tmp);
 }
 
 static int16_t ApplyScaling(int16_t d) {
@@ -256,7 +259,7 @@ static void CmdSetRate(uint8_t rate_hz) {
     }
 
     ::rate_hz = rate_hz;
-    ::delay   = 1000.0 / rate_hz;
+    ::delay   = 1000.0f / rate_hz;
 
     // handle IntelliMouse protocol unlock sequence
     static const std::vector<uint8_t> SEQ_IM = { 200, 100, 80 };
@@ -430,8 +433,8 @@ void MousePS2_PortWrite(uint8_t byte) { // value received from PS/2 port
 }
 
 bool MousePS2_NotifyMoved(int32_t x_rel, int32_t y_rel) {
-    delta_x += x_rel * mouse_config.sensitivity_x * counts_coeff;
-    delta_y += y_rel * mouse_config.sensitivity_y * counts_coeff;
+    delta_x += static_cast<float>(x_rel) * mouse_config.sensitivity_x * counts_coeff;
+    delta_y += static_cast<float>(y_rel) * mouse_config.sensitivity_y * counts_coeff;
 
     return (delta_x >= 0.5 || delta_x <= -0.5 || delta_y >= 0.5 || delta_y <= -0.5);
 }
@@ -448,7 +451,7 @@ bool MousePS2_NotifyPressedReleased(uint8_t buttons_12S, uint8_t buttons_all) {
 
 bool MousePS2_NotifyWheel(int32_t w_rel) {
     if (type != PS2_TYPE::IM && type != PS2_TYPE::XP) return false;
-    wheel = std::clamp(w_rel + wheel, -0x80, 0x7f);
+    wheel = static_cast<int8_t>(std::clamp(w_rel + wheel, -0x80, 0x7f));
     return true;
 }
 

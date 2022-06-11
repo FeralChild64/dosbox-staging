@@ -21,11 +21,14 @@
 
 #include "bios.h"
 #include "callback.h"
+#include "checks.h"
 #include "cpu.h"
 #include "dos_inc.h"
 #include "int10.h"
 #include "pic.h"
 #include "regs.h"
+
+CHECK_NARROWING();
 
 
 // This file implements the DOS virtual mouse driver
@@ -244,7 +247,7 @@ static void ClipCursorArea(int16_t& x1, int16_t& x2, int16_t& y1, int16_t& y2,
     };
     // Clip left
     if (x1 < 0) {
-        addx1 += (-x1);
+        addx1 += static_cast<uint16_t>(-x1);
         x1 = 0;
     };
     // Clip right
@@ -530,8 +533,8 @@ bool MouseDOS_NotifyMoved(int32_t x_rel, int32_t y_rel, bool is_captured) {
     auto old_x = GETPOS_X;
     auto old_y = GETPOS_Y;
 
-    float x_rel_sens = x_rel * mouse_config.sensitivity_x;
-    float y_rel_sens = y_rel * mouse_config.sensitivity_y;
+    float x_rel_sens = static_cast<float>(x_rel) * mouse_config.sensitivity_x;
+    float y_rel_sens = static_cast<float>(y_rel) * mouse_config.sensitivity_y;
 
     float dx = x_rel_sens * driver_state.pixelPerMickey_x;
     float dy = y_rel_sens * driver_state.pixelPerMickey_y;
@@ -541,10 +544,10 @@ bool MouseDOS_NotifyMoved(int32_t x_rel, int32_t y_rel, bool is_captured) {
 
     driver_state.mickey_x += (dx * driver_state.mickeysPerPixel_x);
     driver_state.mickey_y += (dy * driver_state.mickeysPerPixel_y);
-    if (driver_state.mickey_x >= 32768.0) driver_state.mickey_x -= 65536.0;
-    else if (driver_state.mickey_x <= -32769.0) driver_state.mickey_x += 65536.0;
-    if (driver_state.mickey_y >= 32768.0) driver_state.mickey_y -= 65536.0;
-    else if (driver_state.mickey_y <= -32769.0) driver_state.mickey_y += 65536.0;
+    if (driver_state.mickey_x >= 32768.0f) driver_state.mickey_x -= 65536.0f;
+    else if (driver_state.mickey_x <= -32769.0f) driver_state.mickey_x += 65536.0f;
+    if (driver_state.mickey_y >= 32768.0f) driver_state.mickey_y -= 65536.0f;
+    else if (driver_state.mickey_y <= -32769.0f) driver_state.mickey_y += 65536.0f;
     if (is_captured) {
         driver_state.x += dx;
         driver_state.y += dy;
@@ -604,7 +607,7 @@ bool MouseDOS_NotifyReleased(uint8_t buttons_12S, uint8_t idx) {
 bool MouseDOS_NotifyWheel(int32_t w_rel) {
     if (!driver_state.cute_mouse) return false;
 
-    driver_state.wheel = std::clamp(w_rel + driver_state.wheel, -0x8000, 0x7fff);
+    driver_state.wheel = static_cast<int16_t>(std::clamp(w_rel + driver_state.wheel, -0x8000, 0x7fff));
     driver_state.last_wheel_moved_x = GETPOS_X;
     driver_state.last_wheel_moved_y = GETPOS_Y;
 

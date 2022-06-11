@@ -20,22 +20,26 @@
 #include "mouse.h"
 
 #include "callback.h"
+#include "checks.h"
 #include "cpu.h"
 #include "keyboard.h"
 #include "mem.h"
 #include "pic.h"
 #include "regs.h"
 
+CHECK_NARROWING();
+
+
 enum DOS_EV:uint8_t { // compatible with DOS driver mask in driver function 0x0c
     NOT_DOS_EVENT     =   0x00,
-    MOUSE_MOVED       =   0x01,
+    MOUSE_HAS_MOVED   =   0x01,
     PRESSED_LEFT      =   0x02,
     RELEASED_LEFT     =   0x04,
     PRESSED_RIGHT     =   0x08,
     RELEASED_RIGHT    =   0x10,
     PRESSED_MIDDLE    =   0x20,
     RELEASED_MIDDLE   =   0x40,
-    WHEEL_MOVED       =   0x80,
+    WHEEL_HAS_MOVED   =   0x80,
 };
 
 static const uint8_t QUEUE_SIZE  = 32;   // if over 255, increase 'queue_used' size
@@ -133,8 +137,8 @@ static void AddEvent(MouseEvent &event) {
                 event.req_ps2 = false;
             }
             // Skip redundant events
-            if (event.dos_type == DOS_EV::MOUSE_MOVED ||
-                event.dos_type == DOS_EV::WHEEL_MOVED) {
+            if (event.dos_type == DOS_EV::MOUSE_HAS_MOVED ||
+                event.dos_type == DOS_EV::WHEEL_HAS_MOVED) {
                 return;
             }
             // This is a button event; put it at the back
@@ -143,7 +147,7 @@ static void AddEvent(MouseEvent &event) {
                 queue[i] = queue[i - 1];
         }
         queue[0] = event;
-        queue[0].dos_buttons = buttons_12 + (buttons_345 ? 4 : 0);
+        queue[0].dos_buttons = static_cast<uint8_t>(buttons_12 + (buttons_345 ? 4 : 0));
         queue_used++;
     }
 
@@ -247,13 +251,13 @@ void Mouse_SetSensitivity(int32_t sensitivity_x, int32_t sensitivity_y) {
     static constexpr float MIN = 0.01f;
     static constexpr float MAX = 100.0f;
 
-    mouse_config.sensitivity_x = std::clamp(sensitivity_x/100.0f, -MAX, MAX);
+    mouse_config.sensitivity_x = static_cast<int32_t>(std::clamp(static_cast<float>(sensitivity_x)/100.0f, -MAX, MAX));
     if (!std::signbit(mouse_config.sensitivity_x))
         mouse_config.sensitivity_x = std::max(mouse_config.sensitivity_x, MIN);
     else
         mouse_config.sensitivity_x = std::min(mouse_config.sensitivity_x, -MIN);
 
-    mouse_config.sensitivity_y = std::clamp(sensitivity_y/100.0f, -MAX, MAX);
+    mouse_config.sensitivity_y = static_cast<int32_t>(std::clamp(static_cast<float>(sensitivity_y)/100.0f, -MAX, MAX));
     if (!std::signbit(mouse_config.sensitivity_y))
         mouse_config.sensitivity_y = std::max(mouse_config.sensitivity_y, MIN);
     else
@@ -274,7 +278,7 @@ void Mouse_NewScreenParams(uint16_t clip_x, uint16_t clip_y, uint16_t res_x, uin
 
 void Mouse_EventMoved(int32_t x_rel, int32_t y_rel, int32_t x_abs, int32_t y_abs, bool is_captured) {
 
-    MouseEvent event(DOS_EV::MOUSE_MOVED);
+    MouseEvent event(DOS_EV::MOUSE_HAS_MOVED);
 
     event.req_ps2 = MousePS2_NotifyMoved(x_rel, y_rel);
     event.req_ps2 = MouseVMW_NotifyMoved(x_abs, y_abs) || event.req_ps2;
@@ -286,14 +290,14 @@ void Mouse_EventMoved(int32_t x_rel, int32_t y_rel, int32_t x_abs, int32_t y_abs
 
 void Mouse_NotifyMovedVMW() {
 
-    MouseEvent event(DOS_EV::MOUSE_MOVED);
+    MouseEvent event(DOS_EV::MOUSE_HAS_MOVED);
     event.req_ps2 = true;
 
     AddEvent(event);
 }
 
 void Mouse_EventPressed(uint8_t idx) {
-    uint8_t buttons_12S_old = buttons_12 + (buttons_345 ? 4 : 0);
+    uint8_t buttons_12S_old = static_cast<uint8_t>(buttons_12 + (buttons_345 ? 4 : 0));
 
     if (idx < 2) {
         // left/right button
@@ -306,7 +310,7 @@ void Mouse_EventPressed(uint8_t idx) {
     } else
         return; // button not supported
 
-    uint8_t buttons_12S = buttons_12 + (buttons_345 ? 4 : 0);
+    uint8_t buttons_12S = static_cast<uint8_t>(buttons_12 + (buttons_345 ? 4 : 0));
     bool  changed_12S   = (buttons_12S_old != buttons_12S);
     uint8_t idx_12S     = idx < 2 ? idx : 2;
 
@@ -323,7 +327,7 @@ void Mouse_EventPressed(uint8_t idx) {
 }
 
 void Mouse_EventReleased(uint8_t idx) {
-    uint8_t buttons_12S_old = buttons_12 + (buttons_345 ? 4 : 0);
+    uint8_t buttons_12S_old = static_cast<uint8_t>(buttons_12 + (buttons_345 ? 4 : 0));
 
     if (idx < 2) {
         // left/right button
@@ -336,7 +340,7 @@ void Mouse_EventReleased(uint8_t idx) {
     } else
         return; // button not supported
 
-    uint8_t buttons_12S = buttons_12 + (buttons_345 ? 4 : 0);
+    uint8_t buttons_12S = static_cast<uint8_t>(buttons_12 + (buttons_345 ? 4 : 0));
     bool  changed_12S   = (buttons_12S_old != buttons_12S);
     uint8_t idx_12S     = idx < 2 ? idx : 2;
 
@@ -355,7 +359,7 @@ void Mouse_EventReleased(uint8_t idx) {
 void Mouse_EventWheel(int32_t w_rel) {
     if (w_rel == 0) return;
 
-    MouseEvent event(DOS_EV::WHEEL_MOVED);
+    MouseEvent event(DOS_EV::WHEEL_HAS_MOVED);
 
     event.req_ps2 = MousePS2_NotifyWheel(w_rel);
     event.req_ps2 = MouseVMW_NotifyWheel(w_rel) || event.req_ps2;
