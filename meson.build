@@ -54,6 +54,24 @@ else
   warning('Compiler lacks the C++17 std::filesystem - try to upgrade your compiler!')
 endif
 
+if get_option('buildtype') == 'release'
+  # For release builds, we're not anticipating needing
+  # to divide by zero and NaNs, and get FPU signals.
+  # These safety measures are still enabled in debug builds,
+  # so if an issue is reported where these happen help, then
+  # testing with debug builds will make use of them.
+  #
+  extra_flags += ['-fno-math-errno',
+                  '-fno-signed-zeros',
+                  '-fno-trapping-math',
+                  '-fassociative-math',
+                  '-freciprocal-math',
+                  '-ffinite-math-only',
+                  '-frename-registers',
+                  '-ffunction-sections',
+                  '-fdata-sections']
+endif
+
 if host_machine.system() == 'windows'
   extra_flags += '-Wno-pedantic-ms-format'
 endif
@@ -62,6 +80,21 @@ if prefers_static_libs
 else
   extra_flags += ['-shared-libstdc++', '-shared-libgcc', '-fPIC']
 endif
+
+if get_option('narrowing_warnings')
+  extra_flags += ['-Wconversion', '-Wnarrowing']
+endif
+
+if get_option('autovec_info')
+  # At least O2 is needed enable auto-vectorizion
+  extra_flags += ['-march=native',
+                  '-O2',
+                  '-Wno-system-headers',
+                  '-Rpass-analysis=loop-vectorize',
+                  '-fopt-info-vec-missed',
+                  '-fopt-info-vec']
+endif
+
 foreach flag : extra_flags
   if cc.has_argument(flag)
     add_project_arguments(flag, language : 'c')
@@ -415,9 +448,17 @@ subdir('src/libs/whereami')
 subdir('src/libs/PDCurses')
 subdir('src/libs/iir1')
 
-# internal libs
-#
+# A list of DOSBox's internal libraries populated
+# by each of the src/ subdir imports below.
 internal_deps = []
+
+# ZMBV is unique in that it's not really a stand-alone 3rd
+# party library, because it uses some code from (from misc/),
+# so we need to import libmisc_dep before ZBMV:
+subdir('src/misc')
+subdir('src/libs/zmbv')
+
+# internal libs
 subdir('src/cpu')
 subdir('src/debug')
 subdir('src/dos')
@@ -426,7 +467,6 @@ subdir('src/gui')
 subdir('src/hardware')
 subdir('src/ints')
 subdir('src/midi')
-subdir('src/misc')
 subdir('src/shell')
 
 
