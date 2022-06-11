@@ -19,6 +19,8 @@
 
 #include "mouse.h"
 
+#include <algorithm>
+
 #include "callback.h"
 #include "checks.h"
 #include "cpu.h"
@@ -31,15 +33,15 @@ CHECK_NARROWING();
 
 
 enum DOS_EV:uint8_t { // compatible with DOS driver mask in driver function 0x0c
-    NOT_DOS_EVENT     =   0x00,
-    MOUSE_HAS_MOVED   =   0x01,
-    PRESSED_LEFT      =   0x02,
-    RELEASED_LEFT     =   0x04,
-    PRESSED_RIGHT     =   0x08,
-    RELEASED_RIGHT    =   0x10,
-    PRESSED_MIDDLE    =   0x20,
-    RELEASED_MIDDLE   =   0x40,
-    WHEEL_HAS_MOVED   =   0x80,
+    NOT_DOS_EVENT     = 0x00,
+    MOUSE_HAS_MOVED   = 0x01,
+    PRESSED_LEFT      = 0x02,
+    RELEASED_LEFT     = 0x04,
+    PRESSED_RIGHT     = 0x08,
+    RELEASED_RIGHT    = 0x10,
+    PRESSED_MIDDLE    = 0x20,
+    RELEASED_MIDDLE   = 0x40,
+    WHEEL_HAS_MOVED   = 0x80,
 };
 
 static const uint8_t QUEUE_SIZE  = 32;   // if over 255, increase 'queue_used' size
@@ -410,6 +412,15 @@ void MOUSE_Init(Section* /*sec*/) {
 
     // (MOUSE_IRQ > 7) ? (0x70 + MOUSE_IRQ - 8) : (0x8 + MOUSE_IRQ);
     RealSetVec(0x74, CALLBACK_RealPointer(call_int74));
+
+
+    memset(&mouse_config, 0, sizeof(mouse_config));
+    mouse_config.sensitivity_x = 0.3f;
+    mouse_config.sensitivity_y = 0.3f;
+
+    memset(&mouse_video, 0 ,sizeof(mouse_video));
+    mouse_video.res_x = 320;
+    mouse_video.res_y = 200;
 
     MousePS2_Init();
     MouseVMW_Init();

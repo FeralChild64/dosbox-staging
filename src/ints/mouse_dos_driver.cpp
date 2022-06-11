@@ -19,6 +19,8 @@
 
 #include "mouse.h"
 
+#include <algorithm>
+
 #include "bios.h"
 #include "callback.h"
 #include "checks.h"
