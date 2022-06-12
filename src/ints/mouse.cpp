@@ -32,7 +32,10 @@
 CHECK_NARROWING();
 
 
-enum DOS_EV:uint8_t { // compatible with DOS driver mask in driver function 0x0c
+MouseInfoConfig mouse_config;
+MouseInfoVideo  mouse_video;
+
+enum EventType:uint8_t { // compatible with DOS driver mask in driver function 0x0c
     NOT_DOS_EVENT     = 0x00,
     MOUSE_HAS_MOVED   = 0x01,
     PRESSED_LEFT      = 0x02,
@@ -44,12 +47,7 @@ enum DOS_EV:uint8_t { // compatible with DOS driver mask in driver function 0x0c
     WHEEL_HAS_MOVED   = 0x80,
 };
 
-static const uint8_t QUEUE_SIZE  = 32;   // if over 255, increase 'queue_used' size
-
 static const uint8_t KEY_MASKS[] = { 0x01, 0x02, 0x04, 0x08, 0x10 };
-
-static uint8_t   buttons_12;             // state of buttons 1 (left), 2 (right), as visible on host side
-static uint8_t   buttons_345;            // state of mouse buttons 3 (middle), 4, and 5 as visible on host side
 
 typedef struct MouseEvent {
     bool req_ps2  = false; // true = PS/2 mouse emulation needs an IRQ12 / INT74 event
@@ -63,6 +61,8 @@ typedef struct MouseEvent {
 
 } MouseEvent;
 
+static constexpr uint8_t QUEUE_SIZE = 32; // if over 255, increase 'queue_used' size
+
 static MouseEvent queue[QUEUE_SIZE];
 static uint8_t    queue_used;
 static bool       timer_in_progress;
@@ -71,8 +71,8 @@ static uintptr_t  int74_ret_callback;
 static bool       int74_used;             // true = our virtual INT74 callback is actually used, not overridden
 static uint8_t    int74_needed_countdown; // counter to detect above value
 
-MouseInfoConfig   mouse_config;
-MouseInfoVideo    mouse_video;
+static uint8_t    buttons_12;             // state of buttons 1 (left), 2 (right), as visible on host side
+static uint8_t    buttons_345;            // state of mouse buttons 3 (middle), 4, and 5 as visible on host side
 
 // ***************************************************************************
 // Queue / interrupt 74 implementation
@@ -80,11 +80,11 @@ MouseInfoVideo    mouse_video;
 
 static void EventHandler(uint32_t); // forward devlaration
 
-static inline float GetEventDelay() {
-    if (int74_used && MouseDOS_HasCallback())
+static float GetEventDelay() {
+    if (int74_used && MOUSEDOSDRV_HasCallback())
         return 5.0f; // 200 Hz sampling rate
 
-    return MousePS2_GetDelay();
+    return MOUSEPS2_GetDelay();
 }
 
 static void SendPacket() {
@@ -99,7 +99,7 @@ static void SendPacket() {
 
     // Filter out unneeded DOS driver events
     auto &event = queue[queue_used - 1];
-    event.req_dos &= int74_used && MouseDOS_HasCallback();
+    event.req_dos &= int74_used && MOUSEDOSDRV_HasCallback();
 
     // If our INT74/IRQ12 is not used, there is no need for the queue at all
     if (!int74_used)
@@ -107,8 +107,8 @@ static void SendPacket() {
 
     // Send mouse event either via PS/2 bus or activate INT74/IRQ12 directly
     if (event.req_ps2) {
-        MousePS2_UpdatePacket();
-        if (!MousePS2_SendPacket())
+        MOUSEPS2_UpdatePacket();
+        if (!MOUSEPS2_SendPacket())
             PIC_ActivateIRQ(12);
     } else if (event.req_dos)
         PIC_ActivateIRQ(12);
@@ -121,7 +121,7 @@ static void EventHandler(uint32_t /*val*/) {
 
 static void AddEvent(MouseEvent &event) {
     // Filter out unneeded DOS driver events
-    event.req_dos &= int74_used && MouseDOS_HasCallback();
+    event.req_dos &= int74_used && MOUSEDOSDRV_HasCallback();
     // PS/2 events are relevant even without BIOS callback,
     // they might be needed by register-level mouse access
     if (!event.req_ps2 && !event.req_dos)
@@ -139,8 +139,8 @@ static void AddEvent(MouseEvent &event) {
                 event.req_ps2 = false;
             }
             // Skip redundant events
-            if (event.dos_type == DOS_EV::MOUSE_HAS_MOVED ||
-                event.dos_type == DOS_EV::WHEEL_HAS_MOVED) {
+            if (event.dos_type == EventType::MOUSE_HAS_MOVED ||
+                event.dos_type == EventType::WHEEL_HAS_MOVED) {
                 return;
             }
             // This is a button event; put it at the back
@@ -156,25 +156,25 @@ static void AddEvent(MouseEvent &event) {
     if (!timer_in_progress) SendPacket();
 }
 
-static inline DOS_EV SelectEventPressed(uint8_t idx, bool changed_12S) {
+static EventType SelectEventPressed(uint8_t idx, bool changed_12S) {
     switch (idx) {
-    case 0:  return DOS_EV::PRESSED_LEFT;
-    case 1:  return DOS_EV::PRESSED_RIGHT;
-    case 2:  return DOS_EV::PRESSED_MIDDLE;
+    case 0:  return EventType::PRESSED_LEFT;
+    case 1:  return EventType::PRESSED_RIGHT;
+    case 2:  return EventType::PRESSED_MIDDLE;
     case 3:
-    case 4:  return changed_12S ? DOS_EV::PRESSED_MIDDLE : DOS_EV::NOT_DOS_EVENT;
-    default: return DOS_EV::NOT_DOS_EVENT;
+    case 4:  return changed_12S ? EventType::PRESSED_MIDDLE : EventType::NOT_DOS_EVENT;
+    default: return EventType::NOT_DOS_EVENT;
     }
 }
 
-static inline DOS_EV SelectEventReleased(uint8_t idx, bool changed_12S) {
+static EventType SelectEventReleased(uint8_t idx, bool changed_12S) {
     switch (idx) {
-    case 0:  return DOS_EV::RELEASED_LEFT;
-    case 1:  return DOS_EV::RELEASED_RIGHT;
-    case 2:  return DOS_EV::RELEASED_MIDDLE;
+    case 0:  return EventType::RELEASED_LEFT;
+    case 1:  return EventType::RELEASED_RIGHT;
+    case 2:  return EventType::RELEASED_MIDDLE;
     case 3:
-    case 4:  return changed_12S ? DOS_EV::RELEASED_MIDDLE : DOS_EV::NOT_DOS_EVENT;
-    default: return DOS_EV::NOT_DOS_EVENT;
+    case 4:  return changed_12S ? EventType::RELEASED_MIDDLE : EventType::NOT_DOS_EVENT;
+    default: return EventType::NOT_DOS_EVENT;
     }
 }
 
@@ -185,17 +185,17 @@ static uintptr_t INT74_Exit() {
     return CBRET_NONE;  
 }
 
-static inline void MarkUseINT74() {
+static void MarkUseINT74() {
     int74_used = true;
     int74_needed_countdown = 2;  
 }
 
 static uintptr_t INT74_Handler() {
     MarkUseINT74();
-    MousePS2_FlushPacket();
+    MOUSEPS2_FlushPacket();
 
     // If DOS mouse handler is busy - try the next time
-    if (MouseDOS_CallbackInProgress())
+    if (MOUSEDOSDRV_CallbackInProgress())
         return INT74_Exit();
 
     if (queue_used) {
@@ -207,23 +207,23 @@ static uintptr_t INT74_Handler() {
         // the original DOSBox code did it. Doing this allows the INT 33h emulation
         // to draw the cursor while not causing Windows 3.1 to crash or behave
         // erratically.
-        MouseDOS_DrawCursor();
+        MOUSEDOSDRV_DrawCursor();
 
-        if (MouseDOS_HasCallback()) {
+        if (MOUSEDOSDRV_HasCallback()) {
             // To be handled by DOS mouse driver
-            if (!MouseDOS_HasCallback(event.dos_type) || !event.req_dos)
+            if (!MOUSEDOSDRV_HasCallback(event.dos_type) || !event.req_dos)
                 return INT74_Exit();
             CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
             CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)) + 7);
-            return MouseDOS_DoCallback(event.dos_type, event.dos_buttons);
+            return MOUSEDOSDRV_DoCallback(event.dos_type, event.dos_buttons);
         }
     }
 
-    if (MouseBIOS_HasCallback()) {
+    if (MOUSEBIOS_HasCallback()) {
         // To be handled by PS/2 BIOS
         CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
         CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)));
-        return MouseBIOS_DoCallback();
+        return MOUSEBIOS_DoCallback();
     }
 
     // No events
@@ -238,7 +238,7 @@ uintptr_t INT74_Ret_Handler() {
     return CBRET_NONE;
 }
 
-void Mouse_ClearQueue() {
+void MOUSE_ClearQueue() {
     queue_used        = 0;
     timer_in_progress = false;
 
@@ -249,7 +249,7 @@ void Mouse_ClearQueue() {
 // External notifications
 // ***************************************************************************
 
-void Mouse_SetSensitivity(int32_t sensitivity_x, int32_t sensitivity_y) {
+void MOUSE_SetSensitivity(int32_t sensitivity_x, int32_t sensitivity_y) {
     static constexpr float MIN = 0.01f;
     static constexpr float MAX = 100.0f;
 
@@ -266,7 +266,7 @@ void Mouse_SetSensitivity(int32_t sensitivity_x, int32_t sensitivity_y) {
         mouse_config.sensitivity_y = std::min(mouse_config.sensitivity_y, -MIN);
 }
 
-void Mouse_NewScreenParams(uint16_t clip_x, uint16_t clip_y, uint16_t res_x, uint16_t res_y,
+void MOUSE_NewScreenParams(uint16_t clip_x, uint16_t clip_y, uint16_t res_x, uint16_t res_y,
                            bool fullscreen, int32_t x_abs, int32_t y_abs) {
 
     mouse_video.clip_x     = clip_x;
@@ -275,30 +275,30 @@ void Mouse_NewScreenParams(uint16_t clip_x, uint16_t clip_y, uint16_t res_x, uin
     mouse_video.res_y      = res_y;
     mouse_video.fullscreen = fullscreen;
 
-    MouseVMW_NewScreenParams(x_abs, y_abs);
+    MOUSEVMWARE_NewScreenParams(x_abs, y_abs);
 }
 
-void Mouse_EventMoved(int32_t x_rel, int32_t y_rel, int32_t x_abs, int32_t y_abs, bool is_captured) {
+void MOUSE_EventMoved(int32_t x_rel, int32_t y_rel, int32_t x_abs, int32_t y_abs, bool is_captured) {
 
-    MouseEvent event(DOS_EV::MOUSE_HAS_MOVED);
+    MouseEvent event(EventType::MOUSE_HAS_MOVED);
 
-    event.req_ps2 = MousePS2_NotifyMoved(x_rel, y_rel);
-    event.req_ps2 = MouseVMW_NotifyMoved(x_abs, y_abs) || event.req_ps2;
-    event.req_dos = MouseDOS_NotifyMoved(x_rel, y_rel, is_captured);
-    MouseSER_NotifyMoved(x_rel, y_rel);
+    event.req_ps2 = MOUSEPS2_NotifyMoved(x_rel, y_rel);
+    event.req_ps2 = MOUSEVMWARE_NotifyMoved(x_abs, y_abs) || event.req_ps2;
+    event.req_dos = MOUSEDOSDRV_NotifyMoved(x_rel, y_rel, is_captured);
+    MOUSESERIAL_NotifyMoved(x_rel, y_rel);
 
     AddEvent(event);
 }
 
-void Mouse_NotifyMovedVMW() {
+void MOUSE_NotifyMovedFake() {
 
-    MouseEvent event(DOS_EV::MOUSE_HAS_MOVED);
+    MouseEvent event(EventType::MOUSE_HAS_MOVED);
     event.req_ps2 = true;
 
     AddEvent(event);
 }
 
-void Mouse_EventPressed(uint8_t idx) {
+void MOUSE_EventPressed(uint8_t idx) {
     uint8_t buttons_12S_old = static_cast<uint8_t>(buttons_12 + (buttons_345 ? 4 : 0));
 
     if (idx < 2) {
@@ -318,17 +318,17 @@ void Mouse_EventPressed(uint8_t idx) {
 
     MouseEvent event(SelectEventPressed(idx, changed_12S));
 
-    event.req_ps2 = MousePS2_NotifyPressedReleased(buttons_12S, buttons_12 | buttons_345);
+    event.req_ps2 = MOUSEPS2_NotifyPressedReleased(buttons_12S, buttons_12 | buttons_345);
     if (changed_12S) {
-        event.req_ps2 = MouseVMW_NotifyPressedReleased(buttons_12S) || event.req_ps2;
-        event.req_dos = MouseDOS_NotifyPressed(buttons_12S, idx_12S);
-        MouseSER_NotifyPressed(buttons_12S, idx_12S);
+        event.req_ps2 = MOUSEVMWARE_NotifyPressedReleased(buttons_12S) || event.req_ps2;
+        event.req_dos = MOUSEDOSDRV_NotifyPressed(buttons_12S, idx_12S);
+        MOUSESERIAL_NotifyPressed(buttons_12S, idx_12S);
     }
 
     AddEvent(event);
 }
 
-void Mouse_EventReleased(uint8_t idx) {
+void MOUSE_EventReleased(uint8_t idx) {
     uint8_t buttons_12S_old = static_cast<uint8_t>(buttons_12 + (buttons_345 ? 4 : 0));
 
     if (idx < 2) {
@@ -348,25 +348,25 @@ void Mouse_EventReleased(uint8_t idx) {
 
     MouseEvent event(SelectEventReleased(idx, changed_12S));
 
-    event.req_ps2 = MousePS2_NotifyPressedReleased(buttons_12S, buttons_12 | buttons_345);
+    event.req_ps2 = MOUSEPS2_NotifyPressedReleased(buttons_12S, buttons_12 | buttons_345);
     if (changed_12S) {
-        event.req_ps2 = MouseVMW_NotifyPressedReleased(buttons_12S) || event.req_ps2;
-        event.req_dos = MouseDOS_NotifyReleased(buttons_12S, idx_12S);
-        MouseSER_NotifyReleased(buttons_12S, idx_12S);
+        event.req_ps2 = MOUSEVMWARE_NotifyPressedReleased(buttons_12S) || event.req_ps2;
+        event.req_dos = MOUSEDOSDRV_NotifyReleased(buttons_12S, idx_12S);
+        MOUSESERIAL_NotifyReleased(buttons_12S, idx_12S);
     }
 
     AddEvent(event);
 }
 
-void Mouse_EventWheel(int32_t w_rel) {
+void MOUSE_EventWheel(int32_t w_rel) {
     if (w_rel == 0) return;
 
-    MouseEvent event(DOS_EV::WHEEL_HAS_MOVED);
+    MouseEvent event(EventType::WHEEL_HAS_MOVED);
 
-    event.req_ps2 = MousePS2_NotifyWheel(w_rel);
-    event.req_ps2 = MouseVMW_NotifyWheel(w_rel) || event.req_ps2;
-    event.req_dos = MouseDOS_NotifyWheel(w_rel);
-    MouseSER_NotifyWheel(w_rel);
+    event.req_ps2 = MOUSEPS2_NotifyWheel(w_rel);
+    event.req_ps2 = MOUSEVMWARE_NotifyWheel(w_rel) || event.req_ps2;
+    event.req_dos = MOUSEDOSDRV_NotifyWheel(w_rel);
+    MOUSESERIAL_NotifyWheel(w_rel);
 
     AddEvent(event);
 }
@@ -413,16 +413,7 @@ void MOUSE_Init(Section* /*sec*/) {
     // (MOUSE_IRQ > 7) ? (0x70 + MOUSE_IRQ - 8) : (0x8 + MOUSE_IRQ);
     RealSetVec(0x74, CALLBACK_RealPointer(call_int74));
 
-
-    memset(&mouse_config, 0, sizeof(mouse_config));
-    mouse_config.sensitivity_x = 0.3f;
-    mouse_config.sensitivity_y = 0.3f;
-
-    memset(&mouse_video, 0 ,sizeof(mouse_video));
-    mouse_video.res_x = 320;
-    mouse_video.res_y = 200;
-
-    MousePS2_Init();
-    MouseVMW_Init();
-    MouseDOS_Init();
+    MOUSEPS2_Init();
+    MOUSEVMWARE_Init();
+    MOUSEDOSDRV_Init();
 }

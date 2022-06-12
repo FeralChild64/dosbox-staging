@@ -37,18 +37,20 @@ static float                      delta_x, delta_y; // accumulated mouse movemen
 // Serial interface implementation
 // ***************************************************************************
 
-void MouseSER_RegisterListener(CSerialMouse *listener) {
-    if (listener)
-        listeners.push_back(listener);
+void MOUSESERIAL_RegisterListener(CSerialMouse &listener)
+{
+    listeners.push_back(&listener);
 }
 
-void MouseSER_UnRegisterListener(CSerialMouse *listener) {
-    auto iter = std::find(listeners.begin(), listeners.end(), listener);
+void MOUSESERIAL_UnRegisterListener(CSerialMouse &listener)
+{
+    auto iter = std::find(listeners.begin(), listeners.end(), &listener);
     if (iter != listeners.end())
         listeners.erase(iter);
 }
 
-void MouseSER_NotifyMoved(int32_t x_rel, int32_t y_rel) {
+void MOUSESERIAL_NotifyMoved(int32_t x_rel, int32_t y_rel)
+{
     static constexpr float MAX = 16384.0f;
 
     delta_x += std::clamp(static_cast<float>(x_rel) * mouse_config.sensitivity_x, -MAX, MAX);
@@ -65,17 +67,20 @@ void MouseSER_NotifyMoved(int32_t x_rel, int32_t y_rel) {
     }
 }
 
-void MouseSER_NotifyPressed(uint8_t buttons_12S, uint8_t idx) {
+void MOUSESERIAL_NotifyPressed(uint8_t buttons_12S, uint8_t idx)
+{
     for (auto &listener : listeners)
         listener->onMouseEventButton(buttons_12S, idx);
 }
 
-void MouseSER_NotifyReleased(uint8_t buttons_12S, uint8_t idx) {
+void MOUSESERIAL_NotifyReleased(uint8_t buttons_12S, uint8_t idx)
+{
     for (auto &listener : listeners)
         listener->onMouseEventButton(buttons_12S, idx);
 }
 
-void MouseSER_NotifyWheel(int32_t w_rel) {
+void MOUSESERIAL_NotifyWheel(int32_t w_rel)
+{
     for (auto &listener : listeners)
-        listener->onMouseEventWheel(static_cast<int8_t>(std::clamp(w_rel, -0x80, 0x7f)));
+        listener->onMouseEventWheel(static_cast<int8_t>(std::clamp(w_rel, INT8_MIN, INT8_MAX)));
 }

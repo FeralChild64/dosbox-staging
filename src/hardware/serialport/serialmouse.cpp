@@ -17,7 +17,7 @@
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
-// Microsoft Serial Mouse emulation originally wrtitten by Jonathan Campbell
+// Microsoft Serial Mouse emulation originally written by Jonathan Campbell
 // Wheel, Logitech, and Mouse Systems mice added by Roman Standzikowski (FeralChild64)
 
 // Reference:
@@ -107,11 +107,11 @@ CSerialMouse::CSerialMouse(uint8_t id, CommandLine* cmd): CSerial(id, cmd),
 
     InstallationSuccessful = true;
 
-    MouseSER_RegisterListener(this);
+    MOUSESERIAL_RegisterListener(*this);
 }
 
 CSerialMouse::~CSerialMouse() {
-    MouseSER_UnRegisterListener(this);
+    MOUSESERIAL_UnRegisterListener(*this);
     removeEvent(SERIAL_TX_EVENT); // clear events
     setType(MouseType::NO_MOUSE);
 }
@@ -270,8 +270,8 @@ void CSerialMouse::startPacketData(bool extended) {
         // Leaving it clear is the only way to make mouse movement possible.
         // Microsoft Windows on the other hand doesn't care if bit 7 is set.
 
-        uint8_t dx = static_cast<uint8_t>(std::clamp(mouse_delta_x, -0x80, 0x7f));
-        uint8_t dy = static_cast<uint8_t>(std::clamp(mouse_delta_y, -0x80, 0x7f));
+        uint8_t dx = static_cast<uint8_t>(std::clamp(mouse_delta_x, INT8_MIN, INT8_MAX));
+        uint8_t dy = static_cast<uint8_t>(std::clamp(mouse_delta_y, INT8_MIN, INT8_MAX));
         uint8_t bt = mouse_has_3rd_button ? (mouse_buttons & 7) : (mouse_buttons & 3);
 
         packet[0]  = static_cast<uint8_t>(0x40 | ((bt & 1) << 5) | ((bt & 2) << 3) | (((dy >> 6) & 3) << 2) | ((dx >> 6) & 3));
@@ -292,8 +292,8 @@ void CSerialMouse::startPacketData(bool extended) {
         // Byte 1:  X7 X6 X5 X4 X3 X2 X1 X0
         // Byte 2:  Y7 Y6 Y5 Y4 Y3 Y2 Y1 Y0
 
-        uint8_t dx = static_cast<uint8_t>(std::clamp(mouse_delta_x,  -0x80, 0x7f));
-        uint8_t dy = static_cast<uint8_t>(std::clamp(-mouse_delta_y, -0x80, 0x7f));
+        uint8_t dx = static_cast<uint8_t>(std::clamp(mouse_delta_x,  INT8_MIN, INT8_MAX));
+        uint8_t dy = static_cast<uint8_t>(std::clamp(-mouse_delta_y, INT8_MIN, INT8_MAX));
         uint8_t bt = mouse_has_3rd_button ? ((~mouse_buttons) & 7) : ((~mouse_buttons) & 3);
 
         packet[0]  = static_cast<uint8_t>(0x80 | ((bt & 1) << 2) | ((bt & 2) >> 1) | ((bt & 4) >> 1));
@@ -323,8 +323,8 @@ void CSerialMouse::startPacketPart2() {
         // Byte 3:  X7 X6 X5 X4 X3 X2 X1 X0
         // Byte 4:  Y7 Y6 Y5 Y4 Y3 Y2 Y1 Y0
 
-        uint8_t dx = static_cast<uint8_t>(std::clamp(mouse_delta_x,  -0x80, 0x7f));
-        uint8_t dy = static_cast<uint8_t>(std::clamp(-mouse_delta_y, -0x80, 0x7f));
+        uint8_t dx = static_cast<uint8_t>(std::clamp(mouse_delta_x,  INT8_MIN, INT8_MAX));
+        uint8_t dy = static_cast<uint8_t>(std::clamp(-mouse_delta_y, INT8_MIN, INT8_MAX));
 
         packet[0]  = dx;
         packet[1]  = dy;

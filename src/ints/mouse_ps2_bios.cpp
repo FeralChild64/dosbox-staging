@@ -97,7 +97,7 @@ static bool     modeWrap;                     // true = wrap mode
 // PS/2 interface implementation
 // ***************************************************************************
 
-void MousePS2_UpdateButtonSquish() {
+void MOUSEPS2_UpdateButtonSquish() {
     // - if VMware compatible driver is enabled, never try to report
     //   mouse buttons 4 and 5, this would be asking for trouble
     // - for PS/2 modes other than IntelliMouse Explorer there is
@@ -107,7 +107,7 @@ void MousePS2_UpdateButtonSquish() {
     buttons = squish_mode ? buttons_12S : buttons_all;
 }
 
-static inline void TerminateUnlock() {
+static void TerminateUnlock() {
     unlock_idx_im = 0;
     unlock_idx_xp = 0;
 }
@@ -132,7 +132,7 @@ static void SetType(PS2_TYPE type) {
             break;
         }
 
-        MousePS2_UpdateButtonSquish();
+        MOUSEPS2_UpdateButtonSquish();
         packet[0] = 0; // set dummy invalid packet, in case someone tries polling
         packet[1] = 0;
         packet[2] = 0;
@@ -142,17 +142,17 @@ static void SetType(PS2_TYPE type) {
     }
 }
 
-static inline void AddBuffer(uint8_t byte) {
+static void AddBuffer(uint8_t byte) {
     KEYBOARD_AddBufferAUX(&byte);
 }
 
-static inline uint8_t GetResetWheel4bit() {
+static uint8_t GetResetWheel4bit() {
     int8_t tmp = std::clamp(wheel, static_cast<int8_t>(-0x08), static_cast<int8_t>(0x07));
     wheel = 0;
     return static_cast<uint8_t>((tmp >= 0) ? tmp : 0x10 + tmp);
 }
 
-static inline uint8_t GetResetWheel8bit() {
+static uint8_t GetResetWheel8bit() {
     int8_t tmp = wheel;
     wheel = 0;
     return static_cast<uint8_t>((tmp >= 0) ? tmp : 0x100 + tmp);
@@ -178,16 +178,16 @@ static int16_t ApplyScaling(int16_t d) {
     default: break;
     }
 
-    return static_cast<int16_t>(std::clamp(2 * d, -0x8000, 0x7fff));
+    return static_cast<int16_t>(std::clamp(2 * d, INT16_MIN, INT16_MAX));
 }
 
-static inline void ResetCounters() {
+static void ResetCounters() {
     delta_x = 0.0f;
     delta_y = 0.0f;
     wheel   = 0;
 }
 
-void MousePS2_UpdatePacket() {
+void MOUSEPS2_UpdatePacket() {
     uint8_t mdat = (buttons & 0x07) | 0x08;
     int16_t dx   = static_cast<int16_t>(std::round(delta_x));
     int16_t dy   = static_cast<int16_t>(std::round(delta_y));
@@ -231,14 +231,14 @@ void MousePS2_UpdatePacket() {
         packet[3] = 0;
 }
 
-bool MousePS2_SendPacket() {
+bool MOUSEPS2_SendPacket() {
     if (!modeWrap && !modeRemote && reporting)
         return KEYBOARD_AddBufferAUX(&packet[0], (type == PS2_TYPE::IM || type == PS2_TYPE::XP) ? 4 : 3);
 
     return false;
 }
 
-void MousePS2_FlushPacket() {
+void MOUSEPS2_FlushPacket() {
     KEYBOARD_FlushMsgAUX();
 }
 
@@ -280,7 +280,7 @@ static void CmdSetRate(uint8_t rate_hz) {
     }
 }
 
-static inline void CmdPollPacket() {
+static void CmdPollPacket() {
     AddBuffer(packet[0]);
     AddBuffer(packet[1]);
     AddBuffer(packet[2]);
@@ -289,7 +289,7 @@ static inline void CmdPollPacket() {
 }
 
 static void CmdSetDefaults() {
-    MousePS2_UpdateButtonSquish();
+    MOUSEPS2_UpdateButtonSquish();
 
     rate_hz      = 100;
     delay        = 10.0f;
@@ -335,11 +335,11 @@ static void CmdSetScaling(bool enabled) {
     scaling_21 = enabled;
 }
 
-float MousePS2_GetDelay() {
+float MOUSEPS2_GetDelay() {
     return delay;
 }
 
-void MousePS2_PortWrite(uint8_t byte) { // value received from PS/2 port
+void MOUSEPS2_PortWrite(uint8_t byte) { // value received from PS/2 port
     if (modeWrap && byte != PS2_CMD::RESET && byte != PS2_CMD::RESET_WRAP_MODE) {
         AddBuffer(byte); // wrap mode, just send bytes back
     } else if (command != PS2_CMD::NO_COMMAND) {
@@ -354,7 +354,7 @@ void MousePS2_PortWrite(uint8_t byte) { // value received from PS/2 port
             CmdSetRate(byte);
             break;
         default:
-            LOG_WARNING("Mouse: unimplemented PS/2 command 0x%02x/0x%02x", command, byte);
+            LOG_WARNING("MOUSE (PS/2): unimplemented PS/2 command 0x%02x/0x%02x", command, byte);
             break;
         }
         command = PS2_CMD::NO_COMMAND;
@@ -428,32 +428,32 @@ void MousePS2_PortWrite(uint8_t byte) { // value received from PS/2 port
             AddBuffer(rate_hz);
             break;
         default:
-            LOG_WARNING("Mouse: unimplemented PS/2 command 0x%02x", byte);
+            LOG_WARNING("MOUSE (PS/2): unimplemented PS/2 command 0x%02x", byte);
             break;
         }
     }
 }
 
-bool MousePS2_NotifyMoved(int32_t x_rel, int32_t y_rel) {
+bool MOUSEPS2_NotifyMoved(int32_t x_rel, int32_t y_rel) {
     delta_x += static_cast<float>(x_rel) * mouse_config.sensitivity_x * counts_coeff;
     delta_y += static_cast<float>(y_rel) * mouse_config.sensitivity_y * counts_coeff;
 
     return (delta_x >= 0.5 || delta_x <= -0.5 || delta_y >= 0.5 || delta_y <= -0.5);
 }
 
-bool MousePS2_NotifyPressedReleased(uint8_t buttons_12S, uint8_t buttons_all) {
+bool MOUSEPS2_NotifyPressedReleased(uint8_t buttons_12S, uint8_t buttons_all) {
     auto buttons_old = buttons;
 
     ::buttons_12S = buttons_12S;
     ::buttons_all = buttons_all;
-    MousePS2_UpdateButtonSquish();
+    MOUSEPS2_UpdateButtonSquish();
 
     return (buttons_old != buttons);
 }
 
-bool MousePS2_NotifyWheel(int32_t w_rel) {
+bool MOUSEPS2_NotifyWheel(int32_t w_rel) {
     if (type != PS2_TYPE::IM && type != PS2_TYPE::XP) return false;
-    wheel = static_cast<int8_t>(std::clamp(w_rel + wheel, -0x80, 0x7f));
+    wheel = static_cast<int8_t>(std::clamp(w_rel + wheel, INT8_MIN, INT8_MAX));
     return true;
 }
 
@@ -469,11 +469,11 @@ static uint16_t callback_ofs = 0;
 static bool     callback_use = false;
 static RealPt   ps2_callback = 0;
 
-void MouseBIOS_Reset() {
+void MOUSEBIOS_Reset() {
     CmdReset();
 }
 
-bool MouseBIOS_SetState(bool use) {
+bool MOUSEBIOS_SetState(bool use) {
     if (use && !callback_init) {
         callback_use = false;
         PIC_SetIRQMask(12, true);
@@ -485,7 +485,7 @@ bool MouseBIOS_SetState(bool use) {
     }
 }
 
-bool MouseBIOS_SetPacketSize(uint8_t packet_size) {
+bool MOUSEBIOS_SetPacketSize(uint8_t packet_size) {
     if (packet_size == 3)
         packet_4bytes = false;
     else if (packet_size == 4)
@@ -496,7 +496,7 @@ bool MouseBIOS_SetPacketSize(uint8_t packet_size) {
     return true;
 }
 
-bool MouseBIOS_SetRate(uint8_t rate_id) {
+bool MOUSEBIOS_SetRate(uint8_t rate_id) {
     static const std::vector<uint8_t> CONVTAB = { 10, 20, 40, 60, 80, 100, 200 };
     if (rate_id >= CONVTAB.size())
         return false;
@@ -505,7 +505,7 @@ bool MouseBIOS_SetRate(uint8_t rate_id) {
     return true;
 }
 
-bool MouseBIOS_SetResolution(uint8_t res_id) {
+bool MOUSEBIOS_SetResolution(uint8_t res_id) {
     static const std::vector<uint8_t> CONVTAB = { 1, 2, 4, 8 };
     if (res_id >= CONVTAB.size())
         return false;
@@ -514,7 +514,7 @@ bool MouseBIOS_SetResolution(uint8_t res_id) {
     return true;
 }
 
-void MouseBIOS_ChangeCallback(uint16_t pseg, uint16_t pofs) {
+void MOUSEBIOS_ChangeCallback(uint16_t pseg, uint16_t pofs) {
     if ((pseg == 0) && (pofs == 0)) {
         callback_init = false;
     } else {
@@ -524,20 +524,20 @@ void MouseBIOS_ChangeCallback(uint16_t pseg, uint16_t pofs) {
     }
 }
 
-uint8_t MouseBIOS_GetType() {
+uint8_t MOUSEBIOS_GetType() {
     return static_cast<uint8_t>(type);
 }
 
-static Bitu MouseBIOS_Callback_ret() {
+static Bitu MOUSEBIOS_Callback_ret() {
     CPU_Pop16(); CPU_Pop16(); CPU_Pop16(); CPU_Pop16(); // remove 4 words
     return CBRET_NONE;
 }
 
-bool MouseBIOS_HasCallback() {
+bool MOUSEBIOS_HasCallback() {
     return callback_use;
 }
 
-Bitu MouseBIOS_DoCallback() {
+Bitu MOUSEBIOS_DoCallback() {
     if (!packet_4bytes) {
         CPU_Push16(packet[0]); 
         CPU_Push16(packet[1]);
@@ -557,13 +557,13 @@ Bitu MouseBIOS_DoCallback() {
     return CBRET_NONE;
 }
 
-void MousePS2_Init() {
+void MOUSEPS2_Init() {
     // Callback for ps2 user callback handling
     auto call_ps2 = CALLBACK_Allocate();
-    CALLBACK_Setup(call_ps2, &MouseBIOS_Callback_ret, CB_RETF, "ps2 bios callback");
+    CALLBACK_Setup(call_ps2, &MOUSEBIOS_Callback_ret, CB_RETF, "ps2 bios callback");
     ps2_callback = CALLBACK_RealPointer(call_ps2);
 
     type = PS2_TYPE::NO_MOUSE;
 
-    MouseBIOS_Reset();
+    MOUSEBIOS_Reset();
 }

@@ -948,11 +948,11 @@ static Bitu INT15_Handler(void) {
 		switch (reg_al) {
 		case 0x00:                      // enable/disable
 			if (reg_bh==0) {	// disable
-				MouseBIOS_SetState(false);
+				MOUSEBIOS_SetState(false);
 				reg_ah=0;
 				CALLBACK_SCF(false);
 			} else if (reg_bh==0x01) {	//enable
-				if (!MouseBIOS_SetState(true)) {
+				if (!MOUSEBIOS_SetState(true)) {
 					reg_ah=5;
 					CALLBACK_SCF(true);
 					break;
@@ -965,21 +965,21 @@ static Bitu INT15_Handler(void) {
 			}
 			break;
 		case 0x01:               // reset
-			MouseBIOS_Reset();
+			MOUSEBIOS_Reset();
 			reg_bx = 0x00aa; // mouse
 			[[fallthrough]];
 		case 0x05:		// initialize
-			if ((reg_al==0x05) && !MouseBIOS_SetPacketSize(reg_bh)) {
+			if ((reg_al==0x05) && !MOUSEBIOS_SetPacketSize(reg_bh)) {
 				CALLBACK_SCF(true);
 				reg_ah=2;
 				break;
 			}
-			MouseBIOS_SetState(false);
+			MOUSEBIOS_SetState(false);
 			CALLBACK_SCF(false);
 			reg_ah=0;
 			break;
 		case 0x02:		// set sampling rate
-		    if (!MouseBIOS_SetRate(reg_bh)) {
+		    if (!MOUSEBIOS_SetRate(reg_bh)) {
 		    	CALLBACK_SCF(true);
 				reg_ah=2;
 				break;
@@ -988,7 +988,7 @@ static Bitu INT15_Handler(void) {
 			reg_ah=0;
 			break;
 		case 0x03:		// set resolution
-		    if (!MouseBIOS_SetResolution(reg_bh)) {
+		    if (!MOUSEBIOS_SetResolution(reg_bh)) {
 		    	CALLBACK_SCF(true);
 				reg_ah=2;
 				break;
@@ -997,7 +997,7 @@ static Bitu INT15_Handler(void) {
 			reg_ah=0;
 			break;
 		case 0x04:		// get type
-			reg_bh=MouseBIOS_GetType();
+			reg_bh=MOUSEBIOS_GetType();
 			CALLBACK_SCF(false);
 			reg_ah=0;
 			break;
@@ -1011,7 +1011,7 @@ static Bitu INT15_Handler(void) {
 			}
 			break;
 		case 0x07:		// set callback
-			MouseBIOS_ChangeCallback(SegValue(es),reg_bx);
+			MOUSEBIOS_ChangeCallback(SegValue(es),reg_bx);
 			CALLBACK_SCF(false);
 			reg_ah=0;
 			break;

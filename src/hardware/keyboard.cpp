@@ -244,7 +244,7 @@ static void write_p60(io_port_t, io_val_t value, io_width_t)
 		break;
     case CMD_WRITEAUX:
         keyb.command=CMD_NONE;
-        MousePS2_PortWrite(val);
+        MOUSEPS2_PortWrite(val);
         break;
 	case CMD_SETTYPERATE:
 		{

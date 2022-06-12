@@ -289,7 +289,7 @@ static void RestoreCursorBackground() {
     RestoreVgaRegisters();
 }
 
-void MouseDOS_DrawCursor() {
+void MOUSEDOSDRV_DrawCursor() {
     if (driver_state.hidden || driver_state.inhibit_draw) return;
     INT10_SetCurMode();
     // In Textmode ?
@@ -380,14 +380,14 @@ void MouseDOS_DrawCursor() {
 // DOS driver interface implementation
 // ***************************************************************************
 
-static inline uint8_t GetResetWheel8bit() {
+static uint8_t GetResetWheel8bit() {
     if (!driver_state.cute_mouse) return 0;
-    int8_t tmp = std::clamp(driver_state.wheel, static_cast<int16_t>(-0x80), static_cast<int16_t>(0x7f));
+    int8_t tmp = std::clamp(driver_state.wheel, static_cast<int16_t>(INT8_MIN), static_cast<int16_t>(INT8_MAX));
     driver_state.wheel = 0;
     return (tmp >= 0) ? tmp : 0x100 + tmp;
 }
 
-static inline uint16_t GetResetWheel16bit() {
+static uint16_t GetResetWheel16bit() {
     if (!driver_state.cute_mouse) return 0;
     int16_t tmp = (driver_state.wheel >= 0) ? driver_state.wheel : 0x10000 + driver_state.wheel;
     driver_state.wheel = 0;
@@ -423,7 +423,7 @@ static void ResetHardware() {
     PIC_SetIRQMask(12, false);
 }
 
-void MouseDOS_BeforeNewVideoMode() {
+void MOUSEDOSDRV_BeforeNewVideoMode() {
     if (CurMode->type!=M_TEXT)
         RestoreCursorBackground();
     else
@@ -435,11 +435,12 @@ void MouseDOS_BeforeNewVideoMode() {
 }
 
 // FIXME: Does way to much. Many things should be moved to mouse reset one day
-void MouseDOS_AfterNewVideoMode(bool setmode) {
+void MOUSEDOSDRV_AfterNewVideoMode(bool setmode) {
     driver_state.inhibit_draw = false;
     // Get the correct resolution from the current video mode
     uint8_t mode = mem_readb(BIOS_VIDEO_MODE);
-    if (setmode && mode == driver_state.mode) LOG(LOG_MOUSE,LOG_NORMAL)("New video mode is the same as the old");
+    if (setmode && mode == driver_state.mode)
+        LOG(LOG_MOUSE, LOG_NORMAL)("New video mode is the same as the old");
     driver_state.gran_x = (int16_t) 0xffff;
     driver_state.gran_y = (int16_t) 0xffff;
     switch (mode) {
@@ -476,7 +477,7 @@ void MouseDOS_AfterNewVideoMode(bool setmode) {
         driver_state.max_y = 479;
         break;
     default:
-        LOG(LOG_MOUSE,LOG_ERROR)("Unhandled videomode %X on reset",mode);
+        LOG(LOG_MOUSE, LOG_ERROR)("Unhandled videomode %X on reset",mode);
         driver_state.inhibit_draw = true;
         return;
     }
@@ -498,14 +499,14 @@ void MouseDOS_AfterNewVideoMode(bool setmode) {
     driver_state.cursorType           = 0;
     driver_state.enabled              = true;
 
-    Mouse_ClearQueue();
+    MOUSE_ClearQueue();
 }
 
 // FIXME: Much too empty, Mouse_NewVideoMode contains stuff that should be in here
 static void Reset()
 {
-    MouseDOS_BeforeNewVideoMode();
-    MouseDOS_AfterNewVideoMode(false);
+    MOUSEDOSDRV_BeforeNewVideoMode();
+    MOUSEDOSDRV_AfterNewVideoMode(false);
     SetMickeyPixelRate(8, 16);
 
     driver_state.mickey_x   = 0;
@@ -531,7 +532,7 @@ static void Reset()
     in_UIR                = false;
 }
 
-bool MouseDOS_NotifyMoved(int32_t x_rel, int32_t y_rel, bool is_captured) {
+bool MOUSEDOSDRV_NotifyMoved(int32_t x_rel, int32_t y_rel, bool is_captured) {
 
     auto old_x = GETPOS_X;
     auto old_y = GETPOS_Y;
@@ -583,7 +584,7 @@ bool MouseDOS_NotifyMoved(int32_t x_rel, int32_t y_rel, bool is_captured) {
     return (old_x != GETPOS_X || old_y != GETPOS_Y);
 }
 
-bool MouseDOS_NotifyPressed(uint8_t buttons_12S, uint8_t idx) {
+bool MOUSEDOSDRV_NotifyPressed(uint8_t buttons_12S, uint8_t idx) {
     if (idx >= NUM_BUTTONS) return false;
 
     driver_state.buttons = buttons_12S;
@@ -595,7 +596,7 @@ bool MouseDOS_NotifyPressed(uint8_t buttons_12S, uint8_t idx) {
     return true;
 }
 
-bool MouseDOS_NotifyReleased(uint8_t buttons_12S, uint8_t idx) {
+bool MOUSEDOSDRV_NotifyReleased(uint8_t buttons_12S, uint8_t idx) {
     if (idx >= NUM_BUTTONS) return false;
 
     driver_state.buttons = buttons_12S;
@@ -607,10 +608,10 @@ bool MouseDOS_NotifyReleased(uint8_t buttons_12S, uint8_t idx) {
     return true;
 }
 
-bool MouseDOS_NotifyWheel(int32_t w_rel) {
+bool MOUSEDOSDRV_NotifyWheel(int32_t w_rel) {
     if (!driver_state.cute_mouse) return false;
 
-    driver_state.wheel = static_cast<int16_t>(std::clamp(w_rel + driver_state.wheel, -0x8000, 0x7fff));
+    driver_state.wheel = static_cast<int16_t>(std::clamp(w_rel + driver_state.wheel, INT16_MIN, INT16_MAX));
     driver_state.last_wheel_moved_x = GETPOS_X;
     driver_state.last_wheel_moved_y = GETPOS_Y;
 
@@ -618,7 +619,6 @@ bool MouseDOS_NotifyWheel(int32_t w_rel) {
 }
 
 static Bitu INT33_Handler() {
-//    LOG(LOG_MOUSE,LOG_NORMAL)("MOUSE: %04X %X %X %d %d",reg_ax,reg_bx,reg_cx,GETPOS_X,GETPOS_Y);
     switch (reg_ax) {
     case 0x00: // MS MOUSE - reset driver and read status
         ResetHardware();
@@ -631,7 +631,7 @@ static Bitu INT33_Handler() {
     case 0x01: // MS MOUSE v1.0+ - show mouse cursor
         if (driver_state.hidden) driver_state.hidden--;
         driver_state.updateRegion_y[1] = -1; //offscreen
-        MouseDOS_DrawCursor();
+        MOUSEDOSDRV_DrawCursor();
         break;
     case 0x02: // MS MOUSE v1.0+ - hide mouse cursor
         {
@@ -659,12 +659,12 @@ static Bitu INT33_Handler() {
         if ((int16_t) reg_dx >= driver_state.max_y) driver_state.y = static_cast<float>(driver_state.max_y);
         else if (driver_state.min_y >= (int16_t) reg_dx) driver_state.y = static_cast<float>(driver_state.min_y); 
         else if ((int16_t) reg_dx != GETPOS_Y) driver_state.y = static_cast<float>(reg_dx);
-        MouseDOS_DrawCursor();
+        MOUSEDOSDRV_DrawCursor();
         break;
     case 0x05: // MS MOUSE v1.0+ / CuteMouse - return button press data / mouse wheel data
         {
             uint16_t but = reg_bx;
-            if (but == 0xffff && driver_state.cute_mouse) {
+            if (but == 0xffff && driver_state.cute_mouse) { // 'magic' index for checking wheel instead of button
                 reg_bx = GetResetWheel16bit();
                 reg_cx = driver_state.last_wheel_moved_x;
                 reg_dx = driver_state.last_wheel_moved_y;
@@ -681,7 +681,7 @@ static Bitu INT33_Handler() {
     case 0x06: // MS MOUSE v1.0+ / CuteMouse - return button release data / mouse wheel data
         {
             uint16_t but = reg_bx;
-            if (but == 0xffff && driver_state.cute_mouse) {
+            if (but == 0xffff && driver_state.cute_mouse) { // 'magic' index for checking wheel instead of button
                 reg_bx = GetResetWheel16bit();
                 reg_cx = driver_state.last_wheel_moved_x;
                 reg_dx = driver_state.last_wheel_moved_y;
@@ -714,7 +714,7 @@ static Bitu INT33_Handler() {
             if(driver_state.x < driver_state.min_x) driver_state.x = driver_state.min_x;
             // Or alternatively this: 
             // driver_state.x = (driver_state.max_x - driver_state.min_x + 1) / 2;
-            LOG(LOG_MOUSE,LOG_NORMAL)("Define Hortizontal range min:%d max:%d", min, max);
+            LOG(LOG_MOUSE, LOG_NORMAL)("Define Hortizontal range min:%d max:%d", min, max);
         }
         break;
     case 0x08: // MS MOUSE v1.0+ - define vertical cursor range
@@ -736,7 +736,7 @@ static Bitu INT33_Handler() {
             if(driver_state.y < driver_state.min_y) driver_state.y = driver_state.min_y;
             // Or alternatively this: 
             // driver_state.y = (driver_state.max_y - driver_state.min_y + 1) / 2;
-            LOG(LOG_MOUSE,LOG_NORMAL)("Define Vertical range min:%d max:%d", min, max);
+            LOG(LOG_MOUSE, LOG_NORMAL)("Define Vertical range min:%d max:%d", min, max);
         }
         break;
     case 0x09: // MS MOUSE v3.0+ - define GFX cursor
@@ -749,7 +749,7 @@ static Bitu INT33_Handler() {
             driver_state.hotx       = reg_bx;
             driver_state.hoty       = reg_cx;
             driver_state.cursorType = 2;
-            MouseDOS_DrawCursor();
+            MOUSEDOSDRV_DrawCursor();
         }
         break;
     case 0x0a: // MS MOUSE v3.0+ - define text cursor
@@ -758,9 +758,9 @@ static Bitu INT33_Handler() {
         driver_state.textXorMask = reg_dx;
         if (reg_bx) {
             INT10_SetCursorShape(reg_cl, reg_dl);
-            LOG(LOG_MOUSE,LOG_NORMAL)("Hardware Text cursor selected");
+            LOG(LOG_MOUSE, LOG_NORMAL)("Hardware Text cursor selected");
         }
-        MouseDOS_DrawCursor();
+        MOUSEDOSDRV_DrawCursor();
         break;
     case 0x27: // MS MOUSE v7.01+ - get screen/cursor masks and mickey counts
         reg_ax = driver_state.textAndMask;
@@ -779,7 +779,7 @@ static Bitu INT33_Handler() {
         break;
     case 0x0d: // MS MOUSE v1.0+ - light pen emulation on
     case 0x0e: // MS MOUSE v1.0+ - light pen emulation off
-        LOG(LOG_MOUSE,LOG_ERROR)("Mouse light pen emulation not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("Mouse light pen emulation not implemented");
         break;
     case 0x0f: // MS MOUSE v1.0+ - define mickey/pixel rate
         SetMickeyPixelRate(reg_cx, reg_dx);
@@ -789,7 +789,7 @@ static Bitu INT33_Handler() {
         driver_state.updateRegion_y[0] = (int16_t) reg_dx;
         driver_state.updateRegion_x[1] = (int16_t) reg_si;
         driver_state.updateRegion_y[1] = (int16_t) reg_di;
-        MouseDOS_DrawCursor();
+        MOUSEDOSDRV_DrawCursor();
         break;
     case 0x11: // CuteMouse - get mouse capabilities
         reg_ax = 0x574d; // Identifier for detection purposes
@@ -803,7 +803,7 @@ static Bitu INT33_Handler() {
         // the CuteMouse extensions are more useful
         break;
     case 0x12: // MS MOUSE - set large graphics cursor block
-        LOG(LOG_MOUSE,LOG_ERROR)("Large graphics cursor block not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("Large graphics cursor block not implemented");
         break;
     case 0x13: // MS MOUSE v5.0+ - set double-speed threshold
         driver_state.doubleSpeedThreshold = (reg_bx ? reg_bx : 64);
@@ -828,34 +828,34 @@ static Bitu INT33_Handler() {
         break;
     case 0x16: // MS MOUSE v6.0+ - save driver state
         {
-            LOG(LOG_MOUSE,LOG_WARN)("Saving driver state...");
+            LOG(LOG_MOUSE, LOG_WARN)("Saving driver state...");
             PhysPt dest = SegPhys(es) + reg_dx;
             MEM_BlockWrite(dest, &driver_state, sizeof(driver_state));
         }
         break;
     case 0x17: // MS MOUSE v6.0+ - load driver state
         {
-            LOG(LOG_MOUSE,LOG_WARN)("Loading driver state...");
+            LOG(LOG_MOUSE, LOG_WARN)("Loading driver state...");
             PhysPt src = SegPhys(es) + reg_dx;
             MEM_BlockRead(src, &driver_state, sizeof(driver_state));
         }
         break;
     case 0x18: // MS MOUSE v6.0+ - set alternate mouse user handler
     case 0x19: // MS MOUSE v6.0+ - set alternate mouse user handler
-        LOG(LOG_MOUSE,LOG_WARN)("Alternate mouse user handler not implemented");
+        LOG(LOG_MOUSE, LOG_WARN)("Alternate mouse user handler not implemented");
         break;
     case 0x1a: // MS MOUSE v6.0+ - set mouse sensitivity
         // FIXME : double mouse speed value
         SetSensitivity(reg_bx, reg_cx, reg_dx);
 
-        LOG(LOG_MOUSE,LOG_WARN)("Set sensitivity used with %d %d (%d)",reg_bx,reg_cx,reg_dx);
+        LOG(LOG_MOUSE, LOG_WARN)("Set sensitivity used with %d %d (%d)",reg_bx,reg_cx,reg_dx);
         break;
     case 0x1b: //  MS MOUSE v6.0+ - get mouse sensitivity
         reg_bx = driver_state.senv_x_val;
         reg_cx = driver_state.senv_y_val;
         reg_dx = driver_state.dspeed_val;
 
-        LOG(LOG_MOUSE,LOG_WARN)("Get sensitivity %d %d",reg_bx,reg_cx);
+        LOG(LOG_MOUSE, LOG_WARN)("Get sensitivity %d %d",reg_bx,reg_cx);
         break;
     case 0x1c: // MS MOUSE v6.0+ - set interrupt rate
         // Can't really set a rate this is host determined
@@ -903,7 +903,7 @@ static Bitu INT33_Handler() {
         //       BX = fCursor lock
         //       CX = FinMouse code
         //       DX = fMouse busy
-        LOG(LOG_MOUSE,LOG_ERROR)("General driver information not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("General driver information not implemented");
         break;
     case 0x26: // MS MOUSE v6.26+ - get maximum virtual coordinates
         reg_bx = (driver_state.enabled ? 0x0000 : 0xffff);
@@ -917,7 +917,7 @@ static Bitu INT33_Handler() {
         //       DX = Font size, 0 for default
         //       Returns:
         //       DX = 0 on success, nonzero (requested video mode) if not
-        LOG(LOG_MOUSE,LOG_ERROR)("Set video mode not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("Set video mode not implemented");
         break;
     case 0x29: // MS MOUSE v7.0+ - enumerate video modes
         // TODO: According to PC sourcebook
@@ -926,7 +926,7 @@ static Bitu INT33_Handler() {
         //       Exit:
         //       BX:DX = named string far ptr
         //       CX = video mode number
-        LOG(LOG_MOUSE,LOG_ERROR)("Enumerate video modes not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("Enumerate video modes not implemented");
         break;
     case 0x2a: // MS MOUSE v7.01+ - get cursor hot spot
         reg_al = (uint8_t) -driver_state.hidden; // Microsoft uses a negative byte counter for cursor visibility
@@ -935,22 +935,22 @@ static Bitu INT33_Handler() {
         reg_dx = 0x04; // PS/2 mouse type
         break;
     case 0x2b: // MS MOUSE v7.0+ - load acceleration profiles
-        LOG(LOG_MOUSE,LOG_ERROR)("Load acceleration profiles not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("Load acceleration profiles not implemented");
         break;
     case 0x2c: // MS MOUSE v7.0+ - get acceleration profiles
-        LOG(LOG_MOUSE,LOG_ERROR)("Get acceleration profiles not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("Get acceleration profiles not implemented");
         break;
     case 0x2d: // MS MOUSE v7.0+ - select acceleration profile
-        LOG(LOG_MOUSE,LOG_ERROR)("Select acceleration profile not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("Select acceleration profile not implemented");
         break;
     case 0x2e: // MS MOUSE v8.10+ - set acceleration profile names
-        LOG(LOG_MOUSE,LOG_ERROR)("Set acceleration profile names not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("Set acceleration profile names not implemented");
         break;
     case 0x2f: // MS MOUSE v7.02+ - mouse hardware reset
-        LOG(LOG_MOUSE,LOG_ERROR)("INT 33 AX=2F mouse hardware reset not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("INT 33 AX=2F mouse hardware reset not implemented");
         break;
     case 0x30: // MS MOUSE v7.04+ - get/set BallPoint information
-        LOG(LOG_MOUSE,LOG_ERROR)("Get/set BallPoint information not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("Get/set BallPoint information not implemented");
         break;
     case 0x31: // MS MOUSE v7.05+ - get current minimum/maximum virtual coordinates
         reg_ax = (uint16_t) driver_state.min_x;
@@ -959,28 +959,28 @@ static Bitu INT33_Handler() {
         reg_dx = (uint16_t) driver_state.max_y;
         break;
     case 0x32: // MS MOUSE v7.05+ - get active advanced functions
-        LOG(LOG_MOUSE,LOG_ERROR)("Get active advanced functions not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("Get active advanced functions not implemented");
         break;
     case 0x33: // MS MOUSE v7.05+ - get switch settings and accelleration profile data
-        LOG(LOG_MOUSE,LOG_ERROR)("Get switch settings and acceleration profile data not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("Get switch settings and acceleration profile data not implemented");
         break;
     case 0x34: // MS MOUSE v8.0+ - get initialization file
-        LOG(LOG_MOUSE,LOG_ERROR)("Get initialization file not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("Get initialization file not implemented");
         break;
     case 0x35: // MS MOUSE v8.10+ - LCD screen large pointer support
-        LOG(LOG_MOUSE,LOG_ERROR)("LCD screen large pointer support not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("LCD screen large pointer support not implemented");
         break;
     case 0x4d: // MS MOUSE - return pointer to copyright string
-        LOG(LOG_MOUSE,LOG_ERROR)("Return pointer to copyright string not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("Return pointer to copyright string not implemented");
         break;
     case 0x6d: // MS MOUSE - get version string
-        LOG(LOG_MOUSE,LOG_ERROR)("Get version string not implemented");
+        LOG(LOG_MOUSE, LOG_ERROR)("Get version string not implemented");
         break;
     case 0x53C1: // Logitech CyberMan
-        LOG(LOG_MOUSE,LOG_NORMAL)("Mouse function 53C1 for Logitech CyberMan called. Ignored by regular mouse driver.");
+        LOG(LOG_MOUSE, LOG_NORMAL)("Mouse function 53C1 for Logitech CyberMan called. Ignored by regular mouse driver.");
         break;
     default:
-        LOG(LOG_MOUSE,LOG_ERROR)("Mouse Function %04X not implemented!",reg_ax);
+        LOG(LOG_MOUSE, LOG_ERROR)("Mouse function %04X not implemented",reg_ax);
         break;
     }
     return CBRET_NONE;
@@ -999,7 +999,6 @@ static uintptr_t MOUSE_BD_Handler() {
     reg_bx = real_readw(SegValue(ds), rbxpt);
     reg_cx = real_readw(SegValue(ds), rcxpt);
     reg_dx = real_readw(SegValue(ds), rdxpt);
-//    LOG_MSG("MOUSE BD: %04X %X %X %X %d %d",reg_ax,reg_bx,reg_cx,reg_dx,GETPOS_X,GETPOS_Y);
     
     // some functions are treated in a special way (additional registers)
     switch (rax) {
@@ -1050,19 +1049,19 @@ uintptr_t UIR_Handler() {
     return CBRET_NONE;
 }
 
-bool MouseDOS_HasCallback() {
+bool MOUSEDOSDRV_HasCallback() {
     return driver_state.sub_mask != 0;
 }
 
-bool MouseDOS_HasCallback(uint8_t type) {
+bool MOUSEDOSDRV_HasCallback(uint8_t type) {
     return driver_state.sub_mask & type;
 }
 
-bool MouseDOS_CallbackInProgress() {
+bool MOUSEDOSDRV_CallbackInProgress() {
     return in_UIR;
 }
 
-uintptr_t MouseDOS_DoCallback(uint8_t type, uint8_t buttons) {
+uintptr_t MOUSEDOSDRV_DoCallback(uint8_t type, uint8_t buttons) {
     in_UIR = true;
 
     reg_ax = type;
@@ -1081,7 +1080,7 @@ uintptr_t MouseDOS_DoCallback(uint8_t type, uint8_t buttons) {
     return CBRET_NONE;
 }
 
-void MouseDOS_Init() {
+void MOUSEDOSDRV_Init() {
     // Callback for mouse interrupt 0x33
     auto call_int33 = CALLBACK_Allocate();
     // RealPt i33loc = RealMake(CB_SEG + 1,(call_int33 * CB_SIZE) - 0x10);
