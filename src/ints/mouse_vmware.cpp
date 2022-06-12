@@ -18,9 +18,14 @@
 
 #include "mouse.h"
 
+#include <algorithm>
+
+#include "checks.h"
 #include "regs.h"
 #include "inout.h"
 #include "video.h"
+
+CHECK_NARROWING();
 
 // VMware mouse interface passes both absolute mouse position and button
 // state to the guest side driver, but still relies on PS/2 interface,
@@ -53,7 +58,7 @@ enum VMW_BUTTON:uint8_t {
 };
 
 static constexpr io_port_t VMW_PORT   = 0x5658u;     // communication port
-static constexpr io_port_t VMW_PORTHB = 0x5659u;     // communication port, high bandwidth
+// static constexpr io_port_t VMW_PORTHB = 0x5659u;  // communication port, high bandwidth
 static constexpr uint32_t  VMW_MAGIC  = 0x564D5868u; // magic number for all VMware calls
 
 static bool      updated     = false;                // true = mouse state update waits top be piced up
@@ -72,7 +77,7 @@ bool mouse_vmware = false;                           // if true, VMware compatib
 // ***************************************************************************
 
 static inline void CmdGetVersion() {
-    reg_eax = 0; // FIXME: should we respond with something resembling VMware?
+    reg_eax = 0; // TODO: should we respond with something resembling VMware? For now 0 seems OK
     reg_ebx = VMW_MAGIC;
 }
 
@@ -80,7 +85,7 @@ static inline void CmdAbsPointerData() {
     reg_eax = buttons_vmw;
     reg_ebx = scaled_x;
     reg_ecx = scaled_y;
-    reg_edx = (wheel >= 0) ? wheel : 0x100 + wheel;
+    reg_edx = static_cast<uint32_t>((wheel >= 0) ? wheel : 0x100 + wheel);
 
     wheel = 0;
 }
@@ -140,28 +145,30 @@ bool MouseVMW_NotifyMoved(int32_t x_abs, int32_t y_abs) {
         // of the guest display area
 
         if (x_abs + offset_x < mouse_video.clip_x)
-                offset_x = mouse_video.clip_x - x_abs;
+                offset_x = static_cast<int16_t>(mouse_video.clip_x - x_abs);
         else if (x_abs + offset_x >= mouse_video.res_x + mouse_video.clip_x)
-                offset_x = mouse_video.res_x + mouse_video.clip_x - x_abs - 1;
+                offset_x = static_cast<int16_t>(mouse_video.res_x + mouse_video.clip_x - x_abs - 1);
 
         if (y_abs + offset_y < mouse_video.clip_y)
-                offset_y = mouse_video.clip_y - y_abs;
+                offset_y = static_cast<int16_t>(mouse_video.clip_y - y_abs);
         else if (y_abs + offset_y >= mouse_video.res_y + mouse_video.clip_y)
-                offset_y = mouse_video.res_y + mouse_video.clip_y - y_abs - 1;
+                offset_y = static_cast<int16_t>(mouse_video.res_y + mouse_video.clip_y - y_abs - 1);
 
-        vmw_x = x_abs + offset_x - mouse_video.clip_x;
-        vmw_y = y_abs + offset_y - mouse_video.clip_y;
+        vmw_x = static_cast<float>(x_abs + offset_x - mouse_video.clip_x);
+        vmw_y = static_cast<float>(y_abs + offset_y - mouse_video.clip_y);
     }
     else {
-        vmw_x = std::max(x_abs - mouse_video.clip_x, 0);
-        vmw_y = std::max(y_abs - mouse_video.clip_y, 0);
+        vmw_x = static_cast<float>(std::max(x_abs - mouse_video.clip_x, 0));
+        vmw_y = static_cast<float>(std::max(y_abs - mouse_video.clip_y, 0));
     }
 
     auto old_x = scaled_x;
     auto old_y = scaled_y;
 
-    scaled_x = std::min(0xffffu, static_cast<uint32_t>(vmw_x * 0xffff / (mouse_video.res_x - 1) + 0.499));
-    scaled_y = std::min(0xffffu, static_cast<uint32_t>(vmw_y * 0xffff / (mouse_video.res_y - 1) + 0.499));
+    scaled_x = static_cast<uint16_t>(std::min(0xffffu,
+        static_cast<uint32_t>(vmw_x * 0xffff / static_cast<float>(mouse_video.res_x - 1) + 0.499)));
+    scaled_y = static_cast<uint16_t>(std::min(0xffffu,
+        static_cast<uint32_t>(vmw_y * 0xffff / static_cast<float>(mouse_video.res_y - 1) + 0.499)));
 
     updated = true;
 
@@ -182,7 +189,7 @@ bool MouseVMW_NotifyPressedReleased(uint8_t buttons_12S) {
 
 bool MouseVMW_NotifyWheel(int32_t w_rel) {
     if (mouse_vmware) {
-        wheel   = std::clamp(w_rel + wheel, -0x80, 0x7f);
+        wheel   = static_cast<int8_t>(std::clamp(w_rel + wheel, -0x80, 0x7f));
         updated = true;
     }
 
@@ -193,8 +200,8 @@ void MouseVMW_NewScreenParams(int32_t x_abs, int32_t y_abs) {
 
     // Adjust clipping, toprevent cursor jump with the next mouse move on the host side
 
-    offset_x = std::clamp(static_cast<int32_t>(offset_x), -mouse_video.clip_x, static_cast<int32_t>(mouse_video.clip_x));
-    offset_y = std::clamp(static_cast<int32_t>(offset_y), -mouse_video.clip_y, static_cast<int32_t>(mouse_video.clip_y));
+    offset_x = static_cast<int16_t>(std::clamp(static_cast<int32_t>(offset_x), -mouse_video.clip_x, static_cast<int32_t>(mouse_video.clip_x)));
+    offset_y = static_cast<int16_t>(std::clamp(static_cast<int32_t>(offset_y), -mouse_video.clip_y, static_cast<int32_t>(mouse_video.clip_y)));
 
     // Report a fake mouse movement
 
