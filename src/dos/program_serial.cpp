@@ -122,27 +122,23 @@ void SERIAL::Run()
 			serialports[port_index] = nullptr;
 			break;
 		case SERIAL_PORT_TYPE::DUMMY:
-			serialports[port_index] = new CSerialDummy(port_index,
-			                                         commandLine);
+			serialports[port_index] = new CSerialDummy(port_index, commandLine);
 			break;
 #ifdef C_DIRECTSERIAL
 		case SERIAL_PORT_TYPE::DIRECT_SERIAL:
-			serialports[port_index] = new CDirectSerial(port_index,
-			                                          commandLine);
+			serialports[port_index] = new CDirectSerial(port_index, commandLine);
 			break;
 #endif
 #if C_MODEM
 		case SERIAL_PORT_TYPE::MODEM:
-			serialports[port_index] = new CSerialModem(port_index,
-			                                         commandLine);
+			serialports[port_index] = new CSerialModem(port_index, commandLine);
 			break;
 		case SERIAL_PORT_TYPE::NULL_MODEM:
 			serialports[port_index] = new CNullModem(port_index, commandLine);
 			break;
 #endif
 		case SERIAL_PORT_TYPE::MOUSE:
-			serialports[port_index] = new CSerialMouse(port_index,
-			                                         commandLine);
+			serialports[port_index] = new CSerialMouse(port_index, commandLine);
 			break;
 		default:
 			serialports[port_index] = nullptr;

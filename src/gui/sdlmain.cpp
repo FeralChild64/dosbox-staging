@@ -1207,7 +1207,12 @@ finish:
     // Ensure mouse emulation knows the current parameters
     int abs_x, abs_y;
     SDL_GetMouseState(&abs_x, &abs_y);
-    MOUSE_NewScreenParams(sdl.clip.x, sdl.clip.y, sdl.clip.w, sdl.clip.h, sdl.desktop.fullscreen, abs_x, abs_y);
+    if (abs_x < 0 || abs_x > UINT16_MAX ||
+        abs_y < 0 || abs_y > UINT16_MAX) {
+        LOG_ERR("SDL: Unexpected mouse position values: %dx%d", abs_x, abs_y);
+    }
+
+    MOUSE_NewScreenParams(sdl.clip.x, sdl.clip.y, sdl.clip.w, sdl.clip.h, sdl.desktop.fullscreen, static_cast<uint16_t>(abs_x), static_cast<uint16_t>(abs_y));
 
     // Force redraw after changing the window
     if (sdl.draw.callback)
@@ -3478,15 +3483,35 @@ static void GUI_StartUp(Section *sec)
     startup_state_capslock = keystate & KMOD_CAPS;
 }
 
-static void HandleMouseMotion(SDL_MouseMotionEvent * motion) {
+static void HandleMouseMotion(SDL_MouseMotionEvent *motion)
+{
+    if (motion->xrel < INT16_MIN || motion->xrel > INT16_MAX ||
+        motion->yrel < INT16_MIN || motion->yrel > INT16_MAX ||
+        motion->x < 0 || motion->x > UINT16_MAX ||
+        motion->y < 0 || motion->y > UINT16_MAX) {
+        LOG_ERR("SDL: Unexpected motion values: rel %dx%d, abs %dx%d", motion->xrel, motion->xrel, motion->x, motion->y);
+        return;
+    }
 
-    if (mouse_vmware || mouse_is_captured || sdl.mouse.control_choice == Seamless)
-        MOUSE_EventMoved(motion->xrel, motion->yrel, motion->x, motion->y, mouse_is_captured);
+    if (motion->xrel != 0 || motion->yrel != 0) {
+        if (mouse_vmware || mouse_is_captured || sdl.mouse.control_choice == Seamless)
+            MOUSE_EventMoved(static_cast<int16_t>(motion->xrel),
+                             static_cast<int16_t>(motion->yrel),
+                             static_cast<uint16_t>(motion->x),
+                             static_cast<uint16_t>(motion->y),
+                             mouse_is_captured);
+    }
 }
 
-static void HandleMouseWheel(SDL_MouseWheelEvent * wheel) {
+static void HandleMouseWheel(SDL_MouseWheelEvent *wheel)
+{
+    if (wheel->y <= INT16_MIN || wheel->y >= INT16_MAX) {
+        LOG_ERR("SDL: Unexpected wheel value: %d", wheel->y);
+        return;
+    }
+
     if (wheel->y != 0)
-        MOUSE_EventWheel((wheel->direction == SDL_MOUSEWHEEL_NORMAL) ? -wheel->y : wheel->y);
+        MOUSE_EventWheel(static_cast<int16_t>((wheel->direction == SDL_MOUSEWHEEL_NORMAL) ? -wheel->y : wheel->y));
 }
 
 static void HandleMouseButton(SDL_MouseButtonEvent * button) {
