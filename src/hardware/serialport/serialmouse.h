@@ -28,9 +28,9 @@ public:
     CSerialMouse(uint8_t id, CommandLine* cmd);
     virtual ~CSerialMouse();
 
-    void onMouseEventMoved(int16_t delta_x, int16_t delta_y);
-    void onMouseEventButton(uint8_t buttons, uint8_t idx); // idx - index of changed button, staring from 0
-    void onMouseEventWheel(int8_t delta_w);
+    void OnMouseEventMoved(const int16_t delta_x, const int16_t delta_y);
+    void OnMouseEventButton(const uint8_t buttons, const uint8_t idx); // idx - index of changed button, staring from 0
+    void OnMouseEventWheel(const int8_t delta_w);
 
     void setRTSDTR(bool rts, bool dtr);
     void setRTS(bool val);
@@ -52,14 +52,15 @@ private:
         MOUSE_SYSTEMS
     };
 
-    void setType(MouseType type);
-    void abortPacket();
-    void clearCounters();
-    void mouseReset();
-    void startPacketId();
-    void startPacketData(bool extended = false);
-    void startPacketPart2();
-    void unimplemented();
+    void SetType(MouseType type);
+    void AbortPacket();
+    void ClearCounters();
+    void MouseReset();
+    void StartPacketId();
+    void StartPacketData(const bool extended = false);
+    void StartPacketPart2();
+    void Unimplemented();
+    uint8_t ClampDelta(const int32_t delta) const;
 
     const uint16_t port_num;
 

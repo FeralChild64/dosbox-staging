@@ -61,7 +61,7 @@ void MOUSESERIAL_NotifyMoved(int32_t x_rel, int32_t y_rel)
 
     if (dx != 0 || dy != 0) {
         for (auto &listener : listeners)
-            listener->onMouseEventMoved(dx, dy);
+            listener->OnMouseEventMoved(dx, dy);
         delta_x -= dx;
         delta_y -= dy;
     }
@@ -70,17 +70,17 @@ void MOUSESERIAL_NotifyMoved(int32_t x_rel, int32_t y_rel)
 void MOUSESERIAL_NotifyPressed(uint8_t buttons_12S, uint8_t idx)
 {
     for (auto &listener : listeners)
-        listener->onMouseEventButton(buttons_12S, idx);
+        listener->OnMouseEventButton(buttons_12S, idx);
 }
 
 void MOUSESERIAL_NotifyReleased(uint8_t buttons_12S, uint8_t idx)
 {
     for (auto &listener : listeners)
-        listener->onMouseEventButton(buttons_12S, idx);
+        listener->OnMouseEventButton(buttons_12S, idx);
 }
 
 void MOUSESERIAL_NotifyWheel(int32_t w_rel)
 {
     for (auto &listener : listeners)
-        listener->onMouseEventWheel(static_cast<int8_t>(std::clamp(w_rel, INT8_MIN, INT8_MAX)));
+        listener->OnMouseEventWheel(static_cast<int8_t>(std::clamp(w_rel, INT8_MIN, INT8_MAX)));
 }
