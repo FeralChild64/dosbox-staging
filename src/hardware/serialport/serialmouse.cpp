@@ -36,25 +36,7 @@ static constexpr uint16_t DIV_1200 = 96; // port clock divider for 1200 bauds
 
 CSerialMouse::CSerialMouse(const uint8_t id, CommandLine *cmd)
         : CSerial(id, cmd),
-          port_num(static_cast<uint16_t>(id + 1)),
-          config_type(MouseType::NoMouse),
-          config_auto(false),
-          type(MouseType::NoMouse),
-          byte_len(0),
-          has_3rd_button(false),
-          has_wheel(false),
-          port_valid(false),
-          smooth_div(1),
-          send_ack(true),
-          packet_len(0),
-          xmit_idx(0xff),
-          xmit_2part(false),
-          another_move(false),
-          another_button(false),
-          buttons(0),
-          delta_x(0),
-          delta_y(0),
-          delta_w(0)
+          port_num(static_cast<uint16_t>(id + 1))
 {
     std::string type_string;
     bool use_default = !cmd->FindStringBegin("type:", type_string, false);
@@ -281,9 +263,9 @@ void CSerialMouse::StartPacketData(const bool extended)
         // movement possible. Microsoft Windows on the other hand
         // doesn't care if bit 7 is set.
 
-        uint8_t dx = ClampDelta(delta_x);
-        uint8_t dy = ClampDelta(delta_y);
-        uint8_t bt = has_3rd_button ? (buttons & 7) : (buttons & 3);
+        const auto dx = ClampDelta(delta_x);
+        const auto dy = ClampDelta(delta_y);
+        const auto bt = has_3rd_button ? (buttons & 7) : (buttons & 3);
 
         packet[0] = static_cast<uint8_t>(
                 0x40 | ((bt & 1) << 5) | ((bt & 2) << 3) |
@@ -305,7 +287,7 @@ void CSerialMouse::StartPacketData(const bool extended)
         // Byte 1:  X7 X6 X5 X4 X3 X2 X1 X0
         // Byte 2:  Y7 Y6 Y5 Y4 Y3 Y2 Y1 Y0
 
-        uint8_t bt = has_3rd_button ? ((~buttons) & 7) : ((~buttons) & 3);
+        const auto bt = has_3rd_button ? ((~buttons) & 7) : ((~buttons) & 3);
 
         packet[0]  = static_cast<uint8_t>(0x80 | ((bt & 1) << 2) |
                                                  ((bt & 2) >> 1) | ((bt & 4) >> 1));
@@ -376,9 +358,8 @@ void CSerialMouse::LogUnimplemented() const
 
 uint8_t CSerialMouse::ClampDelta(const int32_t delta) const
 {
-    return static_cast<uint8_t>(std::clamp(delta,
-                                           static_cast<int32_t>(INT8_MIN),
-                                           static_cast<int32_t>(INT8_MAX)));
+    const auto tmp = std::clamp(delta, static_cast<int32_t>(INT8_MIN), static_cast<int32_t>(INT8_MAX));
+    return static_cast<uint8_t>(tmp);
 }
 
 void CSerialMouse::handleUpperEvent(const uint16_t event_type)
@@ -418,9 +399,9 @@ void CSerialMouse::updatePortConfig(const uint16_t divider, const uint8_t lcr)
 
     port_valid = true;
 
-    const uint8_t port_byte_len = static_cast<uint8_t>((lcr & 0x3) + 5);
-    const bool one_stop_bit     = !(lcr & 0x4);
-    const uint8_t parity_id     = static_cast<uint8_t>((lcr & 0x38) >> 3);
+    const auto port_byte_len = static_cast<uint8_t>((lcr & 0x3) + 5);
+    const auto one_stop_bit  = !(lcr & 0x4);
+    const auto parity_id     = static_cast<uint8_t>((lcr & 0x38) >> 3);
 
     if (divider != DIV_1200 || !one_stop_bit || // for mouse we need 1200
                                                 // bauds and 1 stop bit
@@ -429,13 +410,13 @@ void CSerialMouse::updatePortConfig(const uint16_t divider, const uint8_t lcr)
         port_valid = false;
 
     if (port_valid && config_auto) { // auto select mouse type to emulate
-        if (byte_len == 7) {
+        if (port_byte_len == 7) {
             SetType(config_type);
-        } else if (byte_len == 8) {
+        } else if (port_byte_len == 8) {
             SetType(MouseType::MouseSystems);
         } else
             port_valid = false;
-    } else if (byte_len != port_byte_len) // byte length has to match
+    } else if (port_byte_len != byte_len) // byte length has to match
                                           // between port and protocol
         port_valid = false;
 }

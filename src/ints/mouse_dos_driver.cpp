@@ -58,64 +58,78 @@ static struct { // DOS driver state
     // can crash the emulator if filled-in incorrectly, or that can
     // be used by malicious code to escape from emulation!
 
-    bool      enabled;
-    bool      cute_mouse;
+    bool     enabled    = false;
+    bool     cute_mouse = false;
 
-    uint8_t   buttons;
-    float     x, y;
-    int16_t   wheel;
+    uint8_t  buttons = 0;
+    float    x = 0.0f;
+    float    y = 0.0f;
+    int16_t  wheel = 0;
 
-    float     mickey_x, mickey_y;
+    float    mickey_x = 0.0f, mickey_y = 0.0f;
 
-    uint16_t  times_pressed[NUM_BUTTONS];
-    uint16_t  times_released[NUM_BUTTONS];
-    uint16_t  last_released_x[NUM_BUTTONS];
-    uint16_t  last_released_y[NUM_BUTTONS];
-    uint16_t  last_pressed_x[NUM_BUTTONS];
-    uint16_t  last_pressed_y[NUM_BUTTONS];
-    uint16_t  last_wheel_moved_x;
-    uint16_t  last_wheel_moved_y;
+    uint16_t times_pressed[NUM_BUTTONS]   = { 0 };
+    uint16_t times_released[NUM_BUTTONS]  = { 0 };
+    uint16_t last_released_x[NUM_BUTTONS] = { 0 };
+    uint16_t last_released_y[NUM_BUTTONS] = { 0 };
+    uint16_t last_pressed_x[NUM_BUTTONS]  = { 0 };
+    uint16_t last_pressed_y[NUM_BUTTONS]  = { 0 };
+    uint16_t last_wheel_moved_x = 0;
+    uint16_t last_wheel_moved_y = 0;
 
-    float     mickeysPerPixel_x, mickeysPerPixel_y;
-    float     pixelPerMickey_x, pixelPerMickey_y;
+    float    mickeysPerPixel_x = 0.0f;
+    float    mickeysPerPixel_y = 0.0f;
+    float    pixelPerMickey_x  = 0.0f;
+    float    pixelPerMickey_y  = 0.0f;
 
-    int16_t   min_x, max_x, min_y, max_y;
-    int16_t   gran_x, gran_y;
+    int16_t  min_x  = 0;
+    int16_t  max_x  = 0;
+    int16_t  min_y  = 0;
+    int16_t  max_y  = 0;
+    int16_t  gran_x = 0;
+    int16_t  gran_y = 0;
 
-    int16_t   updateRegion_x[2];
-    int16_t   updateRegion_y[2];
+    int16_t  updateRegion_x[2] = { 0 };
+    int16_t  updateRegion_y[2] = { 0 };
 
-    uint16_t  doubleSpeedThreshold; // TODO: this should affect mouse movement
+    uint16_t doubleSpeedThreshold = 0; // TODO: this should affect mouse movement
 
-    uint16_t  language;
-    uint8_t   page;
-    uint8_t   mode;
+    uint16_t language = 0;
+    uint8_t  page = 0;
+    uint8_t  mode = 0;
 
     // sensitivity
-    uint16_t  senv_x_val;
-    uint16_t  senv_y_val;
-    uint16_t  dspeed_val; // TODO: this should affect mouse movement
-    float     senv_x;
-    float     senv_y;
+    uint16_t senv_x_val = 0;
+    uint16_t senv_y_val = 0;
+    uint16_t dspeed_val = 0; // TODO: this should affect mouse movement
+    float    senv_x = 0.0f;
+    float    senv_y = 0.0f;
 
     // mouse cursor
-    bool      inhibit_draw;
-    uint16_t  hidden;
-    uint16_t  oldhidden;
-    bool      background;
-    int16_t   backposx, backposy;
-    uint8_t   backData[X_CURSOR * Y_CURSOR];
-    uint16_t* screenMask; // XXX dangerous, fix this!!!
-    uint16_t* cursorMask; // XXX dangerous, fix this!!!
-    int16_t   clipx, clipy;
-    int16_t   hotx, hoty;
-    uint16_t  textAndMask, textXorMask;
-    uint16_t  cursorType;
+    bool     inhibit_draw = false;
+    uint16_t hidden    = 0;
+    uint16_t oldhidden = 0;
+    bool     background = false;
+    int16_t  backposx = 0;
+    int16_t  backposy = 0;
+    uint8_t  backData[X_CURSOR * Y_CURSOR] = { 0 };
+	bool     userScreenMask = false;
+	bool     userCursorMask = false;
+    int16_t  clipx = 0;
+    int16_t  clipy = 0;
+    int16_t  hotx  = 0;
+    int16_t  hoty  = 0;
+    uint16_t textAndMask = 0;
+    uint16_t textXorMask = 0;
+    uint16_t cursorType = 0;
+	// user cursor
+	uint16_t userDefScreenMask[Y_CURSOR] = { 0 };
+    uint16_t userDefCursorMask[Y_CURSOR] = { 0 };
 
     // user callback
-    uint16_t  sub_mask;
-    uint16_t  sub_seg;
-    uint16_t  sub_ofs;
+    uint16_t sub_mask = 0;
+    uint16_t sub_seg  = 0;
+    uint16_t sub_ofs  = 0;
 
 } state;
 
@@ -123,7 +137,7 @@ static RealPt uir_callback;
 static bool   in_UIR;
 
 // ***************************************************************************
-// Data - cursor/mask
+// Data - default cursor/mask
 // ***************************************************************************
 
 static constexpr uint16_t DEFAULT_TEXT_AND_MASK = 0x77FF;
@@ -143,9 +157,6 @@ static uint16_t DEFAULT_CURSOR_MASK[Y_CURSOR] = {
     0x0600, 0x0300, 0x0300, 0x0000
 };
 
-static uint16_t userdefScreenMask[Y_CURSOR];
-static uint16_t userdefCursorMask[Y_CURSOR];
-
 // ***************************************************************************
 // Text mode cursor
 // ***************************************************************************
@@ -154,7 +165,8 @@ static uint16_t userdefCursorMask[Y_CURSOR];
 extern void WriteChar(uint16_t col, uint16_t row, uint8_t page, uint8_t chr, uint8_t attr, bool useattr);
 extern void ReadCharAttr(uint16_t col, uint16_t row, uint8_t page, uint16_t * result);
 
-void RestoreCursorBackgroundText() {
+void RestoreCursorBackgroundText()
+{
     if (state.hidden || state.inhibit_draw) return;
 
     if (state.background) {
@@ -165,7 +177,8 @@ void RestoreCursorBackgroundText() {
     }
 }
 
-void DrawCursorText() {    
+void DrawCursorText()
+{
     // Restore Background
     RestoreCursorBackgroundText();
 
@@ -211,7 +224,8 @@ void DrawCursorText() {
 static uint8_t gfxReg3CE[9];
 static uint8_t index3C4, gfxReg3C5;
 
-static void SaveVgaRegisters() {
+static void SaveVgaRegisters()
+{
     if (IS_VGA_ARCH) {
         for (uint8_t i=0; i<9; i++) {
             IO_Write    (0x3CE,i);
@@ -231,7 +245,8 @@ static void SaveVgaRegisters() {
     }
 }
 
-static void RestoreVgaRegisters() {
+static void RestoreVgaRegisters()
+{
     if (IS_VGA_ARCH) {
         for (uint8_t i=0; i<9; i++) {
             IO_Write(0x3CE,i);
@@ -268,7 +283,8 @@ static void ClipCursorArea(int16_t& x1, int16_t& x2, int16_t& y1, int16_t& y2,
     };
 }
 
-static void RestoreCursorBackground() {
+static void RestoreCursorBackground()
+{
     if (state.hidden || state.inhibit_draw) return;
 
     SaveVgaRegisters();
@@ -297,7 +313,8 @@ static void RestoreCursorBackground() {
     RestoreVgaRegisters();
 }
 
-void MOUSEDOSDRV_DrawCursor() {
+void MOUSEDOSDRV_DrawCursor()
+{
     if (state.hidden || state.inhibit_draw) return;
     INT10_SetCurMode();
     // In Textmode ?
@@ -363,9 +380,11 @@ void MOUSEDOSDRV_DrawCursor() {
 
     // Draw Mousecursor
     dataPos = addy * X_CURSOR;
+	const auto screenMask = state.userScreenMask ? state.userDefScreenMask : DEFAULT_SCREEN_MASK;
+	const auto cursorMask = state.userCursorMask ? state.userDefCursorMask : DEFAULT_CURSOR_MASK;
     for (y = y1; y <= y2; y++) {
-        uint16_t scMask = state.screenMask[addy + y - y1];
-        uint16_t cuMask = state.cursorMask[addy + y - y1];
+        uint16_t scMask = screenMask[addy + y - y1];
+        uint16_t cuMask = cursorMask[addy + y - y1];
         if (addx1 > 0) { scMask <<= addx1; cuMask <<= addx1; dataPos += addx1; };
         for (x = x1; x <= x2; x++) {
             uint8_t pixel = 0;
@@ -388,14 +407,16 @@ void MOUSEDOSDRV_DrawCursor() {
 // DOS driver interface implementation
 // ***************************************************************************
 
-static uint8_t GetResetWheel8bit() {
+static uint8_t GetResetWheel8bit()
+{
     if (!state.cute_mouse) return 0;
     const int8_t tmp = std::clamp(state.wheel, static_cast<int16_t>(INT8_MIN), static_cast<int16_t>(INT8_MAX));
     state.wheel = 0; // clear the wheel counter after reading
     return (tmp >= 0) ? tmp : 0x100 + tmp; // 0xff represents -1, 0xfe represents -2, etc.
 }
 
-static uint16_t GetResetWheel16bit() {
+static uint16_t GetResetWheel16bit()
+{
     if (!state.cute_mouse) return 0;
     // 0xffff represents -1, 0xfffe represents -2, etc.
     const int16_t tmp = (state.wheel >= 0) ? state.wheel : 0x10000 + state.wheel;
@@ -403,7 +424,8 @@ static uint16_t GetResetWheel16bit() {
     return tmp;
 }
 
-static void SetMickeyPixelRate(const int16_t px, const int16_t py) {
+static void SetMickeyPixelRate(const int16_t px, const int16_t py)
+{
     if ((px != 0) && (py != 0)) {
         state.mickeysPerPixel_x  = static_cast<float>(px) / X_MICKEY;
         state.mickeysPerPixel_y  = static_cast<float>(py) / Y_MICKEY;
@@ -412,7 +434,8 @@ static void SetMickeyPixelRate(const int16_t px, const int16_t py) {
     }
 }
 
-static void SetSensitivity(uint16_t px, uint16_t py, uint16_t dspeed) {
+static void SetSensitivity(uint16_t px, uint16_t py, uint16_t dspeed)
+{
     px     = std::min(static_cast<uint16_t>(100), px);
     py     = std::min(static_cast<uint16_t>(100), py);
     dspeed = std::min(static_cast<uint16_t>(100), dspeed);
@@ -428,11 +451,13 @@ static void SetSensitivity(uint16_t px, uint16_t py, uint16_t dspeed) {
      }
 }
 
-static void ResetHardware() {
+static void ResetHardware()
+{
     PIC_SetIRQMask(12, false);
 }
 
-void MOUSEDOSDRV_BeforeNewVideoMode() {
+void MOUSEDOSDRV_BeforeNewVideoMode()
+{
     if (CurMode->type!=M_TEXT)
         RestoreCursorBackground();
     else
@@ -444,7 +469,8 @@ void MOUSEDOSDRV_BeforeNewVideoMode() {
 }
 
 // FIXME: Does way to much. Many things should be moved to mouse reset one day
-void MOUSEDOSDRV_AfterNewVideoMode(const bool setmode) {
+void MOUSEDOSDRV_AfterNewVideoMode(const bool setmode)
+{
     state.inhibit_draw = false;
     // Get the correct resolution from the current video mode
     uint8_t mode = mem_readb(BIOS_VIDEO_MODE);
@@ -497,8 +523,8 @@ void MOUSEDOSDRV_AfterNewVideoMode(const bool setmode) {
     state.min_y                = 0;
     state.hotx                 = 0;
     state.hoty                 = 0;
-    state.screenMask           = DEFAULT_SCREEN_MASK;
-    state.cursorMask           = DEFAULT_CURSOR_MASK;
+    state.userScreenMask       = false;
+    state.userCursorMask       = false;
     state.textAndMask          = DEFAULT_TEXT_AND_MASK;
     state.textXorMask          = DEFAULT_TEXT_XOR_MASK;
     state.language             = 0;
@@ -541,8 +567,8 @@ static void Reset()
     in_UIR                = false;
 }
 
-bool MOUSEDOSDRV_NotifyMoved(const int16_t x_rel, const int16_t y_rel, const bool is_captured) {
-
+bool MOUSEDOSDRV_NotifyMoved(const int16_t x_rel, const int16_t y_rel, const uint16_t x_abs, const uint16_t y_abs, const bool is_captured)
+{
     auto old_x = GETPOS_X;
     auto old_y = GETPOS_Y;
 
@@ -565,8 +591,13 @@ bool MOUSEDOSDRV_NotifyMoved(const int16_t x_rel, const int16_t y_rel, const boo
         state.x += dx;
         state.y += dy;
     } else {
-        float x = (x_rel - mouse_video.clip_x) / (mouse_video.res_x - 1) * mouse_config.sensitivity_x;
-        float y = (y_rel - mouse_video.clip_y) / (mouse_video.res_y - 1) * mouse_config.sensitivity_y;
+        auto calculate = [](const uint16_t absolute, const uint16_t res, const uint16_t clip) {
+            assert(res > 1u);
+            return (static_cast<float>(absolute) - clip) / (res - 1);
+        };
+
+        float x = calculate(x_abs, mouse_video.res_x, mouse_video.clip_x);
+        float y = calculate(y_abs, mouse_video.res_y, mouse_video.clip_y);
 
         if (CurMode->type == M_TEXT) {
             state.x = x * real_readw(BIOSMEM_SEG,BIOSMEM_NB_COLS) * 8;
@@ -593,7 +624,8 @@ bool MOUSEDOSDRV_NotifyMoved(const int16_t x_rel, const int16_t y_rel, const boo
     return (old_x != GETPOS_X || old_y != GETPOS_Y);
 }
 
-bool MOUSEDOSDRV_NotifyPressed(const uint8_t buttons_12S, const uint8_t idx) {
+bool MOUSEDOSDRV_NotifyPressed(const uint8_t buttons_12S, const uint8_t idx)
+{
     if (idx >= NUM_BUTTONS) return false;
 
     state.buttons = buttons_12S;
@@ -605,7 +637,8 @@ bool MOUSEDOSDRV_NotifyPressed(const uint8_t buttons_12S, const uint8_t idx) {
     return true;
 }
 
-bool MOUSEDOSDRV_NotifyReleased(const uint8_t buttons_12S, const uint8_t idx) {
+bool MOUSEDOSDRV_NotifyReleased(const uint8_t buttons_12S, const uint8_t idx)
+{
     if (idx >= NUM_BUTTONS) return false;
 
     state.buttons = buttons_12S;
@@ -617,19 +650,22 @@ bool MOUSEDOSDRV_NotifyReleased(const uint8_t buttons_12S, const uint8_t idx) {
     return true;
 }
 
-bool MOUSEDOSDRV_NotifyWheel(const int16_t w_rel) {
+bool MOUSEDOSDRV_NotifyWheel(const int16_t w_rel)
+{
     if (!state.cute_mouse) return false;
 
-    state.wheel = static_cast<int16_t>(std::clamp(static_cast<int32_t>(w_rel + state.wheel),
-                                                  static_cast<int32_t>(INT16_MIN),
-                                                  static_cast<int32_t>(INT16_MAX)));
+    const auto tmp = std::clamp(static_cast<int32_t>(w_rel + state.wheel),
+                                static_cast<int32_t>(INT16_MIN),
+                                static_cast<int32_t>(INT16_MAX));
+    state.wheel = static_cast<int16_t>(tmp);
     state.last_wheel_moved_x = GETPOS_X;
     state.last_wheel_moved_y = GETPOS_Y;
 
     return true;
 }
 
-static Bitu INT33_Handler() {
+static Bitu INT33_Handler()
+{
     switch (reg_ax) {
     case 0x00: // MS MOUSE - reset driver and read status
         ResetHardware();
@@ -754,13 +790,14 @@ static Bitu INT33_Handler() {
         break;
     case 0x09: // MS MOUSE v3.0+ - define GFX cursor
         {
-            PhysPt src = SegPhys(es)+reg_dx;
-            MEM_BlockRead(src               , userdefScreenMask, Y_CURSOR * 2);
-            MEM_BlockRead(src + Y_CURSOR * 2, userdefCursorMask, Y_CURSOR * 2);
-            state.screenMask = userdefScreenMask;
-            state.cursorMask = userdefCursorMask;
-            state.hotx       = reg_bx;
-            state.hoty       = reg_cx;
+            PhysPt src = SegPhys(es) + reg_dx;
+            MEM_BlockRead(src, state.userDefScreenMask, Y_CURSOR * 2);
+			src += Y_CURSOR * 2;
+            MEM_BlockRead(src, state.userDefCursorMask, Y_CURSOR * 2);
+            state.userScreenMask = true;
+            state.userCursorMask = true;
+            state.hotx = reg_bx;
+            state.hoty = reg_cx;
             state.cursorType = 2;
             MOUSEDOSDRV_DrawCursor();
         }
@@ -999,7 +1036,8 @@ static Bitu INT33_Handler() {
     return CBRET_NONE;
 }
 
-static uintptr_t MOUSE_BD_Handler() {
+static uintptr_t MOUSE_BD_Handler()
+{
     // the stack contains offsets to register values
     uint16_t raxpt = real_readw(SegValue(ss), reg_sp + 0x0a);
     uint16_t rbxpt = real_readw(SegValue(ss), reg_sp + 0x08);
@@ -1057,24 +1095,29 @@ static uintptr_t MOUSE_BD_Handler() {
     return CBRET_NONE;
 }
 
-uintptr_t UIR_Handler() {
+uintptr_t UIR_Handler()
+{
     in_UIR = false;
     return CBRET_NONE;
 }
 
-bool MOUSEDOSDRV_HasCallback() {
+bool MOUSEDOSDRV_HasCallback()
+{
     return state.sub_mask != 0;
 }
 
-bool MOUSEDOSDRV_HasCallback(const uint8_t type) {
+bool MOUSEDOSDRV_HasCallback(const uint8_t type)
+{
     return state.sub_mask & type;
 }
 
-bool MOUSEDOSDRV_CallbackInProgress() {
+bool MOUSEDOSDRV_CallbackInProgress()
+{
     return in_UIR;
 }
 
-uintptr_t MOUSEDOSDRV_DoCallback(const uint8_t type, const uint8_t buttons) {
+uintptr_t MOUSEDOSDRV_DoCallback(const uint8_t type, const uint8_t buttons)
+{
     in_UIR = true;
 
     reg_ax = type;
@@ -1093,7 +1136,8 @@ uintptr_t MOUSEDOSDRV_DoCallback(const uint8_t type, const uint8_t buttons) {
     return CBRET_NONE;
 }
 
-void MOUSEDOSDRV_Init() {
+void MOUSEDOSDRV_Init()
+{
     // Callback for mouse interrupt 0x33
     auto call_int33 = CALLBACK_Allocate();
     // RealPt i33loc = RealMake(CB_SEG + 1,(call_int33 * CB_SIZE) - 0x10);
@@ -1117,10 +1161,9 @@ void MOUSEDOSDRV_Init() {
     CALLBACK_Setup(call_uir, &UIR_Handler, CB_RETF_CLI, "mouse uir ret");
     uir_callback = CALLBACK_RealPointer(call_uir);
 
-    memset(&state, 0, sizeof(state));
-    state.sub_seg = 0x6362; // magic value
-    state.hidden  = 1;      // hide cursor on startup
-    state.mode    = 0xff;   // non-existing mode
+    state.sub_seg = 0x6362;    // magic value
+    state.hidden  = 1;         // hide cursor on startup
+    state.mode    = UINT8_MAX; // non-existing mode
 
     ResetHardware();
     Reset();

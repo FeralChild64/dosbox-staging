@@ -47,21 +47,23 @@ enum MouseType:uint8_t { // mouse type visible via PS/2 interface
     Explorer     = 0x04, // Microsoft IntelliMouse Explorer (5 buttons + wheel)
 };
 
-static uint8_t    buttons;                      // currently visible button state
-static uint8_t    buttons_all;                  // state of all 5 buttons as visible on the host side
-static uint8_t    buttons_12S;                  // state when buttons 3/4/5 act together as button 3 (squished mode)
-static float      delta_x, delta_y;             // accumulated mouse movement since last reported
-static int8_t     wheel;                        // NOTE: only fetch this via 'GetResetWheel*' calls!
+static uint8_t    buttons     = 0;              // currently visible button state
+static uint8_t    buttons_all = 0;              // state of all 5 buttons as visible on the host side
+static uint8_t    buttons_12S = 0;              // state when buttons 3/4/5 act together as button 3 (squished mode)
+static float      delta_x = 0.0f;               // accumulated mouse movement since last reported
+static float      delta_y = 0.0f;
+static int8_t     wheel   = 0;                  // NOTE: only fetch this via 'GetResetWheel*' calls!
 
-static MouseType  type;                         // NOTE: only change this via 'SetType' call!
-static uint8_t    unlock_idx_im, unlock_idx_xp; // sequence index for unlocking extended protocols
+static MouseType  type = MouseType::Standard;   // NOTE: only change this via 'SetType' call!
+static uint8_t    unlock_idx_im = 0;            // sequence index for unlocking extended protocol
+static uint8_t    unlock_idx_xp = 0;
 
-static uint8_t    packet[4];                    // packet to be transferred via BIOS interface
+static uint8_t    packet[4] = {};               // packet to be transferred via BIOS interface
 
-static uint8_t    rate_hz;                      // how often (maximum) the mouse event listener can be updated
-static float      delay;                        // minimum time between interrupts [ms]
-static uint8_t    counts_mm;                    // counts per mm
-static float      counts_coeff;                 // 1.0 is 4 counts per mm
+static uint8_t    rate_hz      = 0;             // how often (maximum) the mouse event listener can be updated
+static float      delay        = 0.0f;          // minimum time between interrupts [ms]
+static uint8_t    counts_mm    = 0.0f;          // counts per mm
+static float      counts_coeff = 0.0f;          // 1.0 is 4 counts per mm
 
 // ***************************************************************************
 // PS/2 hardware mouse implementation
@@ -144,6 +146,8 @@ void MOUSEPS2AUX_UpdatePacket()
 
     delta_x -= dx;
     delta_y -= dy;
+
+    dy = -dy;
 
     if (type == MouseType::Explorer) {
         // There is no overflow for 5-button mouse protocol, see HT82M30A datasheet

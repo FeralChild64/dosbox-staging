@@ -44,23 +44,19 @@ class MouseInfoConfig {
 
 public:
 
-    float sensitivity_x;     // sensitivity, might depend on the GUI/GFX 
-    float sensitivity_y;     // for scaling all relative mouse movements
-
-    MouseInfoConfig();
+    float sensitivity_x = 0.3f; // sensitivity, might depend on the GUI/GFX
+    float sensitivity_y = 0.3f; // for scaling all relative mouse movements
 };
 
 class MouseInfoVideo {
 
 public:
 
-    bool     fullscreen;
-    uint16_t res_x;          // resolution to which guest image is scaled, excluding black borders
-    uint16_t res_y;
-    uint16_t clip_x;         // clipping = size of black border (one side)
-    uint16_t clip_y;         // clipping value - size of black border (one side)
-
-    MouseInfoVideo();
+    bool     fullscreen = true;
+    uint16_t res_x = 640; // resolution to which guest image is scaled, excluding black borders
+    uint16_t res_y = 400;
+    uint16_t clip_x = 0;  // clipping = size of black border (one side)
+    uint16_t clip_y = 0;  // clipping value - size of black border (one side)
 };
 
 extern MouseInfoConfig mouse_config;
@@ -159,7 +155,7 @@ uintptr_t MOUSEDOSDRV_DoCallback(const uint8_t type, const uint8_t buttons);
 // - understands up to 3 buttons
 // - needs index of button which changed state
 
-bool MOUSEDOSDRV_NotifyMoved(const int16_t x_rel, const int16_t y_rel, const bool is_captured);
+bool MOUSEDOSDRV_NotifyMoved(const int16_t x_rel, const int16_t y_rel, const uint16_t x_abs, const uint16_t y_abs, const bool is_captured);
 bool MOUSEDOSDRV_NotifyPressed(const uint8_t buttons_12S, const uint8_t idx);
 bool MOUSEDOSDRV_NotifyReleased(const uint8_t buttons_12S, const uint8_t idx);
 bool MOUSEDOSDRV_NotifyWheel(const int16_t w_rel);

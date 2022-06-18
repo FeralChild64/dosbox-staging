@@ -21,6 +21,7 @@
 #include <algorithm>
 
 #include "bitops.h"
+#include "bit_view.h"
 #include "checks.h"
 #include "regs.h"
 #include "inout.h"
@@ -54,20 +55,29 @@ enum class VMwareAbsPointer:uint32_t {
     Absolute = 0x53424152,
 };
 
+union VMwareButtons {
+    uint8_t data = 0;
+    bit_view<5, 1> left;
+    bit_view<4, 1> right;
+    bit_view<3, 1> middle;
+};
+
 static constexpr io_port_t VMWARE_PORT   = 0x5658u;     // communication port
 // static constexpr io_port_t VMWARE_PORTHB = 0x5659u;  // communication port, high bandwidth
 static constexpr uint32_t  VMWARE_MAGIC  = 0x564D5868u; // magic number for all VMware calls
+static constexpr uint32_t  ABS_UPDATED     = 4;         // tells that new pointer position is available
+static constexpr uint32_t  ABS_NOT_UPDATED = 0;
 
-static bool      updated        = false;  // true = mouse state update waits to be picked up
-static uint8_t   buttons_vmware = 0;      // state of mouse buttons, in VMware format
-static uint16_t  scaled_x       = 0x7fff; // absolute mouse position, scaled from 0 to 0xffff
-static uint16_t  scaled_y       = 0x7fff; // 0x7fff is a center position
-static int8_t    wheel          = 0;      // wheel movement counter
+static bool          updated  = false;  // true = mouse state update waits to be picked up
+static VMwareButtons buttons;           // state of mouse buttons, in VMware format
+static uint16_t      scaled_x = 0x7fff; // absolute mouse position, scaled from 0 to 0xffff
+static uint16_t      scaled_y = 0x7fff; // 0x7fff is a center position
+static int8_t        wheel    = 0;      // wheel movement counter
 
-static int16_t   offset_x       = 0;      // offses between host and guest mouse coordinates (in host pixels)
-static int16_t   offset_y       = 0;      // (in host pixels)
+static int16_t offset_x = 0; // offset between host and guest mouse coordinates (in host pixels)
+static int16_t offset_y = 0; // (in host pixels)
 
-bool mouse_vmware = false;             // if true, VMware compatible driver has taken over the mouse
+bool mouse_vmware = false;   // if true, VMware compatible driver has taken over the mouse
 
 // ***************************************************************************
 // VMware interface implementation
@@ -81,7 +91,7 @@ static void CmdGetVersion()
 
 static void CmdAbsPointerData()
 {
-    reg_eax = buttons_vmware;
+    reg_eax = buttons.data;
     reg_ebx = scaled_x;
     reg_ecx = scaled_y;
     reg_edx = static_cast<uint32_t>((wheel >= 0) ? wheel : 0x100 + wheel);
@@ -91,7 +101,7 @@ static void CmdAbsPointerData()
 
 static void CmdAbsPointerStatus()
 {
-    reg_eax = updated ? 4 : 0;
+    reg_eax = updated ? ABS_UPDATED : ABS_NOT_UPDATED;
     updated = false;
 }
 
@@ -169,8 +179,11 @@ bool MOUSEVMWARE_NotifyMoved(const uint16_t x_abs, const uint16_t y_abs)
             unscaled = static_cast<float>(std::max(absolute - clip, 0));
         }
 
-        return static_cast<uint16_t>(std::min(static_cast<uint32_t>(UINT16_MAX),
-                                              static_cast<uint32_t>(unscaled * UINT16_MAX / static_cast<float>(res - 1) + 0.499)));
+        assert(res > 1u);
+        const auto scale = static_cast<float>(UINT16_MAX) / (res - 1);
+        const auto tmp = std::min(static_cast<uint32_t>(UINT16_MAX),
+                                  static_cast<uint32_t>(unscaled * scale + 0.499f));
+        return static_cast<uint16_t>(tmp);
     };
 
     const auto old_x = scaled_x;
@@ -186,11 +199,11 @@ bool MOUSEVMWARE_NotifyMoved(const uint16_t x_abs, const uint16_t y_abs)
 
 bool MOUSEVMWARE_NotifyPressedReleased(const uint8_t buttons_12S)
 {
-    buttons_vmware = 0;
+    buttons.data = 0;
 
-    if (bit::is(buttons_12S, b0)) bit::set(buttons_vmware, b5); // left button
-    if (bit::is(buttons_12S, b1)) bit::set(buttons_vmware, b4); // right button
-    if (bit::is(buttons_12S, b2)) bit::set(buttons_vmware, b3); // middle button
+    if (bit::is(buttons_12S, b0)) buttons.left   = 1;
+    if (bit::is(buttons_12S, b1)) buttons.right  = 1;
+    if (bit::is(buttons_12S, b2)) buttons.middle = 1;
 
     updated = true;
 
@@ -200,9 +213,10 @@ bool MOUSEVMWARE_NotifyPressedReleased(const uint8_t buttons_12S)
 bool MOUSEVMWARE_NotifyWheel(const int16_t w_rel)
 {
     if (mouse_vmware) {
-        wheel = static_cast<int8_t>(std::clamp(static_cast<int32_t>(w_rel + wheel),
-                                               static_cast<int32_t>(INT8_MIN),
-                                               static_cast<int32_t>(INT8_MAX)));
+        const auto tmp = std::clamp(static_cast<int32_t>(w_rel + wheel),
+                                    static_cast<int32_t>(INT8_MIN),
+                                    static_cast<int32_t>(INT8_MAX));
+        wheel = static_cast<int8_t>(tmp);
         updated = true;
     }
 
@@ -214,9 +228,10 @@ void MOUSEVMWARE_NewScreenParams(const uint16_t x_abs, const uint16_t y_abs)
     // Adjust offset, to prevent cursor jump with the next mouse move on the host side
 
     auto ClampOffset = [](const int16_t offset, uint16_t clip) {
-        return static_cast<int16_t>(std::clamp(static_cast<int32_t>(offset),
-                                               static_cast<int32_t>(-clip),
-                                               static_cast<int32_t>(clip)));
+        const auto tmp = std::clamp(static_cast<int32_t>(offset),
+                                    static_cast<int32_t>(-clip),
+                                    static_cast<int32_t>(clip));
+        return static_cast<int16_t>(tmp);
     };
 
     offset_x = ClampOffset(offset_x, mouse_video.clip_x);
