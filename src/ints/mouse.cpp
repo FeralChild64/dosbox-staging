@@ -38,7 +38,7 @@ CHECK_NARROWING();
 MouseInfoConfig mouse_config;
 MouseInfoVideo  mouse_video;
 
-enum EventType:uint8_t { // compatible with DOS driver mask in driver function 0x0c
+enum class EventType:uint8_t { // compatible with DOS driver mask in driver function 0x0c
     NotDosEvent    = 0x00,
     MouseHasMoved  = 0x01,
     PressedLeft    = 0x02,
@@ -125,8 +125,7 @@ static void SendPacket() {
     // Send mouse event either via PS/2 bus or activate INT74/IRQ12 directly
     if (event.req_ps2) {
         MOUSEPS2AUX_UpdatePacket();
-        if (!MOUSEPS2AUX_SendPacket())
-            PIC_ActivateIRQ(12);
+        PIC_ActivateIRQ(12); // temporary, until proper PS/2 hardware interface is implemented
     } else if (event.req_dos)
         PIC_ActivateIRQ(12);
 }
@@ -211,7 +210,6 @@ static void MarkUseINT74() {
 
 static uintptr_t INT74_Handler() {
     MarkUseINT74();
-    MOUSEPS2AUX_FlushPacket();
 
     // If DOS mouse handler is busy - try the next time
     if (MOUSEDOSDRV_CallbackInProgress())

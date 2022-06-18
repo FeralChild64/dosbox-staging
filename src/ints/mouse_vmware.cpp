@@ -41,14 +41,14 @@ CHECK_NARROWING();
 // - https://github.com/NattyNarwhal/vmwmouse
 // - https://git.javispedro.com/cgit/vbmouse.git (planned support)
 
-enum VMwareCmd:uint16_t {
+enum class VMwareCmd:uint16_t {
     GetVersion        = 10,
     AbsPointerData    = 39,
     AbsPointerStatus  = 40,
     AbsPointerCommand = 41,
 };
 
-enum VMwareAbsPointer:uint32_t {
+enum class VMwareAbsPointer:uint32_t {
     Enable   = 0x45414552,
     Relative = 0xF5,
     Absolute = 0x53424152,
@@ -97,7 +97,7 @@ static void CmdAbsPointerStatus()
 
 static void CmdAbsPointerCommand()
 {
-    switch (reg_ebx) {
+    switch (static_cast<VMwareAbsPointer>(reg_ebx)) {
     case VMwareAbsPointer::Enable:
         break; // can be safely ignored
     case VMwareAbsPointer::Relative:
@@ -124,7 +124,7 @@ static uint16_t PortReadVMware(const io_port_t, const io_width_t)
     if (reg_eax != VMWARE_MAGIC)
         return 0;
 
-    switch (reg_cx) {
+    switch (static_cast<VMwareCmd>(reg_cx)) {
     case VMwareCmd::GetVersion:        CmdGetVersion();        break;
     case VMwareCmd::AbsPointerData:    CmdAbsPointerData();    break;
     case VMwareCmd::AbsPointerStatus:  CmdAbsPointerStatus();  break;

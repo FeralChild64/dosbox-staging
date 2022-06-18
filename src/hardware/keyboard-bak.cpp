@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2002-2021  The DOSBox Team
+ *  Copyright (C) 2002-2022  The DOSBox Team
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -24,11 +24,13 @@
 #include "pic.h"
 #include "mem.h"
 #include "mixer.h"
+#include "mouse.h"
 #include "timer.h"
 #include "support.h"
 
 #define KEYBUFSIZE 32
 #define KEYDELAY   0.300 // Considering 20-30 khz serial clock and 11 bits/char
+#define RESBUFSIZE 8
 
 using namespace bit::literals;
 
@@ -36,13 +38,28 @@ enum KeyCommands {
 	CMD_NONE,
 	CMD_SETLEDS,
 	CMD_SETTYPERATE,
-	CMD_SETOUTPORT
+	CMD_SETOUTPORT,
+	CMD_SETCOMMAND,
+	CMD_WRITEAUX
 };
 
 static struct {
-	uint8_t buffer[KEYBUFSIZE];
-	Bitu used;
-	Bitu pos;
+	uint8_t buf8042[RESBUFSIZE];
+	size_t  used8042;
+	size_t  pos8042;
+
+    uint8_t buffer[KEYBUFSIZE];
+    bool    is_aux[KEYBUFSIZE]; // true = corresponding byte came from AUX (mouse) port
+	size_t  used;
+	size_t  pos;
+
+	bool cb_irq1;
+	bool cb_irq12;
+	bool post_passed;
+	bool xlat;        // FIXME: emulate this
+	bool active;
+	bool auxactive;
+
 	struct {
 		KBD_KEYS key;
 		Bitu wait;
@@ -51,35 +68,60 @@ static struct {
 	KeyCommands command;
 	uint8_t p60data;
 	bool p60changed;
-	bool active;
+	bool auxchanged;
 	bool scanning;
 	bool scheduled;
 } keyb;
 
-static void KEYBOARD_SetPort60(uint8_t val) {
+static void KEYBOARD_SetPort60(uint8_t val, bool is_aux=false) {
+	keyb.auxchanged=is_aux;
 	keyb.p60changed=true;
-	keyb.p60data=val;
-	if (machine==MCH_PCJR) PIC_ActivateIRQ(6);
-	else PIC_ActivateIRQ(1);
+	keyb.p60data=val&0xff;
+    if (is_aux) {
+    	if (keyb.cb_irq12) PIC_ActivateIRQ(12);
+    } else if (keyb.cb_irq1) {
+		if (machine==MCH_PCJR) PIC_ActivateIRQ(6);
+		else PIC_ActivateIRQ(1);
+    }
 }
 
-static void KEYBOARD_TransferBuffer(uint32_t /*val*/)
-{
+static void KEYBOARD_TransferBuffer(uint32_t /*val*/) {
 	keyb.scheduled = false;
-	if (!keyb.used) {
+	if (keyb.used8042) {
+		KEYBOARD_SetPort60(keyb.buf8042[keyb.pos8042]);
+		keyb.pos8042 = (keyb.pos8042+1) % RESBUFSIZE;
+		keyb.used8042--;		
+	} else if (keyb.used) {
+		KEYBOARD_SetPort60(keyb.buffer[keyb.pos], keyb.is_aux[keyb.pos]);
+		keyb.pos = (keyb.pos+1) % KEYBUFSIZE;
+		keyb.used--;	
+	} else {
 		LOG(LOG_KEYBOARD,LOG_NORMAL)("Transfer started with empty buffer");
-		return;
 	}
-	KEYBOARD_SetPort60(keyb.buffer[keyb.pos]);
-	if (++keyb.pos >= KEYBUFSIZE) keyb.pos -= KEYBUFSIZE;
-	keyb.used--;
 }
 
-void KEYBOARD_ClrBuffer(void) {
+void KEYBOARD_ClrBuffer() {
 	keyb.used=0;
 	keyb.pos=0;
+	keyb.used8042=0;
+	keyb.pos8042=0;
 	PIC_RemoveEvents(KEYBOARD_TransferBuffer);
 	keyb.scheduled=false;
+}
+
+static void KEYBOARD_Add8042Response(uint8_t data) {
+	if (keyb.used8042>=RESBUFSIZE) {
+		LOG(LOG_KEYBOARD,LOG_NORMAL)("Buffer full, dropping 8042 response");
+		return;
+	}
+	Bitu start=(keyb.pos8042+keyb.used8042) % RESBUFSIZE;
+	keyb.buf8042[start]=data;
+	keyb.used8042++;
+	/* Start up an event to start the first IRQ */
+	if (!keyb.scheduled && !keyb.p60changed) {
+		keyb.scheduled=true;
+		PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);
+	}
 }
 
 static void KEYBOARD_AddBuffer(uint8_t data) {
@@ -87,9 +129,9 @@ static void KEYBOARD_AddBuffer(uint8_t data) {
 		LOG(LOG_KEYBOARD,LOG_NORMAL)("Buffer full, dropping code");
 		return;
 	}
-	Bitu start=keyb.pos+keyb.used;
-	if (start>=KEYBUFSIZE) start-=KEYBUFSIZE;
+	Bitu start=(keyb.pos+keyb.used) % KEYBUFSIZE;
 	keyb.buffer[start]=data;
+	keyb.is_aux[start]=false;
 	keyb.used++;
 	/* Start up an event to start the first IRQ */
 	if (!keyb.scheduled && !keyb.p60changed) {
@@ -98,10 +140,53 @@ static void KEYBOARD_AddBuffer(uint8_t data) {
 	}
 }
 
-static uint8_t read_p60(io_port_t, io_width_t)
-{
+bool KEYBOARD_AddBufferAUX(uint8_t *data, uint8_t bytes) { /* For PS/2 mouse */
+	if (!keyb.auxactive)
+		return false;
+	if (keyb.used+bytes>KEYBUFSIZE) {
+		LOG(LOG_KEYBOARD,LOG_NORMAL)("Buffer full, dropping mouse codes");
+		return false;
+	}
+	Bitu start=keyb.pos+keyb.used;
+	for (uint8_t i=0; i<bytes; i++) {
+		keyb.buffer[(start+i) % KEYBUFSIZE]=*(data+i);
+		keyb.is_aux[(start+i) % KEYBUFSIZE]=true;
+	}
+	keyb.used+=bytes;
+	/* Start up an event to start the first IRQ */
+	if (!keyb.scheduled && !keyb.p60changed) {
+		keyb.scheduled=true;
+		PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);
+	}
+	return true;
+}
+
+void KEYBOARD_FlushMsgAUX() { // Needed by virtual BIOS/DOS mouse support
+	if (!keyb.p60changed || !keyb.auxchanged)
+		return; // No mouse event awaiting, nothing to flush
+	// Drop current byte
+	keyb.auxchanged=false;
+	keyb.p60changed=false;
+	keyb.scheduled=false;
+	PIC_RemoveEvents(KEYBOARD_TransferBuffer);
+	// Drop everything in the buffer that came from AUX (mouse)
+	uint8_t pos=(keyb.pos+keyb.used-1) % KEYBUFSIZE;
+	while (keyb.used && keyb.is_aux[pos]){
+		keyb.pos = (keyb.pos+1) % KEYBUFSIZE;
+		keyb.used--;
+		pos = (pos+1) % KEYBUFSIZE;
+	}
+	// If there is still something left in the buffer, schedule it
+	if (keyb.used || keyb.used8042) {
+		keyb.scheduled=true;
+		PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);		
+	}
+}
+
+static uint8_t read_p60(io_port_t, io_width_t) {
+	keyb.auxchanged = false;
 	keyb.p60changed = false;
-	if (!keyb.scheduled && keyb.used) {
+	if (!keyb.scheduled && (keyb.used || keyb.used8042)) {
 		keyb.scheduled = true;
 		PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);
 	}
@@ -124,8 +209,9 @@ static void write_p60(io_port_t, io_val_t value, io_width_t)
 			KEYBOARD_AddBuffer(0xee);	/* Echo */
 			break;
 		case 0xf2:	/* Identify keyboard */
-			/* AT's just send acknowledge */
-			KEYBOARD_AddBuffer(0xfa);	/* Acknowledge */
+			KEYBOARD_AddBuffer(0xfa);   /* Acknowledge */
+			KEYBOARD_AddBuffer(0xab);   /* ID */
+			KEYBOARD_AddBuffer(0x83);
 			break;
 		case 0xf3: /* Typematic rate programming */
 			keyb.command=CMD_SETTYPERATE;
@@ -143,8 +229,8 @@ static void write_p60(io_port_t, io_val_t value, io_width_t)
 			break;
 		case 0xf6:	/* Reset keyboard and enable scanning */
 			LOG(LOG_KEYBOARD,LOG_NORMAL)("Reset, enable scanning");
-			KEYBOARD_AddBuffer(0xfa);	/* Acknowledge */
-			keyb.scanning=false;
+			keyb.scanning=true;         /* JC: Original DOSBox code was wrong, this command enables scanning */
+			KEYBOARD_AddBuffer(0xfa);   /* Acknowledge */
 			break;
 		default:
 			/* Just always acknowledge strange commands */
@@ -156,6 +242,10 @@ static void write_p60(io_port_t, io_val_t value, io_width_t)
 		MEM_A20_Enable((val & 2)>0);
 		keyb.command = CMD_NONE;
 		break;
+    case CMD_WRITEAUX:
+        keyb.command=CMD_NONE;
+        MOUSEPS2AUX_PortWrite(val);
+        break;
 	case CMD_SETTYPERATE:
 		{
 			static const int delay[] = { 250, 500, 750, 1000 };
@@ -173,6 +263,19 @@ static void write_p60(io_port_t, io_val_t value, io_width_t)
 		KEYBOARD_ClrBuffer();
 		KEYBOARD_AddBuffer(0xfa);	/* Acknowledge */
 		break;
+    case CMD_SETCOMMAND: // 8042 command, not keyboard
+        keyb.command=CMD_NONE;
+        keyb.cb_irq1     = bit::is(val, b0);
+        keyb.cb_irq12    = bit::is(val, b1);
+        keyb.post_passed = bit::is(val, b2);
+        keyb.active      = !bit::is(val, b3);
+        keyb.auxactive   = !bit::is(val, b4);
+        keyb.xlat        = bit::is(val, b5);
+        if (keyb.used && !keyb.scheduled && !keyb.p60changed && keyb.active) {
+            keyb.scheduled=true;
+            PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);
+        }
+        break;
 	}
 }
 
@@ -268,10 +371,33 @@ static uint8_t read_p62(io_port_t, io_width_t)
 static void write_p64(io_port_t, io_val_t value, io_width_t)
 {
 	const auto val = check_cast<uint8_t>(value);
+	uint8_t ret = 0;
 	switch (val) {
+    case 0x20:      /* Read command byte */
+		if (keyb.cb_irq1)     bit::set(ret, b0);
+		if (keyb.cb_irq12)    bit::set(ret, b1);
+		if (keyb.post_passed) bit::set(ret, b2);
+		if (!keyb.active)     bit::set(ret, b3);
+		if (!keyb.auxactive)  bit::set(ret, b4);
+		if (!keyb.xlat)       bit::set(ret, b5);
+        KEYBOARD_Add8042Response(ret);
+        break;
+    case 0x60:      /* Set command byte */
+        keyb.command=CMD_SETCOMMAND;
+        break;
+	case 0xa8:      /* Activate AUX (mouse) */
+        keyb.auxactive=true;
+		if ((keyb.used || keyb.used8042) && !keyb.scheduled && !keyb.p60changed) {
+			keyb.scheduled=true;
+			PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);
+		}
+        break;
+	case 0xa7:      /* Deactivate AUX */
+        keyb.auxactive=false;
+        break;
 	case 0xae:		/* Activate keyboard */
 		keyb.active=true;
-		if (keyb.used && !keyb.scheduled && !keyb.p60changed) {
+		if ((keyb.used || keyb.used8042) && !keyb.scheduled && !keyb.p60changed) {
 			keyb.scheduled=true;
 			PIC_AddEvent(KEYBOARD_TransferBuffer,KEYDELAY);
 		}
@@ -287,15 +413,17 @@ static void write_p64(io_port_t, io_val_t value, io_width_t)
 	case 0xd1:		/* Write to outport */
 		keyb.command=CMD_SETOUTPORT;
 		break;
+	case 0xd4:		/* Address the mouse with the next byte */
+		keyb.command=CMD_WRITEAUX;
+		break;
 	default:
 		LOG(LOG_KEYBOARD, LOG_ERROR)("Port 64 write with val %x", val);
 		break;
 	}
 }
 
-static uint8_t read_p64(io_port_t, io_width_t)
-{
-	uint8_t status = 0x1c | (keyb.p60changed ? 0x1 : 0x0);
+static uint8_t read_p64(io_port_t, io_width_t) {
+    uint8_t status = 0x1c | (keyb.p60changed ? 0x1 : 0x0) | (keyb.auxchanged ? 0x20 : 0x00);
 	return status;
 }
 
@@ -470,14 +598,21 @@ void KEYBOARD_Init(Section* /*sec*/) {
 	IO_RegisterReadHandler(0x64, read_p64, io_width_t::byte);
 	TIMER_AddTickHandler(&KEYBOARD_TickHandler);
 	write_p61(0, 0, io_width_t::byte);
-	/* Init the keyb struct */
-	keyb.active = true;
-	keyb.scanning = true;
-	keyb.command = CMD_NONE;
-	keyb.p60changed = false;
-	keyb.repeat.key = KBD_NONE;
+	/* Init the keyb struct - command bits*/
+	keyb.cb_irq1      = true;
+	keyb.cb_irq12     = true;
+	keyb.post_passed  = true;
+	keyb.xlat         = true;
+	keyb.active       = true;
+	keyb.auxactive    = true;
+	/* Init the keyb struct - remaining data*/
+	keyb.scanning     = true;
+	keyb.command      = CMD_NONE;
+	keyb.auxchanged   = false;
+	keyb.p60changed   = false;
+	keyb.repeat.key   = KBD_NONE;
 	keyb.repeat.pause = 500;
-	keyb.repeat.rate = 33;
-	keyb.repeat.wait = 0;
+	keyb.repeat.rate  = 33;
+	keyb.repeat.wait  = 0;
 	KEYBOARD_ClrBuffer();
 }

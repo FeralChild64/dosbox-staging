@@ -45,7 +45,7 @@ public:
     void handleUpperEvent(const uint16_t event_type) override;
 
     private:
-    enum MouseType { NoMouse, Microsoft, Logitech, Wheel, MouseSystems };
+    enum class MouseType { NoMouse, Microsoft, Logitech, Wheel, MouseSystems };
 
     void SetType(const MouseType new_type);
     void AbortPacket();
@@ -63,31 +63,29 @@ public:
     const uint16_t port_num;
 
     MouseType config_type; // mouse type as in the configuration file
-    bool config_auto; // true = autoswitch between config_type and Mouse Systems
-                  // Mouse
+    bool config_auto;      // true = autoswitch between config_type and Mouse Systems Mouse
 
     MouseType type;   // currently emulated mouse type
     uint8_t byte_len; // how many bits the emulated mouse transmits in a byte
-                  // (serial port setting)
+                      // (serial port setting)
     bool has_3rd_button;
     bool has_wheel;
-    bool port_valid; // false = port settings incompatible with selected mouse
+    bool port_valid;    // false = port settings incompatible with selected mouse
     uint8_t smooth_div; // time divider value, if > 1 mouse is more smooth than
-                    // with real HW
-
-    bool      send_ack;
-    uint8_t   packet[6] = {};
-    uint8_t   packet_len;
-    uint8_t xmit_idx;    // index of byte to send, if >= packet_len it means
-                     // transmission ended
-    bool xmit_2part;     // true = packet has a second part, which could not be
+                        // with real HW
+    bool    send_ack;
+    uint8_t packet[6] = {};
+    uint8_t packet_len;
+    uint8_t xmit_idx; // index of byte to send, if >= packet_len it means
+                      // transmission ended
+    bool xmit_2part; // true = packet has a second part, which could not be
                      // evaluated yet
-    bool another_move;   // true = while transmitting a packet we received mouse
-                     // move event
+    bool another_move; // true = while transmitting a packet we received mouse
+                       // move event
     bool another_button; // true = while transmitting a packet we received mouse
-                     // button event
-    uint8_t buttons;     // bit 0 = left, bit 1 = right, bit 2 = middle
-    int32_t delta_x;     // movement since last transmitted package
+                         // button event
+    uint8_t buttons; // bit 0 = left, bit 1 = right, bit 2 = middle
+    int32_t delta_x; // movement since last transmitted package
     int32_t delta_y;
     int32_t delta_w;
 };

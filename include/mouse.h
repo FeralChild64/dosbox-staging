@@ -102,7 +102,6 @@ float MOUSEPS2AUX_GetDelay();
 void MOUSEPS2AUX_PortWrite(const uint8_t byte);
 void MOUSEPS2AUX_UpdatePacket();
 bool MOUSEPS2AUX_SendPacket();
-void MOUSEPS2AUX_FlushPacket();
 
 // - needs relative movements
 // - understands up to 5 buttons in Intellimouse Explorer mode
