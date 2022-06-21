@@ -34,6 +34,11 @@ using namespace bit::literals;
 
 CHECK_NARROWING();
 
+// XXX TODO
+// XXX MOUSEDOSDRV_HasCallback() - to be removed; there shouldn't be a call, but notification to mouse.cpp
+// XXX MOUSEBIOS_HasCallback() - to be removed too,
+// XXX use bit_view for mouse buttons whenever possible
+// XXX fix IntelliMouse Explorer
 
 MouseInfoConfig mouse_config;
 MouseInfoVideo  mouse_video;
@@ -69,8 +74,6 @@ static uint8_t    queue_used        = 0;
 static bool       timer_in_progress = false;
 
 static uintptr_t  int74_ret_callback = 0;
-static bool       int74_used = false;         // true = our virtual INT74 callback is actually used, not overridden
-static uint8_t    int74_needed_countdown = 0; // counter to detect above value
 
 static uint8_t    buttons_12  = 0; // state of buttons 1 (left), 2 (right), as visible on host side
 static uint8_t    buttons_345 = 0; // state of mouse buttons 3 (middle), 4, and 5 as visible on host side
@@ -83,7 +86,7 @@ static void EventHandler(uint32_t); // forward devlaration
 
 static float GetEventDelay()
 {
-    if (int74_used && MOUSEDOSDRV_HasCallback())
+    if (MOUSEDOSDRV_HasCallback())
         return 5.0f; // 200 Hz sampling rate
 
     return MOUSEPS2AUX_GetDelay();
@@ -94,19 +97,9 @@ static void SendPacket()
     timer_in_progress = true;
     PIC_AddEvent(EventHandler, GetEventDelay());
 
-    // Detect if our INT74/IRQ12 handler is actually being used
-    if (int74_needed_countdown > 0)
-        int74_needed_countdown--;
-    else
-        int74_used = false;
-
     // Filter out unneeded DOS driver events
     auto &event = queue[queue_used - 1];
-    event.req_dos &= int74_used && MOUSEDOSDRV_HasCallback();
-
-    // If our INT74/IRQ12 is not used, there is no need for the queue at all
-    if (!int74_used)
-        queue_used = 0;
+    event.req_dos &= MOUSEDOSDRV_HasCallback();
 
     // Send mouse event either via PS/2 bus or activate INT74/IRQ12 directly
     if (event.req_ps2) {
@@ -125,7 +118,7 @@ static void EventHandler(uint32_t /*val*/)
 static void AddEvent(MouseEvent &event)
 {
     // Filter out unneeded DOS driver events
-    event.req_dos &= int74_used && MOUSEDOSDRV_HasCallback();
+    event.req_dos &= MOUSEDOSDRV_HasCallback();
     // PS/2 events are relevant even without BIOS callback,
     // they might be needed by register-level mouse access
     if (!event.req_ps2 && !event.req_dos)
@@ -192,16 +185,8 @@ static uintptr_t INT74_Exit()
     return CBRET_NONE;  
 }
 
-static void MarkUseINT74()
-{
-    int74_used = true;
-    int74_needed_countdown = 2;  
-}
-
 static uintptr_t INT74_Handler()
 {
-    MarkUseINT74();
-
     // If DOS mouse handler is busy - try the next time
     if (MOUSEDOSDRV_CallbackInProgress())
         return INT74_Exit();
@@ -424,8 +409,6 @@ void MOUSE_EventWheel(const int16_t w_rel)
 
 void MOUSE_Init(Section* /*sec*/)
 {
-    MarkUseINT74();
-
     // Callback for ps2 irq
     auto call_int74 = CALLBACK_Allocate();
     CALLBACK_Setup(call_int74, &INT74_Handler, CB_IRQ12, "int 74");
