@@ -328,6 +328,12 @@
     <ClCompile Include="..\src\ints\mouse.cpp">
       <Filter>src\ints</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\ints\mouse_dos_driver.cpp">
+      <Filter>src\ints</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\ints\mouse_ps2_bios.cpp">
+      <Filter>src\ints</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\ints\mouse_serial.cpp">
       <Filter>src\ints</Filter>
     </ClCompile>

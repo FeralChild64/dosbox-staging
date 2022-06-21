@@ -118,12 +118,14 @@ static void CmdAbsPointerCommand()
 	case VMwareAbsPointer::Relative:
 		mouse_vmware = false;
 		LOG_MSG("MOUSE (PS/2): VMware protocol disabled");
+		MOUSEPS2AUX_UpdateButtonSquish();
 		GFX_UpdateMouseState();
 		break;
 	case VMwareAbsPointer::Absolute:
 		mouse_vmware = true;
 		wheel        = 0;
 		LOG_MSG("MOUSE (PS/2): VMware protocol enabled");
+		MOUSEPS2AUX_UpdateButtonSquish();
 		GFX_UpdateMouseState();
 		break;
 	default:
@@ -206,7 +208,7 @@ bool MOUSEVMWARE_NotifyMoved(const uint16_t x_abs, const uint16_t y_abs)
 	return mouse_vmware && (old_x != scaled_x || old_y != scaled_y);
 }
 
-void MOUSEVMWARE_NotifyPressedReleased(const uint8_t buttons_12S)
+bool MOUSEVMWARE_NotifyPressedReleased(const uint8_t buttons_12S)
 {
 	buttons.data = 0;
 
@@ -218,9 +220,11 @@ void MOUSEVMWARE_NotifyPressedReleased(const uint8_t buttons_12S)
 		buttons.middle = 1;
 
 	updated = true;
+
+	return mouse_vmware;
 }
 
-void MOUSEVMWARE_NotifyWheel(const int16_t w_rel)
+bool MOUSEVMWARE_NotifyWheel(const int16_t w_rel)
 {
 	if (mouse_vmware) {
 		const auto tmp = std::clamp(static_cast<int32_t>(w_rel + wheel),
@@ -229,6 +233,8 @@ void MOUSEVMWARE_NotifyWheel(const int16_t w_rel)
 		wheel   = static_cast<int8_t>(tmp);
 		updated = true;
 	}
+
+	return mouse_vmware;
 }
 
 void MOUSEVMWARE_NewScreenParams(const uint16_t x_abs, const uint16_t y_abs)

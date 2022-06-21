@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2022       The DOSBox Staging Team
  *  Copyright (C) 2002-2021  The DOSBox Team
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -15,7 +16,6 @@
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
-
 
 #include "dosbox.h"
 #include "mem.h"
@@ -34,7 +34,7 @@
 #include <time.h>
 
 #if defined(HAVE_CLOCK_GETTIME) && !defined(WIN32)
-//time.h is already included
+// time.h is already included
 #else
 #include <sys/timeb.h>
 #endif
@@ -947,11 +947,11 @@ static Bitu INT15_Handler(void) {
 		switch (reg_al) {
 		case 0x00:                      // enable/disable
 			if (reg_bh==0) {	// disable
-				MOUSE_SetPS2State(false);
+				MOUSEBIOS_SetState(false);
 				reg_ah=0;
 				CALLBACK_SCF(false);
 			} else if (reg_bh==0x01) {	//enable
-				if (!MOUSE_SetPS2State(true)) {
+				if (!MOUSEBIOS_SetState(true)) {
 					reg_ah=5;
 					CALLBACK_SCF(true);
 					break;
@@ -964,26 +964,39 @@ static Bitu INT15_Handler(void) {
 			}
 			break;
 		case 0x01:               // reset
+			MOUSEBIOS_Reset();
 			reg_bx = 0x00aa; // mouse
 			[[fallthrough]];
 		case 0x05:		// initialize
-			if ((reg_al==0x05) && (reg_bh!=0x03)) {
-				// non-standard data packet sizes not supported
+			if ((reg_al == 0x05) && !MOUSEBIOS_SetPacketSize(reg_bh)) {
 				CALLBACK_SCF(true);
 				reg_ah=2;
 				break;
 			}
-			MOUSE_SetPS2State(false);
+			MOUSEBIOS_SetState(false);
 			CALLBACK_SCF(false);
 			reg_ah=0;
 			break;
 		case 0x02:		// set sampling rate
-		case 0x03:		// set resolution
+			if (!MOUSEBIOS_SetRate(reg_bh)) {
+				CALLBACK_SCF(true);
+				reg_ah = 2;
+				break;
+			}
+			CALLBACK_SCF(false);
+			reg_ah = 0;
+			break;
+		case 0x03: // set resolution
+			if (!MOUSEBIOS_SetResolution(reg_bh)) {
+				CALLBACK_SCF(true);
+				reg_ah = 2;
+				break;
+			}
 			CALLBACK_SCF(false);
 			reg_ah=0;
 			break;
 		case 0x04:		// get type
-			reg_bh=0;	// ID
+			reg_bh = MOUSEBIOS_GetType();
 			CALLBACK_SCF(false);
 			reg_ah=0;
 			break;
@@ -997,7 +1010,7 @@ static Bitu INT15_Handler(void) {
 			}
 			break;
 		case 0x07:		// set callback
-			MOUSE_ChangePS2Callback(SegValue(es), reg_bx);
+			MOUSEBIOS_ChangeCallback(SegValue(es), reg_bx);
 			CALLBACK_SCF(false);
 			reg_ah=0;
 			break;
