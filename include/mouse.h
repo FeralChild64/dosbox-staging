@@ -27,7 +27,7 @@
 // ***************************************************************************
 
 void MOUSE_EventMoved(const int16_t x_rel, const int16_t y_rel, const uint16_t x_abs,
-                      const uint16_t y_abs, const bool is_captured);
+                      const uint16_t y_abs);
 void MOUSE_EventPressed(const uint8_t idx);
 void MOUSE_EventReleased(const uint8_t idx);
 void MOUSE_EventWheel(const int16_t w_rel);
@@ -37,31 +37,13 @@ void MOUSE_NewScreenParams(const uint16_t clip_x, const uint16_t clip_y,
                            const uint16_t res_x, const uint16_t res_y,
                            const bool fullscreen, const uint16_t x_abs,
                            const uint16_t y_abs);
-void MOUSE_NotifyMovedFake(); // for VMware protocol support
 
 // ***************************************************************************
-// Common structures, please only update via functions above
+// Common structures and variables
 // ***************************************************************************
 
-class MouseInfoConfig {
-public:
-	float sensitivity_x = 0.3f; // sensitivity, might depend on the GUI/GFX
-	float sensitivity_y = 0.3f; // for scaling all relative mouse movements
-};
-
-class MouseInfoVideo {
-public:
-	bool fullscreen = true;
-	uint16_t res_x  = 640; // resolution to which guest image is scaled,
-	                       // excluding black borders
-	uint16_t res_y  = 400;
-	uint16_t clip_x = 0; // clipping = size of black border (one side)
-	uint16_t clip_y = 0; // clipping value - size of black border (one side)
-};
-
-extern MouseInfoConfig mouse_config;
-extern MouseInfoVideo  mouse_video;
-extern bool mouse_vmware; // true = vmware driver took over the mouse
+// Tf driver with seamless pointer support is running
+extern bool mouse_seamless_driver;
 
 // ***************************************************************************
 // Functions to be called by specific interface implementations
@@ -79,88 +61,27 @@ class CSerialMouse;
 void MOUSESERIAL_RegisterListener(CSerialMouse &listener);
 void MOUSESERIAL_UnRegisterListener(CSerialMouse &listener);
 
-// - needs relative movements
-// - understands up to 3 buttons
-// - needs index of button which changed state
-
-void MOUSESERIAL_NotifyMoved(const int16_t x_rel, const int16_t y_rel);
-void MOUSESERIAL_NotifyPressed(const uint8_t buttons_12S, const uint8_t idx);
-void MOUSESERIAL_NotifyReleased(const uint8_t buttons_12S, const uint8_t idx);
-void MOUSESERIAL_NotifyWheel(const int16_t w_rel);
-
-// ***************************************************************************
-// PS/2 mouse
-// ***************************************************************************
-
-void MOUSEPS2AUX_Init();
-void MOUSEPS2AUX_UpdateButtonSquish();
-float MOUSEPS2AUX_GetDelay();
-void MOUSEPS2AUX_PortWrite(const uint8_t byte);
-void MOUSEPS2AUX_UpdatePacket();
-bool MOUSEPS2AUX_SendPacket();
-
-// - needs relative movements
-// - understands up to 5 buttons in Intellimouse Explorer mode
-// - understands up to 3 buttons in other modes
-// - provides a way to generate dummy event, for VMware mouse integration
-
-bool MOUSEPS2AUX_NotifyMoved(const int16_t x_rel, const int16_t y_rel);
-bool MOUSEPS2AUX_NotifyPressedReleased(const uint8_t buttons_12S,
-                                       const uint8_t buttons_all);
-bool MOUSEPS2AUX_NotifyWheel(const int16_t w_rel);
-
 // ***************************************************************************
 // BIOS mouse interface for PS/2 mouse
 // ***************************************************************************
 
 bool MOUSEBIOS_SetState(const bool use);
-void MOUSEBIOS_ChangeCallback(const uint16_t pseg, const uint16_t pofs);
+void MOUSEBIOS_SetCallback(const uint16_t pseg, const uint16_t pofs);
 void MOUSEBIOS_Reset();
 bool MOUSEBIOS_SetPacketSize(const uint8_t packet_size);
-bool MOUSEBIOS_SetRate(const uint8_t rate_id);
+bool MOUSEBIOS_SetSampleRate(const uint8_t rate_id);
+void MOUSEBIOS_SetScaling21(const bool enable);
 bool MOUSEBIOS_SetResolution(const uint8_t res_id);
 uint8_t MOUSEBIOS_GetType();
-
-bool MOUSEBIOS_HasCallback();
-uintptr_t MOUSEBIOS_DoCallback();
-
-// ***************************************************************************
-// VMware protocol extension for PS/2 mouse
-// ***************************************************************************
-
-void MOUSEVMWARE_Init();
-void MOUSEVMWARE_NewScreenParams(const uint16_t x_abs, const uint16_t y_abs);
-
-// - needs absolute mouse position
-// - understands up to 3 buttons
-
-bool MOUSEVMWARE_NotifyMoved(const uint16_t x_abs, const uint16_t y_abs);
-bool MOUSEVMWARE_NotifyPressedReleased(const uint8_t buttons_12S);
-bool MOUSEVMWARE_NotifyWheel(const int16_t w_rel);
+uint8_t MOUSEBIOS_GetStatus();
+uint8_t MOUSEBIOS_GetResolution();
+uint8_t MOUSEBIOS_GetSampleRate();
 
 // ***************************************************************************
 // DOS mouse driver
 // ***************************************************************************
 
-void MOUSEDOSDRV_Init();
-void MOUSEDOSDRV_BeforeNewVideoMode();
-void MOUSEDOSDRV_AfterNewVideoMode(const bool setmode);
-void MOUSEDOSDRV_DrawCursor();
-
-bool MOUSEDOSDRV_HasCallback();
-bool MOUSEDOSDRV_HasCallback(const uint8_t type);
-bool MOUSEDOSDRV_CallbackInProgress();
-uintptr_t MOUSEDOSDRV_DoCallback(const uint8_t type, const uint8_t buttons);
-
-// - needs relative movements
-// - understands up to 3 buttons
-// - needs index of button which changed state
-
-bool MOUSEDOSDRV_NotifyMoved(const int16_t x_rel, const int16_t y_rel,
-                             const uint16_t x_abs, const uint16_t y_abs,
-                             const bool is_captured);
-bool MOUSEDOSDRV_NotifyPressed(const uint8_t buttons_12S, const uint8_t idx);
-bool MOUSEDOSDRV_NotifyReleased(const uint8_t buttons_12S, const uint8_t idx);
-bool MOUSEDOSDRV_NotifyWheel(const int16_t w_rel);
+void MOUSEDOS_BeforeNewVideoMode();
+void MOUSEDOS_AfterNewVideoMode(const bool setmode);
 
 #endif // DOSBOX_MOUSE_H
