@@ -39,9 +39,9 @@ CHECK_NARROWING();
 // XXX review once again all std::clamp, std::min, std::max with floating point values (fmax, fmin should be more simple)
 // XXX fix various remarks in mouse_dos_driver.cpp
 // XXX review BIOS/DOS mouse with ralph brown interrupt list (part N for dos driver)
-// XXX write a new queue, separate class
+// XXX finish the new queue
 // XXX fix support for windows driver from https://git.javispedro.com/cgit/vbados.git
-// XXX consider dropping mouse interrupt rate arbitration
+// XXX rename MOUSEVMWARE to MOUSEVMM
 
 // XXX already finished, to be put in PR notes:
 //
@@ -53,7 +53,7 @@ CHECK_NARROWING();
 // - strange effects in windowed mode with seamless mouse control enabled with some software
 //   (like DOOM or Windows 3.1) should be gone in 99% cases - just capture mouse manually
 //   by pressing the scroll wheel (middle button) to use the mouse with them
-// Internal changes
+ // Internal changes
 // - large refactoring - BIOS+PS/2 and DOS driver mouse interfaces were put into separate files
 // - implemented several cleanups suggested during 'part 1' pull requests, but were too risky
 //   and complicated to apply on non-refactored code
@@ -67,29 +67,10 @@ MouseInfoVideo  mouse_video;
 
 bool mouse_seamless_driver = false;
 
-typedef struct MouseEvent {
-    // XXX req_ps2bios / req_dosdrv / req_vmware
-    bool req_ps2 = false; // if PS/2 mouse emulation needs an event
-    bool req_vmm = false; // if virtual machine mouse needs an event
-    bool req_dos = false; // if DOS mouse driver needs an event
-
-    MouseEventId    event_id = MouseEventId::NotDosEvent;
-    MouseButtons12S buttons_12S = 0;
-
-    MouseEvent() {}
-    MouseEvent(MouseEventId event_id) : event_id(event_id) {}
-
-} MouseEvent;
-
-static constexpr uint8_t QUEUE_SIZE = 32;
-static MouseEvent queue[QUEUE_SIZE] = {};
-static uint8_t queue_used           = 0;
-static bool timer_in_progress       = false;
-
 static uintptr_t int74_ret_callback = 0;
 
-static MouseButtons12  buttons_12   = 0;  // state of buttons 1 (left), 2 (right), as visible on the host side
-static MouseButtons345 buttons_345  = 0; // state of mouse buttons 3 (middle), 4, and 5, as visible on the host side
+static MouseButtons12  buttons_12   = 0; // host side state of buttons 1 (left), 2 (right)
+static MouseButtons345 buttons_345  = 0; // host side state of buttons 3 (middle), 4, and 5
 
 static float sensitivity_x = 0.3f; // sensitivity, might depend on the GUI/GFX
 static float sensitivity_y = 0.3f; // for scaling all relative mouse movements
@@ -119,89 +100,302 @@ static MouseButtons12S GetButtonsSquished()
 }
 
 // ***************************************************************************
-// Queue / interrupt 74 implementation
+// Mouse event queue implementation
 // ***************************************************************************
 
-static void EventHandler(uint32_t); // forward devlaration
+typedef struct MouseEvent {
 
-static float GetEventDelay()
+    bool req_ps2 = false; // if PS/2 mouse emulation needs an event
+    bool req_vmm = false; // if virtual machine mouse needs an event
+    bool req_dos = false; // if DOS mouse driver needs an event
+
+    MouseEventId    event_id = MouseEventId::NotDosEvent; // XXX rename to id
+    MouseButtons12S buttons_12S = 0;
+
+    MouseEvent() {}
+    MouseEvent(MouseEventId event_id) : event_id(event_id) {}
+
+} MouseEvent;
+
+class MouseQueue final {
+
+public:
+
+    MouseQueue();
+
+    void AddEvent(MouseEvent &event);
+    void FetchEvent(MouseEvent &event);
+    void ClearDos();
+    void StartTimer();
+    void Tick();
+
+private:
+
+    MouseQueue(const MouseQueue&) = delete;
+    MouseQueue &operator=(const MouseQueue&) = delete;
+
+    bool IsEmpty() const;
+
+    std::array<MouseEvent, 12> events = {}; // a modulo queue of events
+    uint8_t idx_first    = 0;  // index of the first event
+    uint8_t num_events   = 0;  // number of events in the queue
+
+    MouseButtons12S last_buttons_12S = 0; // last buttons reported
+
+    bool queue_overflowed  = false;
+    bool timer_in_progress = false;
+
+    // High prioroity events, handled before the queue
+
+    bool event_ps2       = false;
+    bool event_dos_moved = false;
+    bool event_dos_wheel = false;
+
+    bool prefer_ps2      = false; // true = next time prefer PS/2 events
+
+} queue;
+
+static void MouseQueueTick(uint32_t)
 {
-    if (mouse_active.dos)
-        return 5.0f; // 200 Hz sampling rate
-
-    return MOUSEPS2_GetDelay();
+    queue.Tick();
 }
 
-static void SendPacket()
+MouseQueue::MouseQueue() { }
+
+void MouseQueue::AddEvent(MouseEvent &event)
 {
-    timer_in_progress = true;
-    PIC_AddEvent(EventHandler, GetEventDelay());
+    // Since events are being fetched, clear the overflow flag
+    if (mouse_active.dos && !mouse_active.dos_cb_running)
+        queue_overflowed = false;
 
-    // Filter out unneeded DOS driver events
-    auto &event = queue[queue_used - 1];
-    event.req_dos &= mouse_active.dos;
+    if (event.req_ps2 || event.req_vmm) {
+        // Events for PS/2 interfaces (or virtualizer compatible drivers)
+        // do not carry any informations - they are only notifications
+        // that new data is available for fetching
+        event_ps2 = true;
+    }
 
-    // Send mouse event either via PS/2 bus or activate INT74/IRQ12 directly
-    if (event.req_ps2) {
-        MOUSEPS2_UpdatePacket();
-        PIC_ActivateIRQ(12); // temporary, until proper PS/2 hardware
-                             // interface is implemented
-    } else if (event.req_dos)
+    // Prevent double-click while mouse is moving or wheel is moving
+    if ((event_dos_moved && event.event_id == MouseEventId::MouseHasMoved) ||
+        (event_dos_wheel && event.event_id == MouseEventId::WheelHasMoved))
+        event.req_dos = false; // DOS queue already has such event
+
+    // If queue got overflowed due to DOS not taking events,
+    // don't accept any more button events, as it might lead to
+    // strange effects in DOS application
+    if (queue_overflowed &&
+        event.event_id != MouseEventId::MouseHasMoved &&
+        event.event_id != MouseEventId::WheelHasMoved) {
+        event.req_dos = false;
+        last_buttons_12S = event.buttons_12S;
+    }
+
+    if (event.req_dos) {
+        if (event.event_id == MouseEventId::MouseHasMoved) {
+            // Mouse has moved - put in priority place
+            event_dos_moved = true;
+        }
+        else if (event.event_id == MouseEventId::WheelHasMoved) {
+            // Wheel has moved - put in priority place
+            event_dos_wheel = true;
+        }
+        else if (num_events >= events.size()) {
+            // No space left, queue overflow. Clear it and don't
+            // accept any more button events until application starts
+            // to react again
+            num_events = 0;
+            queue_overflowed = true;
+            last_buttons_12S = event.buttons_12S;
+        }
+        else {
+            // Button press/release - put into the queue
+            const auto idx = (idx_first + num_events) % events.size();
+            num_events++;
+            event.buttons_12S.data = GetButtonsSquished().data;
+            events[idx] = event;
+        }
+    }
+
+    // Filter out unnecessary events
+    if (!event.req_dos && !event.req_ps2 && !event.req_vmm)
+        return; //event not relevant for any mouse
+
+    // If no timer in progress, launch the event immediately
+    if (!timer_in_progress)
+        Tick();
+}
+
+void MouseQueue::FetchEvent(MouseEvent &event)
+{
+    const bool event_dos = (num_events != 0) || event_dos_moved || event_dos_wheel;
+
+    // We should prefer PS/2 events now (as the last was DOS one),
+    // but we can't if there is no PS/2 event
+    if (!event_ps2)
+        prefer_ps2 = false;
+
+    // First try DOS event (don't do this if handler is busy)
+    if (!prefer_ps2 && event_dos && !mouse_active.dos_cb_running) {
+        // Next time prefer PS/2 events
+        prefer_ps2 = true;
+
+        // Try priviledged DOS events (movement and wheel)
+        if (event_dos_moved) {
+            event.req_dos     = true;
+            event.event_id    = MouseEventId::MouseHasMoved;
+            event.buttons_12S = last_buttons_12S;
+            event_dos_moved = false;
+            return;
+        } 
+        if (event_dos_wheel) {
+            event.req_dos     = true;
+            event.event_id    = MouseEventId::WheelHasMoved;
+            event.buttons_12S = last_buttons_12S;
+            event_dos_wheel = false;
+            return;
+        }
+
+        // If we are here, we have to provide button-related
+        // event from the regular queue
+        event = events[idx_first];
+        last_buttons_12S = event.buttons_12S;
+        idx_first = static_cast<uint8_t>((idx_first + 1) % events.size());
+        num_events--;
+        return;
+    }
+
+    // Now try PS/2 event
+    if (event_ps2) {
+        // Next time prefer DOS event
+        prefer_ps2 = false;
+        // PS/2 events are really dummy - merely a notification
+        // that something has happened and driver has to react
+        event.req_ps2 = true;   
+        return;
+    }
+
+    // Nothing to provide, event will stay empty
+}
+
+bool MouseQueue::IsEmpty() const
+{
+    return !event_ps2 && !event_dos_moved && !event_dos_wheel &&
+           (num_events == 0);
+}
+
+void MouseQueue::ClearDos()
+{
+    // Clear DOS relevant part of the queue
+    num_events = 0;
+    event_dos_moved = false;
+    event_dos_wheel = false;
+
+    // The overflow reason is most likely
+    queue_overflowed = false;
+
+    if (IsEmpty()) {
+        timer_in_progress = false;
+        PIC_RemoveEvents(MouseQueueTick);
+    }
+}
+
+void MouseQueue::StartTimer()
+{
+    // XXX implement shorter delays for events from different sources at the same time
+    // XXX implement different delays based on rate_hz, from both DOS and PS/2 interfaces
+
+    if (!IsEmpty() && !timer_in_progress) {
+        timer_in_progress = true;
+        PIC_AddEvent(MouseQueueTick, 5.0); // 200 Hz
+    }
+}
+
+void MouseQueue::Tick()
+{
+    timer_in_progress = false;
+
+    // If there is no DOS callback registered, don't bother
+    // with button events for DOS driver
+    if (!mouse_active.dos) {
+        num_events = 0;
+        event_dos_wheel = 0;
+        // moving should still be reported, for updating cursor
+    }
+
+    if (!IsEmpty())
         PIC_ActivateIRQ(12);
 }
 
-static void EventHandler(uint32_t /*val*/)
+
+// ***************************************************************************
+// Interrupt 74 implementation
+// ***************************************************************************
+
+static uintptr_t INT74_Exit()
 {
-    timer_in_progress = false;
-    if (queue_used)
-        SendPacket();
+    SegSet16(cs, RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
+    reg_ip = RealOff(CALLBACK_RealPointer(int74_ret_callback));
+
+    return CBRET_NONE;
 }
 
-static void AddEvent(MouseEvent &event)
+static uintptr_t INT74_Handler()
 {
-    // Filter out unneeded DOS driver events XXX shouldn't be needed, should be determined by DOS driver (check it!)
-    event.req_dos &= mouse_active.dos;
+    MouseEvent event;
+    queue.FetchEvent(event);
 
-    // Vritual machine management interface jusat requires PS/2 event
-    event.req_ps2 |= event.req_vmm;
+    // If DOS driver is active, use it to handle the event
+    if (event.req_dos && mouse_active.dos) {
 
-    // Skip events if no mouse interface needs them
-    if (!event.req_ps2 && !event.req_dos)
-        return;
+        // Taken from DOSBox X: HERE within the IRQ 12 handler is the
+        // appropriate place to redraw the cursor. OSes like Windows 3.1
+        // expect real-mode code to do it in response to IRQ 12, not
+        // "out of the blue" from the SDL event handler like the
+        // original DOSBox code did it. Doing this allows the INT 33h
+        // emulation to draw the cursor while not causing Windows 3.1 to
+        // crash or behave erratically.
+        MOUSEDOS_DrawCursor();
 
-    if (queue_used < QUEUE_SIZE) {
-        // Events are handled starting from highest index
-        if (queue_used) {
+        // If DOS driver's client is not interested in this particular
+        // type of event - skip it
+        if (!MOUSEDOS_HasCallback(event.event_id))
+            return INT74_Exit();
+    
+        CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
+        CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)) + 7);
 
-            // XXX rework/rethink this! Make sure VMware events are executed!
-            
-            // PS/2 notifications should be executed ASAP,
-            // so move 'req_ps2' flag to the first event
-            if (event.req_ps2) {
-                queue[queue_used - 1].req_ps2 = true;
-                if (!event.req_dos)
-                    return; // Skip - no driver needs what
-                            // is left
-                event.req_ps2 = false;
-            }
-            // Skip redundant events
-            if (event.event_id == MouseEventId::MouseHasMoved ||
-                event.event_id == MouseEventId::WheelHasMoved) {
-                return;
-            }
-            // This is a button event; put it at the back
-            // to prevent doubleclicks while moving/scrolling
-            for (auto i = queue_used; i; i--)
-                queue[i] = queue[i - 1];
-        }
-        queue[0] = event;
-        queue[0].buttons_12S.data = GetButtonsSquished().data;
-        queue_used++;
+        return MOUSEDOS_DoCallback(event.event_id, event.buttons_12S);
     }
 
-    if (!timer_in_progress)
-        SendPacket();
+    // If event is relevant for PS/2, it has to update data packet
+    if (event.req_ps2) {
+        MOUSEPS2_UpdatePacket();
+    }
+
+    // If BIOS interface is active, use it to handle the event
+    if (event.req_ps2 && mouse_active.bios) {
+        
+        CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
+        CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)));
+
+        // XXX shouldn't we clear the event queue here?
+
+        return MOUSEBIOS_DoCallback();
+    }
+
+    // No mouse emulation module is interested in event
+    return INT74_Exit();
 }
+
+uintptr_t INT74_Ret_Handler()
+{
+    queue.StartTimer();
+    return CBRET_NONE;
+}
+
+// ***************************************************************************
+// Helper functions
+// ***************************************************************************
 
 static MouseEventId SelectIdPressed(const uint8_t idx, const bool changed_12S)
 {
@@ -229,81 +423,6 @@ static MouseEventId SelectIdReleased(const uint8_t idx, const bool changed_12S)
                            : MouseEventId::NotDosEvent;
     default: return MouseEventId::NotDosEvent;
     }
-}
-
-static uintptr_t INT74_Exit()
-{
-    SegSet16(cs, RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
-    reg_ip = RealOff(CALLBACK_RealPointer(int74_ret_callback));
-
-    return CBRET_NONE;
-}
-
-static uintptr_t INT74_Handler()
-{
-    // If there are no events in the queue - don't do anything
-    // If DOS mouse handler is busy - try the next time
-    if (!queue_used || mouse_active.dos_cb_running)
-        return INT74_Exit(); // no events
-
-    const auto &event = queue[--queue_used];
-
-    // XXX rethink event.req_dos / event.req_ps2 usage
-    // XXX is it possible that DOS and PS/2 drivers are active at the same time?    
-    
-    // If DOS driver is active, use it to handle the event
-    if (event.req_dos && mouse_active.dos) {
-
-        // Taken from DOSBox X: HERE within the IRQ 12 handler is the
-        // appropriate place to redraw the cursor. OSes like Windows 3.1
-        // expect real-mode code to do it in response to IRQ 12, not
-        // "out of the blue" from the SDL event handler like the
-        // original DOSBox code did it. Doing this allows the INT 33h
-        // emulation to draw the cursor while not causing Windows 3.1 to
-        // crash or behave erratically.
-        MOUSEDOS_DrawCursor();
-
-        // If DOS driver's client is not interested in this particular
-        // type of event - skip it
-        if (!MOUSEDOS_HasCallback(event.event_id))
-            return INT74_Exit();
-    
-        CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
-        CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)) + 7);
-
-        return MOUSEDOS_DoCallback(event.event_id, event.buttons_12S);
-    }
-
-    // If BIOS interface is active, use it to handle the event
-    if (event.req_ps2 && mouse_active.bios) {
-        
-        CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
-        CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)));
-
-        // XXX shouldn't we clear the event queue here?
-
-        return MOUSEBIOS_DoCallback();
-    }
-
-    // No mouse emulation module is interested in event
-    return INT74_Exit();
-}
-
-uintptr_t INT74_Ret_Handler()
-{
-    if (queue_used && !timer_in_progress) {
-        timer_in_progress = true;
-        PIC_AddEvent(EventHandler, GetEventDelay());
-    }
-    return CBRET_NONE;
-}
-
-void MOUSE_ClearQueue()
-{
-    queue_used        = 0;
-    timer_in_progress = false;
-
-    PIC_RemoveEvents(EventHandler);
 }
 
 // ***************************************************************************
@@ -346,6 +465,11 @@ void MOUSE_NewScreenParams(const uint16_t clip_x, const uint16_t clip_y,
     mouse_video.fullscreen = fullscreen;
 
     MOUSEVMWARE_NewScreenParams(x_abs, y_abs);
+}
+
+void MOUSE_NotifyDosReset()
+{
+    queue.ClearDos();
 }
 
 void MOUSE_NotifyDriverChanged()
@@ -409,7 +533,7 @@ void MOUSE_EventMoved(const int16_t x_rel, const int16_t y_rel,
     event.req_vmm = MOUSEVMWARE_NotifyMoved(x_abs, y_abs);
     event.req_dos = MOUSEDOS_NotifyMoved(x_sen, y_sen, x_abs, y_abs);
 
-    AddEvent(event);
+    queue.AddEvent(event);
 }
 
 void MOUSE_NotifyMovedFake()
@@ -417,7 +541,7 @@ void MOUSE_NotifyMovedFake()
     MouseEvent event(MouseEventId::MouseHasMoved);
     event.req_vmm = true;
 
-    AddEvent(event);
+    queue.AddEvent(event);
 }
 
 void MOUSE_EventPressed(uint8_t idx)
@@ -470,7 +594,7 @@ void MOUSE_EventPressed(uint8_t idx)
         MOUSESERIAL_NotifyPressed(buttons_12S, idx_12S);
     }
 
-    AddEvent(event);
+    queue.AddEvent(event);
 }
 
 void MOUSE_EventReleased(uint8_t idx)
@@ -523,7 +647,7 @@ void MOUSE_EventReleased(uint8_t idx)
         MOUSESERIAL_NotifyReleased(buttons_12S, idx_12S);
     }
 
-    AddEvent(event);
+    queue.AddEvent(event);
 }
 
 void MOUSE_EventWheel(const int16_t w_rel)
@@ -538,7 +662,7 @@ void MOUSE_EventWheel(const int16_t w_rel)
     event.req_vmm = MOUSEVMWARE_NotifyWheel(w_rel);
     event.req_dos = MOUSEDOS_NotifyWheel(w_rel);
 
-    AddEvent(event);
+    queue.AddEvent(event);
 }
 
 // ***************************************************************************

@@ -67,16 +67,15 @@ static uint8_t unlock_idx_im = 0; // sequence index for unlocking extended proto
 static uint8_t unlock_idx_xp = 0;
 #endif // ENABLE_EXPLORER_MOUSE
 
-static uint8_t packet[4]  = {0};  // packet to be transferred via BIOS interface
+static uint8_t packet[4]  = {0};   // packet to be transferred via BIOS interface
 
-static uint8_t rate_hz    = 0;    // maximum rate at which the mouse state is updated
+static uint8_t rate_hz    = 0;     // maximum rate at which the mouse state is updated
 static bool    scaling_21 = false; // NOTE: scaling only works for stream mode,
                                    // not when reading data manually!
 								   // https://www3.tuhh.de/osg/Lehre/SS21/V_BSB/doc/ps2mouse.html
-                            
-static float delay        = 0.0f; // minimum time between interrupts [ms]
-static uint8_t counts_mm  = 0.0f; // counts per mm
-static float counts_coeff = 0.0f; // 1.0 is 4 counts per mm
+
+static uint8_t counts_mm  = 0;     // counts per mm
+static float counts_rate  = 0.0f;  // 1.0 is 4 counts per mm
 
 // ***************************************************************************
 // PS/2 hardware mouse implementation
@@ -295,7 +294,7 @@ static void CmdSetResolution(const uint8_t new_counts_mm)
     else
         counts_mm = new_counts_mm;
 
-    counts_coeff = counts_mm / 4.0f;
+    counts_rate = counts_mm / 4.0f;
 }
 
 static void CmdSetSampleRate(const uint8_t new_rate_hz)
@@ -311,8 +310,6 @@ static void CmdSetSampleRate(const uint8_t new_rate_hz)
     }
     else
         rate_hz = new_rate_hz;
-
-    delay = 1000.0f / rate_hz;
     
     // Handle extended mouse protocol unlock sequences
     
@@ -341,11 +338,9 @@ static void CmdSetDefaults()
 {
     TerminateUnlockSequence(); 
 
-    rate_hz = 100;
-    delay   = 10.0f;
-
-    counts_mm    = 4;
-    counts_coeff = 1.0f;
+    rate_hz     = 100;
+    counts_mm   = 4;
+    counts_rate = 1.0f;
 
 #ifdef ENABLE_EXPLORER_MOUSE
     MOUSEPS2_UpdateButtonSquish();
@@ -364,11 +359,6 @@ static void CmdSetScaling21(const bool enable)
     TerminateUnlockSequence();
 
     scaling_21 = enable;
-}
-
-float MOUSEPS2_GetDelay()
-{
-    return delay;
 }
 
 bool MOUSEPS2_NotifyMoved(const float x_rel, const float y_rel)

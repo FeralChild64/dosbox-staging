@@ -46,13 +46,6 @@ void MOUSE_NewScreenParams(const uint16_t clip_x, const uint16_t clip_y,
 extern bool mouse_seamless_driver;
 
 // ***************************************************************************
-// Functions to be called by specific interface implementations
-// ***************************************************************************
-
-void MOUSE_ClearQueue();
-void MOUSE_EventMovedDummy();
-
-// ***************************************************************************
 // Serial mouse
 // ***************************************************************************
 

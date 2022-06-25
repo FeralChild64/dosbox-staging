@@ -142,6 +142,7 @@ union MouseButtons12S { // use where buttons 3/4/5 are squished into a virtual m
 
 void MOUSE_NotifyDriverChanged();
 void MOUSE_NotifyMovedFake();     // for VMware protocol support
+void MOUSE_NotifyDosReset();
 
 // ***************************************************************************
 // Serial mouse
@@ -162,7 +163,6 @@ void MOUSESERIAL_NotifyWheel(const int16_t w_rel);
 
 void MOUSEPS2_Init();
 void MOUSEPS2_UpdateButtonSquish();
-float MOUSEPS2_GetDelay();
 void MOUSEPS2_PortWrite(const uint8_t byte);
 void MOUSEPS2_UpdatePacket();
 bool MOUSEPS2_SendPacket();
@@ -220,7 +220,6 @@ void MOUSEDOS_DrawCursor();
 bool MOUSEDOS_HasCallback(const MouseEventId event_id);
 uintptr_t MOUSEDOS_DoCallback(const MouseEventId event_id,
                                  const MouseButtons12S buttons_12S);
-
 // - needs relative movements
 // - understands up to 3 buttons
 // - needs index of button which changed state
@@ -230,5 +229,8 @@ bool MOUSEDOS_NotifyMoved(const float x_rel, const float y_rel,
 bool MOUSEDOS_NotifyPressed(const MouseButtons12S buttons_12S, const uint8_t idx);
 bool MOUSEDOS_NotifyReleased(const MouseButtons12S buttons_12S, const uint8_t idx);
 bool MOUSEDOS_NotifyWheel(const int16_t w_rel);
+
+
+
 
 #endif // DOSBOX_MOUSE_CORE_H

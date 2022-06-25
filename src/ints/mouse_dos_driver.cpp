@@ -592,7 +592,7 @@ void MOUSEDOS_AfterNewVideoMode(const bool setmode)
     state.cursor_type        = 0;
     state.enabled           = true;
 
-    MOUSE_ClearQueue();
+    MOUSE_NotifyDosReset();
 }
 
 // FIXME: Much too empty, NewVideoMode contains stuff that should be in here
@@ -638,6 +638,7 @@ static void Reset()
     mouse_active.dos_cb_running = false;
     
     UpdateDriverActive();
+    MOUSE_NotifyDosReset();
 }
 
 static void LimitCoordinates()
@@ -783,7 +784,8 @@ bool MOUSEDOS_NotifyWheel(const int16_t w_rel)
     const auto tmp = std::clamp(static_cast<int32_t>(w_rel + state.wheel),
                                 static_cast<int32_t>(INT16_MIN),
                                 static_cast<int32_t>(INT16_MAX));
-    state.wheel    = static_cast<int16_t>(tmp);
+
+    state.wheel = static_cast<int16_t>(tmp);
     state.last_wheel_moved_x = GETPOS_X;
     state.last_wheel_moved_y = GETPOS_Y;
 
@@ -1293,7 +1295,7 @@ bool MOUSEDOS_HasCallback(const MouseEventId event_id)
 }
 
 uintptr_t MOUSEDOS_DoCallback(const MouseEventId event_id,
-                                 const MouseButtons12S buttons_12S)
+                              const MouseButtons12S buttons_12S)
 {
     mouse_active.dos_cb_running = true;
 
