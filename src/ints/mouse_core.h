@@ -35,13 +35,16 @@
 // Common structures and variables
 // ***************************************************************************
 
-class MouseInfoActive {
+class MouseInfoShared {
 public:
-    bool bios   = false; // true = BIOS has a registered callback
-    bool dos    = false; // true = DOS driver has a registered callback
-    bool vmware = false; // true = VMware driver has taken over the mouse
+    bool active_bios = false; // true = BIOS has a registered callback
+    bool active_dos  = false; // true = DOS driver has a functioning callback
+    bool active_vmm  = false; // true = VMware-compatible driver is active
     
     bool dos_cb_running = false; // true = DOS callback is running
+
+    uint8_t event_interval_ps2 = 5; // in miliseconds
+    uint8_t event_interval_dos = 5;
 };
 
 class MouseInfoVideo {
@@ -55,7 +58,7 @@ public:
     uint16_t clip_y = 0;
 };
 
-extern MouseInfoActive mouse_active;
+extern MouseInfoShared mouse_shared;
 extern MouseInfoVideo  mouse_video;
 
 extern bool mouse_is_captured;
@@ -187,15 +190,15 @@ uintptr_t MOUSEBIOS_DoCallback();
 // VMware protocol extension for PS/2 mouse
 // ***************************************************************************
 
-void MOUSEVMWARE_Init();
-void MOUSEVMWARE_NewScreenParams(const uint16_t x_abs, const uint16_t y_abs);
+void MOUSEVMM_Init();
+void MOUSEVMM_NewScreenParams(const uint16_t x_abs, const uint16_t y_abs);
 
 // - needs absolute mouse position
 // - understands up to 3 buttons
 
-bool MOUSEVMWARE_NotifyMoved(const uint16_t x_abs, const uint16_t y_abs);
-bool MOUSEVMWARE_NotifyPressedReleased(const MouseButtons12S buttons_12S);
-bool MOUSEVMWARE_NotifyWheel(const int16_t w_rel);
+bool MOUSEVMM_NotifyMoved(const uint16_t x_abs, const uint16_t y_abs);
+bool MOUSEVMM_NotifyPressedReleased(const MouseButtons12S buttons_12S);
+bool MOUSEVMM_NotifyWheel(const int16_t w_rel);
 
 // ***************************************************************************
 // DOS mouse driver

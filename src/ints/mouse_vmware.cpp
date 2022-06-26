@@ -109,14 +109,14 @@ static void CmdAbsPointerCommand()
     switch (static_cast<VMwareAbsPointer>(reg_ebx)) {
     case VMwareAbsPointer::Enable: break; // can be safely ignored
     case VMwareAbsPointer::Relative:
-        mouse_active.vmware = false;
+        mouse_shared.active_vmm = false;
         LOG_MSG("MOUSE (PS/2): VMware protocol disabled");
         MOUSE_NotifyDriverChanged();
         buttons.data = 0;
         wheel = 0;
         break;
     case VMwareAbsPointer::Absolute:
-        mouse_active.vmware = true;
+        mouse_shared.active_vmm = true;
         LOG_MSG("MOUSE (PS/2): VMware protocol enabled");
         MOUSE_NotifyDriverChanged();
         buttons.data = 0;
@@ -147,7 +147,7 @@ static uint32_t PortReadVMware(const io_port_t, const io_width_t)
     return reg_eax;
 }
 
-bool MOUSEVMWARE_NotifyMoved(const uint16_t x_abs, const uint16_t y_abs)
+bool MOUSEVMM_NotifyMoved(const uint16_t x_abs, const uint16_t y_abs)
 {
     auto calculate = [](const uint16_t absolute,
                         int16_t &offset,
@@ -204,9 +204,9 @@ bool MOUSEVMWARE_NotifyMoved(const uint16_t x_abs, const uint16_t y_abs)
     return (old_x != scaled_x || old_y != scaled_y);
 }
 
-bool MOUSEVMWARE_NotifyPressedReleased(const MouseButtons12S buttons_12S)
+bool MOUSEVMM_NotifyPressedReleased(const MouseButtons12S buttons_12S)
 {
-    if (!mouse_active.vmware) return false;
+    if (!mouse_shared.active_vmm) return false;
 
     buttons.data = 0;
 
@@ -220,9 +220,9 @@ bool MOUSEVMWARE_NotifyPressedReleased(const MouseButtons12S buttons_12S)
     return true;
 }
 
-bool MOUSEVMWARE_NotifyWheel(const int16_t w_rel)
+bool MOUSEVMM_NotifyWheel(const int16_t w_rel)
 {
-    if (!mouse_active.vmware) return false;
+    if (!mouse_shared.active_vmm) return false;
 
     const auto tmp = std::clamp(static_cast<int32_t>(w_rel + wheel),
                                 static_cast<int32_t>(INT8_MIN),
@@ -233,7 +233,7 @@ bool MOUSEVMWARE_NotifyWheel(const int16_t w_rel)
     return true;
 }
 
-void MOUSEVMWARE_NewScreenParams(const uint16_t x_abs, const uint16_t y_abs)
+void MOUSEVMM_NewScreenParams(const uint16_t x_abs, const uint16_t y_abs)
 {
     // Adjust offset, to prevent cursor jump with the next mouse move on the
     // host side
@@ -250,11 +250,11 @@ void MOUSEVMWARE_NewScreenParams(const uint16_t x_abs, const uint16_t y_abs)
 
     // Report a fake mouse movement
 
-    if (MOUSEVMWARE_NotifyMoved(x_abs, y_abs) && mouse_active.vmware)
+    if (MOUSEVMM_NotifyMoved(x_abs, y_abs) && mouse_shared.active_vmm)
         MOUSE_NotifyMovedFake();
 }
 
-void MOUSEVMWARE_Init()
+void MOUSEVMM_Init()
 {
     IO_RegisterReadHandler(VMWARE_PORT, PortReadVMware, io_width_t::dword);
 }

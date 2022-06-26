@@ -40,7 +40,7 @@
 #endif
 
 // Reference:
-// - https://www.ctyme.com/intr/int.htm
+// - Ralf Brown's Interrupt List
 // - https://www.stanislavs.org/helppc/idx_interrupt.html
 // - http://www2.ift.ulaval.ca/~marchand/ift17583/dosints.pdf
 

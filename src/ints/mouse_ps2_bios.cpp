@@ -89,7 +89,7 @@ void MOUSEPS2_UpdateButtonSquish()
     //   no standard way to report buttons 4 and 5
 
 #ifdef ENABLE_EXPLORER_MOUSE
-    const bool squish = mouse_active.vmware || (type != MouseType::Explorer);
+    const bool squish = mouse_shared.active_vmm || (type != MouseType::Explorer);
     buttons.data = squish ? buttons_12S.data : buttons_all.data;
 #else
     buttons.data = buttons_12S.data;
@@ -113,7 +113,7 @@ static void SetType(const MouseType new_type)
         const char *type_name = nullptr;
         switch (type) {
         case MouseType::Standard:
-            type_name = "Standard, 3 buttons";
+            type_name = "standard, 3 buttons";
             break;
         case MouseType::IntelliMouse:
             type_name = "IntelliMouse, wheel, 3 buttons";
@@ -311,8 +311,10 @@ static void CmdSetSampleRate(const uint8_t new_rate_hz)
     else
         rate_hz = new_rate_hz;
     
+    // Update interval for event queue
+    mouse_shared.event_interval_ps2 = static_cast<uint8_t>(1000 / rate_hz);
+
     // Handle extended mouse protocol unlock sequences
-    
     auto unlock = [](const std::vector<uint8_t> &sequence,
                      uint8_t &idx, const MouseType type)
     {
@@ -336,11 +338,8 @@ static void CmdSetSampleRate(const uint8_t new_rate_hz)
 
 static void CmdSetDefaults()
 {
-    TerminateUnlockSequence(); 
-
-    rate_hz     = 100;
-    counts_mm   = 4;
-    counts_rate = 1.0f;
+    CmdSetResolution(4);
+    CmdSetSampleRate(100);
 
 #ifdef ENABLE_EXPLORER_MOUSE
     MOUSEPS2_UpdateButtonSquish();
@@ -445,21 +444,30 @@ bool MOUSEBIOS_SetPacketSize(const uint8_t packet_size)
 
 bool MOUSEBIOS_SetSampleRate(const uint8_t rate_id)
 {
-    static const std::vector<uint8_t> CONVTAB = {10, 20, 40, 60, 80, 100, 200};
-    if (rate_id >= CONVTAB.size())
-        return false;
+    switch (rate_id) {
+    case 0: CmdSetSampleRate(10);  break;
+    case 1: CmdSetSampleRate(20);  break;
+    case 2: CmdSetSampleRate(40);  break;
+    case 3: CmdSetSampleRate(60);  break;
+    case 4: CmdSetSampleRate(80);  break;
+    case 5: CmdSetSampleRate(100); break;
+    case 6: CmdSetSampleRate(200); break;
+    default: return false;
+    }
 
-    CmdSetSampleRate(CONVTAB[rate_id]);
     return true;
 }
 
 bool MOUSEBIOS_SetResolution(const uint8_t res_id)
 {
-    static const std::vector<uint8_t> CONVTAB = {1, 2, 4, 8};
-    if (res_id >= CONVTAB.size())
-        return false;
+    switch (res_id) {
+    case 0: CmdSetResolution(1); break;
+    case 1: CmdSetResolution(2); break;
+    case 2: CmdSetResolution(4); break;
+    case 3: CmdSetResolution(8); break;
+    default: return false;
+    }
 
-    CmdSetResolution(CONVTAB[res_id]);
     return true;
 }
 
@@ -471,14 +479,14 @@ void MOUSEBIOS_SetScaling21(const bool enable)
 bool MOUSEBIOS_SetState(const bool use)
 {
     if (use && !callback_init) {
-        mouse_active.bios = false;
+        mouse_shared.active_bios = false;
         MOUSE_NotifyDriverChanged();
         PIC_SetIRQMask(12, true);
         return false;
     } else {
-        mouse_active.bios = use;
+        mouse_shared.active_bios = use;
         MOUSE_NotifyDriverChanged();
-        PIC_SetIRQMask(12, !mouse_active.bios);
+        PIC_SetIRQMask(12, !mouse_shared.active_bios);
         return true;
     }
 }
