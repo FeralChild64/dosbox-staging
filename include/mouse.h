@@ -42,8 +42,10 @@ void MOUSE_NewScreenParams(const uint16_t clip_x, const uint16_t clip_y,
 // Common structures and variables
 // ***************************************************************************
 
-// Tf driver with seamless pointer support is running
+// If driver with seamless pointer support is running
 extern bool mouse_seamless_driver;
+// Suggestion to GUI to show host pointer despite other conditions
+extern bool mouse_suggest_show; // TODO: use this information
 
 // ***************************************************************************
 // Serial mouse

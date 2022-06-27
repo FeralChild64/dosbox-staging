@@ -35,8 +35,8 @@ CHECK_NARROWING();
 // - https://wiki.osdev.org/VMware_tools
 // - https://wiki.osdev.org/VirtualBox_Guest_Additions (planned support)
 // Drivers:
-// - https://github.com/NattyNarwhal/vmwmouse
 // - https://git.javispedro.com/cgit/vbados.git
+// - https://github.com/NattyNarwhal/vmwmouse (warning: release 0.1 is unstable)
 // - https://git.javispedro.com/cgit/vbmouse.git (planned support)
 
 enum class VMwareCmd : uint16_t {
@@ -82,6 +82,30 @@ static int16_t offset_y = 0; // (in host pixels)
 // VMware interface implementation
 // ***************************************************************************
 
+static void MOUSEVMM_Activate()
+{
+	if (!mouse_shared.active_vmm) {
+		mouse_shared.active_vmm = true;
+		LOG_MSG("MOUSE (PS/2): VMware protocol enabled");
+		MOUSEPS2_UpdateButtonSquish();
+		MOUSE_NotifyStateChanged();
+	}
+	buttons.data = 0;
+	wheel = 0;
+}
+
+void MOUSEVMM_Deactivate()
+{
+	if (mouse_shared.active_vmm) {
+		mouse_shared.active_vmm = false;
+		LOG_MSG("MOUSE (PS/2): VMware protocol disabled");
+		MOUSEPS2_UpdateButtonSquish();
+		MOUSE_NotifyStateChanged();
+	}
+	buttons.data = 0;
+	wheel = 0;
+}
+
 static void CmdGetVersion()
 {
     reg_eax = 0; // protocol version (TODO: is it OK?)
@@ -109,18 +133,10 @@ static void CmdAbsPointerCommand()
     switch (static_cast<VMwareAbsPointer>(reg_ebx)) {
     case VMwareAbsPointer::Enable: break; // can be safely ignored
     case VMwareAbsPointer::Relative:
-        mouse_shared.active_vmm = false;
-        LOG_MSG("MOUSE (PS/2): VMware protocol disabled");
-        MOUSE_NotifyDriverChanged();
-        buttons.data = 0;
-        wheel = 0;
+		MOUSEVMM_Deactivate();
         break;
     case VMwareAbsPointer::Absolute:
-        mouse_shared.active_vmm = true;
-        LOG_MSG("MOUSE (PS/2): VMware protocol enabled");
-        MOUSE_NotifyDriverChanged();
-        buttons.data = 0;
-        wheel = 0;
+	    MOUSEVMM_Activate();
         break;
     default:
         LOG_WARNING("MOUSE (PS/2): unimplemented VMware subcommand 0x%08x", reg_ebx);

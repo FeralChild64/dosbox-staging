@@ -35,7 +35,7 @@
 // Common structures and variables
 // ***************************************************************************
 
-class MouseInfoShared {
+class MouseShared {
 public:
     bool active_bios = false; // true = BIOS has a registered callback
     bool active_dos  = false; // true = DOS driver has a functioning callback
@@ -47,7 +47,7 @@ public:
     uint8_t event_interval_dos = 5;
 };
 
-class MouseInfoVideo {
+class MouseVideo {
 public:
     bool fullscreen = true;
 
@@ -56,10 +56,12 @@ public:
 
     uint16_t clip_x = 0;   // clipping = size of black border (one side)
     uint16_t clip_y = 0;
+	
+	bool autoseamless = true;
 };
 
-extern MouseInfoShared mouse_shared;
-extern MouseInfoVideo  mouse_video;
+extern MouseShared mouse_shared;
+extern MouseVideo  mouse_video;
 
 extern bool mouse_is_captured;
 
@@ -143,7 +145,7 @@ union MouseButtons12S { // use where buttons 3/4/5 are squished into a virtual m
 // Main mouse module
 // ***************************************************************************
 
-void MOUSE_NotifyDriverChanged();
+void MOUSE_NotifyStateChanged();
 void MOUSE_NotifyMovedFake();     // for VMware protocol support
 void MOUSE_NotifyDosReset();
 
@@ -192,6 +194,7 @@ uintptr_t MOUSEBIOS_DoCallback();
 
 void MOUSEVMM_Init();
 void MOUSEVMM_NewScreenParams(const uint16_t x_abs, const uint16_t y_abs);
+void MOUSEVMM_Deactivate();
 
 // - needs absolute mouse position
 // - understands up to 3 buttons
@@ -229,8 +232,12 @@ uintptr_t MOUSEDOS_DoCallback(const MouseEventId event_id,
 
 bool MOUSEDOS_NotifyMoved(const float x_rel, const float y_rel,
                              const uint16_t x_abs, const uint16_t y_abs);
-bool MOUSEDOS_NotifyPressed(const MouseButtons12S buttons_12S, const uint8_t idx);
-bool MOUSEDOS_NotifyReleased(const MouseButtons12S buttons_12S, const uint8_t idx);
+bool MOUSEDOS_NotifyPressed(const MouseButtons12S buttons_12S,
+                            const uint8_t idx,
+							const MouseEventId event_id);
+bool MOUSEDOS_NotifyReleased(const MouseButtons12S buttons_12S,
+                             const uint8_t idx,
+							 const MouseEventId event_id);
 bool MOUSEDOS_NotifyWheel(const int16_t w_rel);
 
 

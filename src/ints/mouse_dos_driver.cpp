@@ -43,12 +43,10 @@
 #define CURSOR_SIZE_Y  16
 #define CURSOR_SIZE_XY (CURSOR_SIZE_X * CURSOR_SIZE_Y)
 
-#define GETPOS_X    (static_cast<int16_t>(pos_x) & state.gran_x)
-#define GETPOS_Y    (static_cast<int16_t>(pos_y) & state.gran_y)
-#define X_MICKEY    8
-#define Y_MICKEY    8
-#define HIGHESTBIT  (1 << (CURSOR_SIZE_X - 1))
 #define NUM_BUTTONS 3
+
+#define GETPOS_X (static_cast<int16_t>(pos_x) & state.gran_x)
+#define GETPOS_Y (static_cast<int16_t>(pos_y) & state.gran_y)
 
 enum class MouseCursor : uint8_t {
     Software = 0,
@@ -99,7 +97,7 @@ static struct { // DOS driver state
     float pxs_per_mickey_x = 0.0f;
     float pxs_per_mickey_y = 0.0f;
 
-    int16_t gran_x = 0;
+    int16_t gran_x = 0; // granularity mask
     int16_t gran_y = 0;
 
     int16_t update_region_x[2] = {0};
@@ -432,6 +430,7 @@ void MOUSEDOS_DrawCursor()
             dataPos += addx1;
         };
         for (x = x1; x <= x2; x++) {
+            constexpr auto HIGHESTBIT = (1 << (CURSOR_SIZE_X - 1));
             uint8_t pixel = 0;
             // ScreenMask
             if (scMask & HIGHESTBIT)
@@ -458,6 +457,7 @@ void MOUSEDOS_DrawCursor()
 static void UpdateDriverActive()
 {
     mouse_shared.active_dos = (state.sub_mask != 0);
+	MOUSE_NotifyStateChanged();
 }
 
 static uint8_t GetResetWheel8bit()
@@ -492,11 +492,22 @@ static void SetMickeyPixelRate(const int16_t ratio_x, const int16_t ratio_y)
 	// the values should be non-negative (highest bit not set)
 
     if ((ratio_x > 0) && (ratio_y > 0)) {
+        constexpr auto X_MICKEY = 8.0f;
+        constexpr auto Y_MICKEY = 8.0f;
+
         state.mickeys_per_px_x = static_cast<float>(ratio_x) / X_MICKEY;
         state.mickeys_per_px_y = static_cast<float>(ratio_y) / Y_MICKEY;
         state.pxs_per_mickey_x = X_MICKEY / static_cast<float>(ratio_x);
         state.pxs_per_mickey_y = Y_MICKEY / static_cast<float>(ratio_y);
     }
+}
+
+static void SetDoubleSpeedThreshold(uint16_t threshold)
+{
+	if (threshold)
+		state.dspeed_threshold = threshold;
+	else
+		state.dspeed_threshold = 64; // default value		
 }
 
 static void SetSensitivity(uint16_t px, uint16_t py, uint16_t dspeed_threshold)
@@ -536,7 +547,7 @@ static void ResetHardware()
 {
     wheel = 0;
     SetInterruptRate(4);
-    PIC_SetIRQMask(12, false);
+    PIC_SetIRQMask(12, false); // lower IRQ line
 }
 
 void MOUSEDOS_BeforeNewVideoMode()
@@ -612,9 +623,7 @@ void MOUSEDOS_AfterNewVideoMode(const bool setmode)
     state.user_cursor_mask   = false;
     state.text_and_mask      = DEFAULT_TEXT_AND_MASK;
     state.text_xor_mask      = DEFAULT_TEXT_XOR_MASK;
-    state.language           = 0;
     state.page               = 0;
-    state.dspeed_threshold   = DEFAULT_DSPEED_THRESHOLD;
     state.update_region_y[1] = -1; // offscreen
     state.cursor_type        = MouseCursor::Software;
     state.enabled            = true;
@@ -625,15 +634,20 @@ void MOUSEDOS_AfterNewVideoMode(const bool setmode)
 // FIXME: Much too empty, NewVideoMode contains stuff that should be in here
 static void Reset()
 {
-	// XXX maxpos_x / maxpos_y should be adapted to current screen mode here
-
     MOUSEDOS_BeforeNewVideoMode();
     MOUSEDOS_AfterNewVideoMode(false);
-    SetMickeyPixelRate(8, 16);
 
-    state.mickey_x   = 0;
-    state.mickey_y   = 0;
+    SetMickeyPixelRate(8, 16);
+	SetDoubleSpeedThreshold(0); // set default value
+
+    state.enabled    = true;
     state.cute_mouse = false;
+
+    pos_x = static_cast<float>((state.maxpos_x + 1) / 2);
+    pos_y = static_cast<float>((state.maxpos_y + 1) / 2);
+
+    state.mickey_x = 0;
+    state.mickey_y = 0;
 
     state.last_wheel_moved_x = 0;
     state.last_wheel_moved_y = 0;
@@ -646,14 +660,8 @@ static void Reset()
         state.last_released_x[idx] = 0;
         state.last_released_y[idx] = 0;
     }
-	
-	state.dspeed_threshold = DEFAULT_DSPEED_THRESHOLD;
 
-    pos_x = static_cast<float>((state.maxpos_x + 1) / 2);
-    pos_y = static_cast<float>((state.maxpos_y + 1) / 2);
-
-    state.sub_mask = 0;
-    
+    state.sub_mask = 0;    
     mouse_shared.dos_cb_running = false;
     
     UpdateDriverActive();
@@ -669,14 +677,14 @@ static void LimitCoordinates()
         pos = std::clamp(pos, min, max);
     };
 
-    // TODO: If the pointer go out of limited coordinates, and we are in
-    //       non-captured mode, show host mouse cursor
+    // TODO: If the pointer go out of limited coordinates,
+	//       trigger showing mouse_suggest_show
     
     limit(pos_x, state.minpos_x, state.maxpos_x);
     limit(pos_y, state.minpos_y, state.maxpos_y);
 }
 
-static void MoveCursorCaptured(const float x_rel, const float y_rel)
+static void UpdateMickeysOnMove(float &dx, float &dy, const float x_rel, const float y_rel)
 {
     auto calculate_d =[](const float rel, const float pixel_per_mickey, const float senv) {
         float d = rel * pixel_per_mickey;
@@ -694,12 +702,20 @@ static void MoveCursorCaptured(const float x_rel, const float y_rel)
     };
     
     // Calculate cursor displacement
-    const float dx = calculate_d(x_rel, state.pxs_per_mickey_x, state.senv_x);
-    const float dy = calculate_d(y_rel, state.pxs_per_mickey_y, state.senv_y);
+    dx = calculate_d(x_rel, state.pxs_per_mickey_x, state.senv_x);
+    dy = calculate_d(y_rel, state.pxs_per_mickey_y, state.senv_y);
     
     // Update mickey counters
     update_mickey(state.mickey_x, dx, state.mickeys_per_px_x);
     update_mickey(state.mickey_y, dy, state.mickeys_per_px_y);
+}
+
+static void MoveCursorCaptured(const float x_rel, const float y_rel)
+{
+    // Update mickey counters
+	float dx = 0.0f;
+	float dy = 0.0f;
+	UpdateMickeysOnMove(dx, dy, x_rel, y_rel);
 
     // Apply mouse movement according to our acceleration model
     pos_x += dx;
@@ -709,8 +725,13 @@ static void MoveCursorCaptured(const float x_rel, const float y_rel)
 static void MoveCursorSeamless(const float x_rel, const float y_rel,
                                const uint16_t x_abs, const uint16_t y_abs)
 {
-    // Do not update mickeys if mouse cursor is not capttured,
-    // as this makes games like DOOM behaving strangely
+    // In automatic seamless mode do not update mickeys without
+	// captured mouse, as this makes games like DOOM behaving strangely
+	if (!mouse_video.autoseamless) {
+		float dx = 0.0f;
+		float dy = 0.0f;
+		UpdateMickeysOnMove(dx, dy, x_rel, y_rel);
+	}
 
     auto calculate = [](const uint16_t absolute,
                         const uint16_t res,
@@ -725,12 +746,11 @@ static void MoveCursorSeamless(const float x_rel, const float y_rel,
 
     // TODO: this is probably overcomplicated, especially
     // the usage of relative movement - to be investigated
-
     if (CurMode->type == M_TEXT) {
         pos_x = x * 8;
         pos_x *= real_readw(BIOSMEM_SEG, BIOSMEM_NB_COLS);
         pos_y = y * 8;
-        pos_y *= IS_EGAVGA_ARCH ? (real_readb(BIOSMEM_SEG, BIOSMEM_NB_ROWS) + 1) : 25;
+        pos_y *= IS_EGAVGA_ARCH ? (real_readb(BIOSMEM_SEG, BIOSMEM_NB_ROWS) + 1) : 25.0f;
     } else if ((state.maxpos_x < 2048) || (state.maxpos_y < 2048) ||
                (state.maxpos_x != state.maxpos_y)) {
         if ((state.maxpos_x > 0) && (state.maxpos_y > 0)) {
@@ -755,7 +775,7 @@ bool MOUSEDOS_NotifyMoved(const float x_rel, const float y_rel,
 	
 	const auto old_mickey_x = static_cast<int16_t>(state.mickey_x);
 	const auto old_mickey_y = static_cast<int16_t>(state.mickey_y);
-	
+
     if (mouse_is_captured)
         MoveCursorCaptured(x_rel, y_rel);
     else
@@ -766,15 +786,28 @@ bool MOUSEDOS_NotifyMoved(const float x_rel, const float y_rel,
     
     // Filter out unneeded events (like sub-pixel mouse movements,
 	// which won't change guest side mouse state)
-    return (old_pos_x != GETPOS_X || old_pos_y != GETPOS_Y ||
-	        old_mickey_x != static_cast<int16_t>(state.mickey_x) ||
-			old_mickey_y != static_cast<int16_t>(state.mickey_y));
+	const bool abs_changed = (old_pos_x != GETPOS_X) || (old_pos_y != GETPOS_Y);
+	const bool rel_changed = (old_mickey_x != static_cast<int16_t>(state.mickey_x)) ||
+	                         (old_mickey_y != static_cast<int16_t>(state.mickey_y));
+	if (!abs_changed && !rel_changed)
+		return false;
+	
+	// If we are here, there is some noticealbe change in mouse
+	// state - if callback is registered for mouse movement,
+	// than we definitely need the event
+	if (MOUSEDOS_HasCallback(MouseEventId::MouseHasMoved))
+		return true;
+	
+	// Noticeable change, but no callback; we might still need the
+	// event for cursor redraw routine - check this	
+	return abs_changed && !state.hidden && !state.inhibit_draw;
 }
 
-bool MOUSEDOS_NotifyPressed(const MouseButtons12S new_buttons_12S, const uint8_t idx)
+bool MOUSEDOS_NotifyPressed(const MouseButtons12S new_buttons_12S,
+                            const uint8_t idx,
+							const MouseEventId event_id)
 {
-    if (idx >= NUM_BUTTONS)
-        return false;
+	assert(idx < NUM_BUTTONS);
 
     buttons = new_buttons_12S;
 
@@ -782,13 +815,14 @@ bool MOUSEDOS_NotifyPressed(const MouseButtons12S new_buttons_12S, const uint8_t
     state.last_pressed_x[idx] = GETPOS_X;
     state.last_pressed_y[idx] = GETPOS_Y;
 
-    return true;
+    return MOUSEDOS_HasCallback(event_id);
 }
 
-bool MOUSEDOS_NotifyReleased(const MouseButtons12S new_buttons_12S, const uint8_t idx)
+bool MOUSEDOS_NotifyReleased(const MouseButtons12S new_buttons_12S,
+                             const uint8_t idx,
+							 const MouseEventId event_id)
 {
-    if (idx >= NUM_BUTTONS)
-        return false;
+	assert(idx < NUM_BUTTONS);
 
     buttons = new_buttons_12S;
 
@@ -796,7 +830,7 @@ bool MOUSEDOS_NotifyReleased(const MouseButtons12S new_buttons_12S, const uint8_
     state.last_released_x[idx] = GETPOS_X;
     state.last_released_y[idx] = GETPOS_Y;
 
-    return true;
+    return MOUSEDOS_HasCallback(event_id);
 }
 
 bool MOUSEDOS_NotifyWheel(const int16_t w_rel)
@@ -812,7 +846,7 @@ bool MOUSEDOS_NotifyWheel(const int16_t w_rel)
     state.last_wheel_moved_x = GETPOS_X;
     state.last_wheel_moved_y = GETPOS_Y;
 
-    return true;
+    return MOUSEDOS_HasCallback(MouseEventId::WheelHasMoved);
 }
 
 static Bitu INT33_Handler()
@@ -849,28 +883,18 @@ static Bitu INT33_Handler()
     {
         // If position isn't different from current position, don't
         // change it. (position is rounded so numbers get lost when the
-        // rounded number is set) (arena/simulation Wolf)
-		// XXX simplify this, add lambdas, compare rouding with position retrieval routines
-        if ((int16_t)reg_cx >= state.maxpos_x)
-            pos_x = static_cast<float>(state.maxpos_x);
-        else if (state.minpos_x >= (int16_t)reg_cx)
-            pos_x = static_cast<float>(state.minpos_x);
-        else if ((int16_t)reg_cx != GETPOS_X)
+        // rounded number is set) (arena/simulation Wolf)		
+        if ((int16_t)reg_cx != GETPOS_X)
             pos_x = static_cast<float>(reg_cx);
-
-        if ((int16_t)reg_dx >= state.maxpos_y)
-            pos_y = static_cast<float>(state.maxpos_y);
-        else if (state.minpos_y >= (int16_t)reg_dx)
-            pos_y = static_cast<float>(state.minpos_y);
-        else if ((int16_t)reg_dx != GETPOS_Y)
+        if ((int16_t)reg_dx != GETPOS_Y)
             pos_y = static_cast<float>(reg_dx);
-
+        LimitCoordinates();
         MOUSEDOS_DrawCursor();
         break;
     }
     case 0x05: // MS MOUSE v1.0+ / CuteMouse - get button press / wheel data
     {
-        uint16_t idx = reg_bx; // button index
+        const uint16_t idx = reg_bx; // button index
         if (idx == 0xffff && state.cute_mouse) {
             // 'magic' index for checking wheel instead of button
             reg_bx = GetResetWheel16bit();
@@ -893,7 +917,7 @@ static Bitu INT33_Handler()
     }
     case 0x06: // MS MOUSE v1.0+ / CuteMouse - get button release data / mouse wheel data
     {
-        uint16_t idx = reg_bx; // button index
+        const uint16_t idx = reg_bx; // button index
         if (idx == 0xffff && state.cute_mouse) {
             // 'magic' index for checking wheel instead of button
             reg_bx = GetResetWheel16bit();
@@ -1031,7 +1055,7 @@ static Bitu INT33_Handler()
         ("Large graphics cursor block not implemented");
         break;
     case 0x13: // MS MOUSE v5.0+ - set double-speed threshold
-        state.dspeed_threshold = (reg_bx ? reg_bx : DEFAULT_DSPEED_THRESHOLD);
+	    SetDoubleSpeedThreshold(reg_bx);
         break;
     case 0x14: // MS MOUSE v3.0+ - exchange event-handler
     {
@@ -1091,7 +1115,10 @@ static Bitu INT33_Handler()
         state.enabled = false;
         state.oldhidden = state.hidden;
         state.hidden    = 1;
-        // XXX  AX = 001F if successful, FFFF if error
+        // According to Ralf Brown Interrupt List it returns 0x20 if
+        // success,  but CuteMouse source code claims the code for
+        // success if 0x1f. Both agree that 0xffff means failure.
+        reg_ax = 0x1f;
         break;
     case 0x20: // MS MOUSE v6.0+ - enable mouse driver
         state.enabled = true;

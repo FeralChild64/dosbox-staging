@@ -2143,38 +2143,33 @@ static void FocusInput()
  */
 void GFX_UpdateMouseState()
 {
-	// This function is only be run when the window is shown or has focus
-	sdl.mouse.has_focus = true;
+	// Don't change anything if we do not have focus
+	if (!sdl.mouse.has_focus)
+		return;
 
 	// Used below
 	static bool has_run_once = false;
 
-	/*
-	 *  We've switched to or started in fullscreen, so capture the mouse
-	 *  This is valid for all modes except for nomouse.
-	 */
+	// We've switched to or started in fullscreen, so capture the mouse
+	// This is valid for all modes except for nomouse
 	if (sdl.desktop.fullscreen && !mouse_is_captured &&
 	    sdl.mouse.control_choice != NoMouse) {
 		GFX_ToggleMouseCapture();
 
-		/*
-		 * If we've switched-back from fullscreen, then release the
-		 * mouse if it is controlled by a VMware type driver or
-		 * it's auto-captured (but not manually requested) and
-		 * in seamless-mode.
-		 */
+	// If we've switched-back from fullscreen, then release the
+	// mouse if it is controlled by a VMware type driver or
+	// it's auto-captured (but not manually requested) and
+	// in seamless-mode
 	} else if (!sdl.desktop.fullscreen && mouse_is_captured &&
 	           (mouse_seamless_driver || (!mouse_capture_requested && sdl.mouse.control_choice == Seamless))) {
 		GFX_ToggleMouseCapture();
 		SDL_ShowCursor(SDL_DISABLE);
 
-		/*
-		 *  If none of the above are true /and/ we're starting
-		 *  up the first time, then:
-		 *  - Capture the mouse if configured onstart is set.
-		 *  - Hide the mouse if seamless or nomouse are set.
-		 *  - Also hide if it is handled by a VMware type driver.
-		 */
+	// If none of the above are true /and/ we're starting
+	// up the first time, then:
+	// - Capture the mouse if configured onstart is set
+	// - Hide the mouse if seamless or nomouse are set
+	// - Also hide if it is handled by a VMware type driver
 	} else if (!has_run_once) {
 		if (sdl.mouse.control_choice == CaptureOnStart) {
 			SDL_RaiseWindow(sdl.window);
@@ -3823,6 +3818,7 @@ bool GFX_Events()
 				// keyboard focus");
 				if (sdl.draw.callback)
 					sdl.draw.callback(GFX_CallBackRedraw);
+				sdl.mouse.has_focus = true;
 				GFX_UpdateMouseState();
 
 				ApplyActiveSettings();

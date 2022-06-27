@@ -417,6 +417,8 @@ static RealPt ps2_callback   = 0;
 void MOUSEBIOS_Reset()
 {
     CmdReset();
+	PIC_SetIRQMask(12, false); // lower IRQ line
+	MOUSEVMM_Deactivate(); // VBADOS seems to expect this
 }
 
 void MOUSEBIOS_SetCallback(const uint16_t pseg, const uint16_t pofs)
@@ -480,13 +482,11 @@ bool MOUSEBIOS_SetState(const bool use)
 {
     if (use && !callback_init) {
         mouse_shared.active_bios = false;
-        MOUSE_NotifyDriverChanged();
-        PIC_SetIRQMask(12, true);
+        MOUSE_NotifyStateChanged();
         return false;
     } else {
         mouse_shared.active_bios = use;
-        MOUSE_NotifyDriverChanged();
-        PIC_SetIRQMask(12, !mouse_shared.active_bios);
+        MOUSE_NotifyStateChanged();
         return true;
     }
 }
