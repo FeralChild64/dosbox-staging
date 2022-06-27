@@ -201,6 +201,8 @@ bool MOUSEVMM_NotifyMoved(const uint16_t x_abs, const uint16_t y_abs)
 
     updated = true;
 
+    // Filter out unneeded events (like sub-pixel mouse movements,
+    // which won't change guest side mouse state)
     return (old_x != scaled_x || old_y != scaled_y);
 }
 

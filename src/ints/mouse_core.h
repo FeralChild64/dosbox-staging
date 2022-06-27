@@ -43,7 +43,7 @@ public:
     
     bool dos_cb_running = false; // true = DOS callback is running
 
-    uint8_t event_interval_ps2 = 5; // in miliseconds
+    uint8_t event_interval_ps2 = 5; // in milliseconds
     uint8_t event_interval_dos = 5;
 };
 

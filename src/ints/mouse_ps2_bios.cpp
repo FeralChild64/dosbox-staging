@@ -113,7 +113,7 @@ static void SetType(const MouseType new_type)
         const char *type_name = nullptr;
         switch (type) {
         case MouseType::Standard:
-            type_name = "standard, 3 buttons";
+            type_name = "Standard, 3 buttons";
             break;
         case MouseType::IntelliMouse:
             type_name = "IntelliMouse, wheel, 3 buttons";
@@ -311,7 +311,7 @@ static void CmdSetSampleRate(const uint8_t new_rate_hz)
     else
         rate_hz = new_rate_hz;
     
-    // Update interval for event queue
+    // Convert rate in Hz to delay in milliseconds
     mouse_shared.event_interval_ps2 = static_cast<uint8_t>(1000 / rate_hz);
 
     // Handle extended mouse protocol unlock sequences

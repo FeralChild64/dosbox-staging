@@ -58,11 +58,13 @@ enum class MouseCursor : uint8_t {
 
 // These values represent hardware state, not driver state
 
-float pos_x             = 0.0f; // absolute pointer position
+float pos_x             = 0.0f;
 float pos_y             = 0.0f;
 MouseButtons12S buttons = 0;
 int16_t wheel           = 0;
-uint8_t rate_hz         = 0; // scanning rate, TODO: 0 should disble mouse
+uint8_t rate_hz         = 0; // TODO: add proper reaction for 0 (disable driver)
+
+#define DEFAULT_DSPEED_THRESHOLD 64
 
 static struct { // DOS driver state
 
@@ -77,7 +79,7 @@ static struct { // DOS driver state
     // can crash the emulator if filled-in incorrectly, or that can
     // be used by malicious code to escape from emulation!
 
-    bool enabled    = false; // TODO: seting to false should disable mouse
+    bool enabled    = false; // TODO: make use of this
     bool cute_mouse = false;
 
     uint16_t times_pressed[NUM_BUTTONS]   = {0};
@@ -109,7 +111,7 @@ static struct { // DOS driver state
     // sensitivity
     uint16_t senv_x_val = 0;
     uint16_t senv_y_val = 0;
-    uint16_t dspeed_thr = 0; // threshold, in mickeys/s  TODO: should affect mouse movement
+    uint16_t dspeed_threshold = 0; // threshold, in mickeys/s  TODO: should affect mouse movement
     float senv_x = 0.0f;
     float senv_y = 0.0f;
 
@@ -497,15 +499,15 @@ static void SetMickeyPixelRate(const int16_t ratio_x, const int16_t ratio_y)
     }
 }
 
-static void SetSensitivity(uint16_t px, uint16_t py, uint16_t dspeed_thr)
+static void SetSensitivity(uint16_t px, uint16_t py, uint16_t dspeed_threshold)
 {
-    px         = std::min(static_cast<uint16_t>(100), px);
-    py         = std::min(static_cast<uint16_t>(100), py);
-    dspeed_thr = std::min(static_cast<uint16_t>(100), dspeed_thr);
+    px = std::min(static_cast<uint16_t>(100), px);
+    py = std::min(static_cast<uint16_t>(100), py);
+    dspeed_threshold = std::min(static_cast<uint16_t>(100), dspeed_threshold);
     // save values
     state.senv_x_val = px;
     state.senv_y_val = py;
-    state.dspeed_thr = dspeed_thr;
+    state.dspeed_threshold = dspeed_threshold;
     if ((px != 0) && (py != 0)) {
         px--; // Inspired by CuteMouse
         py--; // Although their cursor update routine is far more
@@ -525,6 +527,7 @@ static void SetInterruptRate(uint16_t rate_id)
     default: rate_hz = 200; break; // above 4 is not suported, set max
     }
 
+    // Convert rate in Hz to delay in milliseconds
     if (rate_hz)
         mouse_shared.event_interval_dos = static_cast<uint8_t>(1000 / rate_hz);
 }
@@ -611,7 +614,7 @@ void MOUSEDOS_AfterNewVideoMode(const bool setmode)
     state.text_xor_mask      = DEFAULT_TEXT_XOR_MASK;
     state.language           = 0;
     state.page               = 0;
-    state.dspeed_thr         = 64;
+    state.dspeed_threshold   = DEFAULT_DSPEED_THRESHOLD;
     state.update_region_y[1] = -1; // offscreen
     state.cursor_type        = MouseCursor::Software;
     state.enabled            = true;
@@ -622,16 +625,7 @@ void MOUSEDOS_AfterNewVideoMode(const bool setmode)
 // FIXME: Much too empty, NewVideoMode contains stuff that should be in here
 static void Reset()
 {
-    // Do reset values:
-    //  - mouse position (to center of the screen)
-    //  - mouse cursor (should be reset and hidden) XXX
-    //  - interrupt mask to 0
-    //  - mickey pixel rate
-    //  - max x/y to current video mode XXX
-    // Do not reset the following values:
-    // - state.senv_x_val, state.senv_y_val
-    // XXX Not sure:
-    // - state.dspeed_thr
+	// XXX maxpos_x / maxpos_y should be adapted to current screen mode here
 
     MOUSEDOS_BeforeNewVideoMode();
     MOUSEDOS_AfterNewVideoMode(false);
@@ -652,6 +646,8 @@ static void Reset()
         state.last_released_x[idx] = 0;
         state.last_released_y[idx] = 0;
     }
+	
+	state.dspeed_threshold = DEFAULT_DSPEED_THRESHOLD;
 
     pos_x = static_cast<float>((state.maxpos_x + 1) / 2);
     pos_y = static_cast<float>((state.maxpos_y + 1) / 2);
@@ -754,19 +750,25 @@ static void MoveCursorSeamless(const float x_rel, const float y_rel,
 bool MOUSEDOS_NotifyMoved(const float x_rel, const float y_rel,
                           const uint16_t x_abs, const uint16_t y_abs)
 {
-    const auto old_x = GETPOS_X;
-    const auto old_y = GETPOS_Y;
-    
+    const auto old_pos_x = GETPOS_X;
+    const auto old_pos_y = GETPOS_Y;
+	
+	const auto old_mickey_x = static_cast<int16_t>(state.mickey_x);
+	const auto old_mickey_y = static_cast<int16_t>(state.mickey_y);
+	
     if (mouse_is_captured)
         MoveCursorCaptured(x_rel, y_rel);
     else
         MoveCursorSeamless(x_rel, y_rel, x_abs, y_abs);
     
-    // Make sure the cursor stays in the range defined by application
+    // Make sure cursor stays in the range defined by application
     LimitCoordinates();
     
-    // Check if interrupt is needed to report updated position
-    return (old_x != GETPOS_X || old_y != GETPOS_Y);
+    // Filter out unneeded events (like sub-pixel mouse movements,
+	// which won't change guest side mouse state)
+    return (old_pos_x != GETPOS_X || old_pos_y != GETPOS_Y ||
+	        old_mickey_x != static_cast<int16_t>(state.mickey_x) ||
+			old_mickey_y != static_cast<int16_t>(state.mickey_y));
 }
 
 bool MOUSEDOS_NotifyPressed(const MouseButtons12S new_buttons_12S, const uint8_t idx)
@@ -867,18 +869,19 @@ static Bitu INT33_Handler()
         break;
     }
     case 0x05: // MS MOUSE v1.0+ / CuteMouse - get button press / wheel data
-        if (reg_bx == 0xffff && state.cute_mouse) {
-            // 'magic' value for checking wheel instead of button
+    {
+        uint16_t idx = reg_bx; // button index
+        if (idx == 0xffff && state.cute_mouse) {
+            // 'magic' index for checking wheel instead of button
             reg_bx = GetResetWheel16bit();
             reg_cx = state.last_wheel_moved_x;
             reg_dx = state.last_wheel_moved_y;
-        } else if (reg_bx < NUM_BUTTONS) {
-            // reg_bx - button index
+        } else if (idx < NUM_BUTTONS) {
             reg_ax = buttons.data;
-            reg_bx = state.times_pressed[reg_bx];
-            reg_cx = state.last_pressed_x[reg_bx];
-            reg_dx = state.last_pressed_y[reg_bx];
-            state.times_pressed[reg_bx] = 0;
+            reg_bx = state.times_pressed[idx];
+            reg_cx = state.last_pressed_x[idx];
+            reg_dx = state.last_pressed_y[idx];
+            state.times_pressed[idx] = 0;
         } else {
             // unsupported - try to do something same
             reg_ax = buttons.data;
@@ -887,18 +890,22 @@ static Bitu INT33_Handler()
             reg_dx = 0;
         }
         break;
+    }
     case 0x06: // MS MOUSE v1.0+ / CuteMouse - get button release data / mouse wheel data
-        if (reg_bx == 0xffff && state.cute_mouse) {
-            // 'magic' value for checking wheel instead of button
+    {
+        uint16_t idx = reg_bx; // button index
+        if (idx == 0xffff && state.cute_mouse) {
+            // 'magic' index for checking wheel instead of button
             reg_bx = GetResetWheel16bit();
             reg_cx = state.last_wheel_moved_x;
             reg_dx = state.last_wheel_moved_y;
-        } else if (reg_bx < NUM_BUTTONS) {
+        } else if (idx < NUM_BUTTONS) {
             reg_ax = buttons.data;
-            reg_bx = state.times_released[reg_bx];
-            reg_cx = state.last_released_x[reg_bx];
-            reg_dx = state.last_released_y[reg_bx];
-            state.times_released[reg_bx] = 0;
+            reg_bx = state.times_released[idx];
+            reg_cx = state.last_released_x[idx];
+            reg_dx = state.last_released_y[idx];
+   
+            state.times_released[idx] = 0;
         } else {
             // unsupported - try to do something same
             reg_ax = buttons.data;
@@ -907,6 +914,7 @@ static Bitu INT33_Handler()
             reg_dx = 0;
         }
         break;
+    }
     case 0x07: // MS MOUSE v1.0+ - define horizontal cursor range
         // Lemmings set 1-640 and wants that. iron seeds set 0-640 but doesn't
         // like 640
@@ -916,7 +924,9 @@ static Bitu INT33_Handler()
         state.minpos_x = std::min((int16_t)reg_cx, (int16_t)reg_dx);
         state.maxpos_x = std::max((int16_t)reg_cx, (int16_t)reg_dx);
         // Battlechess wants this
-        pos_x = std::clamp(pos_x, static_cast<float>(state.minpos_x), static_cast<float>(state.maxpos_x));
+        pos_x = std::clamp(pos_x,
+		                   static_cast<float>(state.minpos_x),
+						   static_cast<float>(state.maxpos_x));
         // Or alternatively this:
         // pos_x = (state.maxpos_x - state.minpos_x + 1) / 2;
         LOG(LOG_MOUSE, LOG_NORMAL)
@@ -930,7 +940,9 @@ static Bitu INT33_Handler()
         state.minpos_y = std::min((int16_t)reg_cx, (int16_t)reg_dx);
         state.maxpos_y = std::max((int16_t)reg_cx, (int16_t)reg_dx);
         // Battlechess wants this
-        pos_y = std::clamp(pos_y, static_cast<float>(state.minpos_y), static_cast<float>(state.maxpos_y));
+        pos_y = std::clamp(pos_y,
+		                   static_cast<float>(state.minpos_y),
+						   static_cast<float>(state.maxpos_y));
         // Or alternatively this:
         // pos_y = (state.maxpos_y - state.minpos_y + 1) / 2;
         LOG(LOG_MOUSE, LOG_NORMAL)
@@ -938,14 +950,21 @@ static Bitu INT33_Handler()
         break;
     case 0x09: // MS MOUSE v3.0+ - define GFX cursor
     {
+		auto clamp_hot = [](const uint16_t reg, const int cursor_size)
+		{
+			return std::clamp((int16_t)reg,
+			                  static_cast<int16_t>(-cursor_size),
+							  static_cast<int16_t>(cursor_size));
+		};
+		
         PhysPt src = SegPhys(es) + reg_dx;
         MEM_BlockRead(src, state.user_def_screen_mask, CURSOR_SIZE_Y * 2);
         src += CURSOR_SIZE_Y * 2;
         MEM_BlockRead(src, state.user_def_cursor_mask, CURSOR_SIZE_Y * 2);
         state.user_screen_mask = true;
         state.user_cursor_mask = true;
-        state.hot_x = std::clamp((int16_t)reg_bx, static_cast<int16_t>(-CURSOR_SIZE_X), static_cast<int16_t>(CURSOR_SIZE_X));
-        state.hot_y = std::clamp((int16_t)reg_cx, static_cast<int16_t>(-CURSOR_SIZE_Y), static_cast<int16_t>(CURSOR_SIZE_Y));
+        state.hot_x = clamp_hot(reg_bx, CURSOR_SIZE_X);
+        state.hot_y = clamp_hot(reg_cx, CURSOR_SIZE_Y);
         state.cursor_type = MouseCursor::Text;
         MOUSEDOS_DrawCursor();
         break;
@@ -1012,7 +1031,7 @@ static Bitu INT33_Handler()
         ("Large graphics cursor block not implemented");
         break;
     case 0x13: // MS MOUSE v5.0+ - set double-speed threshold
-        state.dspeed_thr = (reg_bx ? reg_bx : 64); // XXX constant for default value
+        state.dspeed_threshold = (reg_bx ? reg_bx : DEFAULT_DSPEED_THRESHOLD);
         break;
     case 0x14: // MS MOUSE v3.0+ - exchange event-handler
     {
@@ -1054,7 +1073,7 @@ static Bitu INT33_Handler()
     case 0x1b: //  MS MOUSE v6.0+ - get mouse sensitivity
         reg_bx = state.senv_x_val;
         reg_cx = state.senv_y_val;
-        reg_dx = state.dspeed_thr;
+        reg_dx = state.dspeed_threshold;
         break;
     case 0x1c: // MS MOUSE v6.0+ - set interrupt rate
         SetInterruptRate(reg_bx);
@@ -1072,7 +1091,7 @@ static Bitu INT33_Handler()
         state.enabled = false;
         state.oldhidden = state.hidden;
         state.hidden    = 1;
-        // XXX  AX = 001F if successful, FFFF if error (?) , check function 0x20 too
+        // XXX  AX = 001F if successful, FFFF if error
         break;
     case 0x20: // MS MOUSE v6.0+ - enable mouse driver
         state.enabled = true;
@@ -1087,10 +1106,12 @@ static Bitu INT33_Handler()
     case 0x23: // MS MOUSE v6.0+ - get language for messages
         reg_bx = state.language;
         break;
-    case 0x24: // MS MOUSE v6.26+ - get mouse information
-        reg_bx = 0x805; // driver version 8.05 woohoo
+    case 0x24: // MS MOUSE v6.26+ - get Software version, mouse type, and
+               // IRQ number
+        reg_bx = 0x805; // version 8.05 woohoo
         reg_ch = 0x04;  // PS/2 type
-        reg_cl = 0;     // 0 for PS/2 mouse, IRQ for other types
+        reg_cl = 0; // PS/2 mouse; for any other type it would be IRQ
+                    // number
         break;
     case 0x25: // MS MOUSE v6.26+ - get general driver information
         // TODO: According to PC sourcebook reference
