@@ -199,7 +199,8 @@ void MOUSEVMM_Deactivate();
 // - needs absolute mouse position
 // - understands up to 3 buttons
 
-bool MOUSEVMM_NotifyMoved(const uint16_t x_abs, const uint16_t y_abs);
+bool MOUSEVMM_NotifyMoved(const float x_rel, const float y_rel,
+                          const uint16_t x_abs, const uint16_t y_abs);
 bool MOUSEVMM_NotifyPressedReleased(const MouseButtons12S buttons_12S);
 bool MOUSEVMM_NotifyWheel(const int16_t w_rel);
 
@@ -231,7 +232,7 @@ uintptr_t MOUSEDOS_DoCallback(const MouseEventId event_id,
 // - needs index of button which changed state
 
 bool MOUSEDOS_NotifyMoved(const float x_rel, const float y_rel,
-                             const uint16_t x_abs, const uint16_t y_abs);
+                          const uint16_t x_abs, const uint16_t y_abs);
 bool MOUSEDOS_NotifyPressed(const MouseButtons12S buttons_12S,
                             const uint8_t idx,
 							const MouseEventId event_id);

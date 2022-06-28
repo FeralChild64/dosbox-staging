@@ -35,15 +35,15 @@ CHECK_NARROWING();
 
 // TODO before next PR:
 //
-// XXX review 0.499f / 0.6f and std::round usage, should be used everywhere, 0.499f / 0.6f should be a define
-// XXX review once again all std::clamp, std::min, std::max with floating point values (can fmin/fmax be used?)
 // XXX try to fix CHECK_NARROWING(); problems in mouse_dos_driver.cpp
 // XXX improve the queue, it should aggregate events (MouseEventId -> MouseEventMask), test it(debug logs?)
+// XXX use 'raw_input' to enable/disable mouse acceleration (VMware, DOS)
+// XXX harmonize rounding in GetPosX / GetPosY / MOUSESERIAL_NotifyMoved / GetScaledMovement / MOUSEPS2_NotifyMoved
 
 // XXX already finished, to be put in PR notes:
 //
 // User visible changes
-// - Windows 3.1 mouse driver https://git.javispedro.com/cgit/vbados.git is working
+// - Windows 3.1 mouse driver https://git.javispedro.com/cgit/vbados.git is now fully working
 // - CuteMouse 2.1 (not 2.0!), if started with /O command line option, is now able
 //   to use wheel on emulated PS/2 mouse
 // - software banging mouse BIOS directly (like Windows 3.x) can now show cursor behavior
@@ -64,13 +64,9 @@ CHECK_NARROWING();
 // Future
 // Some further improvements are possible, but they would better be a part of subsequent pull requests;
 // this one is already rather large:
-// - enable 'CHECK_NARROWING(); in mouse_dos_driver.cpp - too risky to do it now
 // - cursor behaviour in seamless windowed mode can be improved - it shouldn't disappear
 //   on black borders (if window ration is not the same as emulated screen ratio), or when
 //   no DOS application / VMware-compatible driver is listening to absolute mouse prsition events
-// - current VMware-compatible drivers behavior can be probably improved in full-screen mode;
-//   it is possible to fake absolute mouse positions using relative movements + user sensitivity
-//   settings, this might need introducing some mouse acceleration profile
 // - original DOS mouse driver has a speed threshold (INT 33 function 0x13), above which the pointer
 //   speed is doubled; this should be emulated; also custom mouse acceleration profiles (functions
 //   0x2b-0x2e, 0x33) are worth emulating if software if found which can use them
@@ -88,6 +84,8 @@ static MouseButtons345 buttons_345  = 0; // host side state of buttons 3 (middle
 
 static float sensitivity_x = 0.3f; // sensitivity, might depend on the GUI/GFX
 static float sensitivity_y = 0.3f; // for scaling all relative mouse movements
+
+static bool raw_input = true; // true = relative input without host OS mouse acceleration
 
 // ***************************************************************************
 // Mouse button helper functions
@@ -509,8 +507,9 @@ static MouseEventId SelectIdReleased(const uint8_t idx, const bool changed_12S)
 // External notifications
 // ***************************************************************************
 
-void MOUSE_SetSensitivity(const int32_t new_sensitivity_x,
-                          const int32_t new_sensitivity_y)
+void MOUSE_SetConfig(const int32_t new_sensitivity_x,
+                     const int32_t new_sensitivity_y,
+                     const bool new_raw_input)
 {
     auto adapt = [](const int32_t sensitivity) {
         constexpr float min = 0.01f;
@@ -527,6 +526,7 @@ void MOUSE_SetSensitivity(const int32_t new_sensitivity_x,
 
     sensitivity_x = adapt(new_sensitivity_x);
     sensitivity_y = adapt(new_sensitivity_y);
+    raw_input     = new_raw_input;
 }
 
 void MOUSE_NewScreenParams(const uint16_t clip_x, const uint16_t clip_y,
@@ -558,7 +558,8 @@ void MOUSE_NotifyStateChanged()
 	const auto old_mouse_suggest_show = mouse_suggest_show;
 	
 	// Prepare suggestions to the GUI
-    mouse_seamless_driver = mouse_shared.active_vmm;
+    mouse_seamless_driver = mouse_shared.active_vmm &&
+                            !mouse_video.fullscreen;
 	mouse_suggest_show    = !mouse_shared.active_bios &&
 	                        !mouse_shared.active_dos;
 	
@@ -620,7 +621,7 @@ void MOUSE_EventMoved(const int16_t x_rel, const int16_t y_rel,
         MOUSESERIAL_NotifyMoved(x_sen, y_sen);
         event.req_ps2 = MOUSEPS2_NotifyMoved(x_sen, y_sen);
     }
-    event.req_vmm = MOUSEVMM_NotifyMoved(x_abs, y_abs);
+    event.req_vmm = MOUSEVMM_NotifyMoved(x_sen, y_sen, x_abs, y_abs);
     event.req_dos = MOUSEDOS_NotifyMoved(x_sen, y_sen, x_abs, y_abs);
 
     queue.AddEvent(event);

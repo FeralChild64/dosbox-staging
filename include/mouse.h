@@ -32,7 +32,8 @@ void MOUSE_EventPressed(const uint8_t idx);
 void MOUSE_EventReleased(const uint8_t idx);
 void MOUSE_EventWheel(const int16_t w_rel);
 
-void MOUSE_SetSensitivity(const int32_t sensitivity_x, const int32_t sensitivity_y);
+void MOUSE_SetConfig(const int32_t sensitivity_x, const int32_t sensitivity_y,
+                     const bool raw_input);
 void MOUSE_NewScreenParams(const uint16_t clip_x, const uint16_t clip_y,
                            const uint16_t res_x, const uint16_t res_y,
                            const bool fullscreen, const uint16_t x_abs,

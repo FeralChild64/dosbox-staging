@@ -75,8 +75,8 @@ static uint16_t scaled_x = 0x7fff; // absolute mouse position, scaled from 0 to
 static uint16_t scaled_y = 0x7fff; // 0x7fff is a center position
 static int8_t wheel      = 0;      // wheel movement counter
 
-static int16_t offset_x = 0; // offset between host and guest mouse coordinates
-static int16_t offset_y = 0; // (in host pixels)
+static float pos_x = 0.0;
+static float pos_y = 0.0;
 
 // ***************************************************************************
 // VMware interface implementation
@@ -108,7 +108,7 @@ void MOUSEVMM_Deactivate()
 
 static void CmdGetVersion()
 {
-    reg_eax = 0; // protocol version (TODO: is it OK?)
+    reg_eax = 0; // protocol version
     reg_ebx = VMWARE_MAGIC;
 }
 
@@ -163,63 +163,47 @@ static uint32_t PortReadVMware(const io_port_t, const io_width_t)
     return reg_eax;
 }
 
-bool MOUSEVMM_NotifyMoved(const uint16_t x_abs, const uint16_t y_abs)
+bool MOUSEVMM_NotifyMoved(const float x_rel, const float y_rel,
+                          const uint16_t x_abs, const uint16_t y_abs)
 {
-    auto calculate = [](const uint16_t absolute,
-                        int16_t &offset,
-                        const uint16_t res,
-                        const uint16_t clip) {
-        float unscaled; // unscaled guest mouse coordinate
-        if (mouse_video.fullscreen) {
-            // We have to maintain the diffs (offsets) between host
-            // and guest mouse positions; otherwise in case of
-            // clipped picture (like 4:3 screen displayed on 16:9
-            // fullscreen mode) we could have an effect of 'sticky'
-            // borders if the user moves mouse outside of the guest
-            // display area
-
-            // Guest mouse position is a host mouse position +
-            // offset, which is 0 at the beginning. Once the guest
-            // mouse cursor is at the edge of the screen, and the
-            // host mouse cursor continues moving outside, the
-            // offset is increased or decreased to accomodate
-            // changes. Once the host mouse cursor starts moving
-            // back, we continue with the same offset, so that guest
-            // mouse cursor starts moving immediately.
-
-            if (absolute + offset < clip)
-                offset = static_cast<int16_t>(clip - absolute);
-            else if (absolute + offset >= res + clip)
-                offset = static_cast<int16_t>(res + clip - absolute - 1);
-
-            unscaled = static_cast<float>(absolute + offset - clip);
-        } else {
-            // Skip the offset mechanism if not in fullscreen mode
-            unscaled = static_cast<float>(std::max(absolute - clip, 0));
-
-            // TODO: If the pointer go out of guest screen (it is in the
-            // black border area), show host mouse cursor
-        }
-
-        assert(res > 1u);
-        const auto scale = static_cast<float>(UINT16_MAX) /
-                           static_cast<float>(res - 1);
-        const auto tmp = std::min(static_cast<uint32_t>(UINT16_MAX),
-                                  static_cast<uint32_t>(unscaled * scale + 0.499f));
-        return static_cast<uint16_t>(tmp);
-    };
-
     const auto old_x = scaled_x;
     const auto old_y = scaled_y;
 
-    scaled_x = calculate(x_abs, offset_x, mouse_video.res_x, mouse_video.clip_x);
-    scaled_y = calculate(y_abs, offset_y, mouse_video.res_y, mouse_video.clip_y);
+    auto calculate = [](float &position, const float relative, const uint16_t absolute,
+                        const uint16_t resolution, const uint16_t clip) {
+        assert(resolution > 1u);
 
-    updated = true;
+
+        if (mouse_is_captured) {
+            // Mouse is captured, there is no need for pointer integration
+            // with host OS - we can use relative movement with configured
+            // sensitivity applied
+            position += relative * 2.4f; // XXX use acceleration model for raw input
+        }
+        else
+            position = static_cast<float>(std::max(absolute - clip, 0));
+
+        position = std::clamp(position, 0.0f, static_cast<float>(resolution));
+
+        const auto scale = static_cast<float>(UINT16_MAX) / static_cast<float>(resolution - 1);
+        const auto tmp = std::min(static_cast<uint32_t>(UINT16_MAX),
+                                  static_cast<uint32_t>(position * scale + 0.499f));
+
+        return static_cast<uint16_t>(tmp);
+    };
+
+    scaled_x = calculate(pos_x, x_rel, x_abs, mouse_video.res_x, mouse_video.clip_x);
+    scaled_y = calculate(pos_y, y_rel, y_abs, mouse_video.res_y, mouse_video.clip_y);
 
     // Filter out unneeded events (like sub-pixel mouse movements,
     // which won't change guest side mouse state)
-    return (old_x != scaled_x || old_y != scaled_y);
+    if (old_x != scaled_x || old_y != scaled_y)
+    {
+        updated = true;
+        return true;
+    }
+
+    return false;
 }
 
 bool MOUSEVMM_NotifyPressedReleased(const MouseButtons12S buttons_12S)
@@ -253,22 +237,12 @@ bool MOUSEVMM_NotifyWheel(const int16_t w_rel)
 
 void MOUSEVMM_NewScreenParams(const uint16_t x_abs, const uint16_t y_abs)
 {
-    // Adjust offset, to prevent cursor jump with the next mouse move on the
-    // host side
+    // XXX center if fullscreen
 
-    auto ClampOffset = [](const int16_t offset, uint16_t clip) {
-        const auto tmp = std::clamp(static_cast<int32_t>(offset),
-                                    static_cast<int32_t>(-clip),
-                                    static_cast<int32_t>(clip));
-        return static_cast<int16_t>(tmp);
-    };
-
-    offset_x = ClampOffset(offset_x, mouse_video.clip_x);
-    offset_y = ClampOffset(offset_y, mouse_video.clip_y);
 
     // Report a fake mouse movement
 
-    if (MOUSEVMM_NotifyMoved(x_abs, y_abs) && mouse_shared.active_vmm)
+    if (MOUSEVMM_NotifyMoved(0.0f, 0.0f, x_abs, y_abs) && mouse_shared.active_vmm)
         MOUSE_NotifyMovedFake();
 }
 

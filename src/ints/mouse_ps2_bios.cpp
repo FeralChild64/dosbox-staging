@@ -186,15 +186,11 @@ static int16_t GetScaledMovement(const float d)
     if (iszero(d))
         return 0;
 
-    const auto tmp1 = GetScaledValue(d);
-    if (tmp1 > 0) {
-        const auto tmp2 = std::round(tmp1 + 0.499f);
-        return static_cast<int16_t>(std::min(tmp2, static_cast<float>(INT16_MAX)));
-    }
-    else {
-        const auto tmp2 = std::round(tmp1 - 0.499f);
-        return static_cast<int16_t>(std::max(tmp2, static_cast<float>(INT16_MIN)));
-    }
+    const auto tmp = static_cast<int32_t>(std::lround(GetScaledValue(d)));
+    if (tmp > 0)
+        return static_cast<int16_t>(std::min(tmp, INT16_MAX));
+    else
+        return static_cast<int16_t>(std::max(tmp, INT16_MIN));
 }
 
 static void ResetCounters()

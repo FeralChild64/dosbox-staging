@@ -3525,13 +3525,17 @@ static void GUI_StartUp(Section *sec)
 
 		// Apply the user's mouse sensitivity settings
 		Prop_multival *p3 = section->Get_multival("sensitivity");
-		MOUSE_SetSensitivity(p3->GetSection()->Get_int("xsens"),
-		                     p3->GetSection()->Get_int("ysens"));
+		const auto xsens = p3->GetSection()->Get_int("xsens");
+		const auto ysens = p3->GetSection()->Get_int("ysens");
 
 		// Apply raw mouse input setting
+		const auto raw_mouse_input = section->Get_bool("raw_mouse_input");
 		SDL_SetHintWithPriority(SDL_HINT_MOUSE_RELATIVE_MODE_WARP,
-		                        section->Get_bool("raw_mouse_input") ? "0" : "1",
+		                        raw_mouse_input ? "0" : "1",
 		                        SDL_HINT_OVERRIDE);
+
+		// Notify mouse emulation routines about the configuration
+		MOUSE_SetConfig(xsens, ysens, raw_mouse_input);
 	}
 	LOG_MSG("SDL: Mouse %s%s.", mouse_control_msg.c_str(), middle_control_msg.c_str());
 
