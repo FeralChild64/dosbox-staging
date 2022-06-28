@@ -31,6 +31,8 @@
 #include "pic.h"
 #include "regs.h"
 
+// XXX CHECK_NARROWING();
+
 // This file implements the DOS virtual mouse driver
 
 // Reference:
@@ -45,9 +47,6 @@
 
 #define NUM_BUTTONS 3
 
-#define GETPOS_X (static_cast<int16_t>(pos_x) & state.gran_x)
-#define GETPOS_Y (static_cast<int16_t>(pos_y) & state.gran_y)
-
 enum class MouseCursor : uint8_t {
     Software = 0,
     Hardware = 1,
@@ -61,8 +60,6 @@ float pos_y             = 0.0f;
 MouseButtons12S buttons = 0;
 int16_t wheel           = 0;
 uint8_t rate_hz         = 0; // TODO: add proper reaction for 0 (disable driver)
-
-#define DEFAULT_DSPEED_THRESHOLD 64
 
 static struct { // DOS driver state
 
@@ -97,8 +94,8 @@ static struct { // DOS driver state
     float pxs_per_mickey_x = 0.0f;
     float pxs_per_mickey_y = 0.0f;
 
-    int16_t gran_x = 0; // granularity mask
-    int16_t gran_y = 0;
+    uint16_t gran_x = 0; // granularity mask
+    uint16_t gran_y = 0;
 
     int16_t update_region_x[2] = {0};
     int16_t update_region_y[2] = {0};
@@ -152,6 +149,16 @@ static struct { // DOS driver state
 
 static RealPt uir_callback;
 
+static uint16_t GetPosX()
+{
+    return static_cast<uint16_t>(pos_x) & state.gran_x;
+}
+
+static uint16_t GetPosY()
+{
+    return static_cast<uint16_t>(pos_y) & state.gran_y;
+}
+
 // ***************************************************************************
 // Data - default cursor/mask
 // ***************************************************************************
@@ -200,16 +207,18 @@ void DrawCursorText()
     RestoreCursorBackgroundText();
 
     // Check if cursor in update region
-    if ((GETPOS_Y <= state.update_region_y[1]) &&
-        (GETPOS_Y >= state.update_region_y[0]) &&
-        (GETPOS_X <= state.update_region_x[1]) &&
-        (GETPOS_X >= state.update_region_x[0])) {
+    auto x = GetPosX();
+    auto y = GetPosY();
+    if ((y <= state.update_region_y[1]) &&
+        (y >= state.update_region_y[0]) &&
+        (x <= state.update_region_x[1]) &&
+        (x >= state.update_region_x[0])) {
         return;
     }
 
     // Save Background
-    state.backposx = GETPOS_X >> 3;
-    state.backposy = GETPOS_Y >> 3;
+    state.backposx = x >> 3;
+    state.backposy = y >> 3;
     if (state.mode < 2)
         state.backposx >>= 1;
 
@@ -365,8 +374,8 @@ void MOUSEDOS_DrawCursor()
     //    return;
 
     // Check if cursor in update region
-    /*    if ((GETPOS_X >= state.update_region_x[0]) && (GETPOS_X <=
-       state.update_region_x[1]) && (GETPOS_Y >= state.update_region_y[0]) &&
+    /*    if ((GetPosX() >= state.update_region_x[0]) && (GetPosY() <=
+       state.update_region_x[1]) && (GetPosY() >= state.update_region_y[0]) &&
        (GETPOS_Y <= state.update_region_y[1])) { if (CurMode->type==M_TEXT16)
                 RestoreCursorBackgroundText();
             else
@@ -396,8 +405,8 @@ void MOUSEDOS_DrawCursor()
     int16_t x, y;
     uint16_t addx1, addx2, addy;
     uint16_t dataPos = 0;
-    int16_t x1       = GETPOS_X / xratio - state.hot_x;
-    int16_t y1       = GETPOS_Y - state.hot_y;
+    int16_t x1       = GetPosX() / xratio - state.hot_x;
+    int16_t y1       = GetPosY() - state.hot_y;
     int16_t x2       = x1 + CURSOR_SIZE_X - 1;
     int16_t y2       = y1 + CURSOR_SIZE_Y - 1;
 
@@ -412,8 +421,8 @@ void MOUSEDOS_DrawCursor()
         dataPos += addx2;
     };
     state.background = true;
-    state.backposx   = GETPOS_X / xratio - state.hot_x;
-    state.backposy   = GETPOS_Y - state.hot_y;
+    state.backposx   = GetPosX() / xratio - state.hot_x;
+    state.backposy   = GetPosY() - state.hot_y;
 
     // Draw Mousecursor
     dataPos               = addy * CURSOR_SIZE_X;
@@ -465,13 +474,13 @@ static uint8_t GetResetWheel8bit()
     if (!state.cute_mouse) // wheel only available if CuteMouse extensions are active
         return 0;
 
-    const int8_t tmp = std::clamp(wheel,
+    const int16_t tmp = static_cast<int16_t>(std::clamp(wheel,
                                   static_cast<int16_t>(INT8_MIN),
-                                  static_cast<int16_t>(INT8_MAX));
+                                  static_cast<int16_t>(INT8_MAX)));
     wheel = 0; // reading always int8_t the wheel counter
 
     // 0xff for -1, 0xfe for -2, etc.
-    return (tmp >= 0) ? tmp : 0x100 + tmp;
+    return static_cast<int8_t>((tmp >= 0) ? tmp : 0x100 + tmp);
 }
 
 static uint16_t GetResetWheel16bit()
@@ -483,7 +492,7 @@ static uint16_t GetResetWheel16bit()
     wheel = 0; // reading always clears the wheel counter
 
     // 0xffff for -1, 0xfffe for -2, etc.
-    return (tmp >= 0) ? tmp : 0x10000 + tmp;
+    return static_cast<int8_t>((tmp >= 0) ? tmp : 0x10000 + tmp);
 }
 
 static void SetMickeyPixelRate(const int16_t ratio_x, const int16_t ratio_y)
@@ -770,8 +779,8 @@ static void MoveCursorSeamless(const float x_rel, const float y_rel,
 bool MOUSEDOS_NotifyMoved(const float x_rel, const float y_rel,
                           const uint16_t x_abs, const uint16_t y_abs)
 {
-    const auto old_pos_x = GETPOS_X;
-    const auto old_pos_y = GETPOS_Y;
+    const auto old_pos_x = GetPosX();
+    const auto old_pos_y = GetPosY();
 	
 	const auto old_mickey_x = static_cast<int16_t>(state.mickey_x);
 	const auto old_mickey_y = static_cast<int16_t>(state.mickey_y);
@@ -786,7 +795,7 @@ bool MOUSEDOS_NotifyMoved(const float x_rel, const float y_rel,
     
     // Filter out unneeded events (like sub-pixel mouse movements,
 	// which won't change guest side mouse state)
-	const bool abs_changed = (old_pos_x != GETPOS_X) || (old_pos_y != GETPOS_Y);
+	const bool abs_changed = (old_pos_x != GetPosX()) || (old_pos_y != GetPosY());
 	const bool rel_changed = (old_mickey_x != static_cast<int16_t>(state.mickey_x)) ||
 	                         (old_mickey_y != static_cast<int16_t>(state.mickey_y));
 	if (!abs_changed && !rel_changed)
@@ -812,8 +821,8 @@ bool MOUSEDOS_NotifyPressed(const MouseButtons12S new_buttons_12S,
     buttons = new_buttons_12S;
 
     state.times_pressed[idx]++;
-    state.last_pressed_x[idx] = GETPOS_X;
-    state.last_pressed_y[idx] = GETPOS_Y;
+    state.last_pressed_x[idx] = GetPosX();
+    state.last_pressed_y[idx] = GetPosY();
 
     return MOUSEDOS_HasCallback(event_id);
 }
@@ -827,8 +836,8 @@ bool MOUSEDOS_NotifyReleased(const MouseButtons12S new_buttons_12S,
     buttons = new_buttons_12S;
 
     state.times_released[idx]++;
-    state.last_released_x[idx] = GETPOS_X;
-    state.last_released_y[idx] = GETPOS_Y;
+    state.last_released_x[idx] = GetPosX();
+    state.last_released_y[idx] = GetPosY();
 
     return MOUSEDOS_HasCallback(event_id);
 }
@@ -843,8 +852,8 @@ bool MOUSEDOS_NotifyWheel(const int16_t w_rel)
                                 static_cast<int32_t>(INT16_MAX));
 
     wheel = static_cast<int16_t>(tmp);
-    state.last_wheel_moved_x = GETPOS_X;
-    state.last_wheel_moved_y = GETPOS_Y;
+    state.last_wheel_moved_x = GetPosX();
+    state.last_wheel_moved_y = GetPosY();
 
     return MOUSEDOS_HasCallback(MouseEventId::WheelHasMoved);
 }
@@ -876,17 +885,17 @@ static Bitu INT33_Handler()
     case 0x03: // MS MOUSE v1.0+ / CuteMouse - get position and button status
         reg_bl = buttons.data;
         reg_bh = GetResetWheel8bit(); // CuteMouse clears wheel counter too
-        reg_cx = GETPOS_X;
-        reg_dx = GETPOS_Y;
+        reg_cx = GetPosX();
+        reg_dx = GetPosY();
         break;
     case 0x04: // MS MOUSE v1.0+ - position mouse cursor
     {
         // If position isn't different from current position, don't
         // change it. (position is rounded so numbers get lost when the
         // rounded number is set) (arena/simulation Wolf)		
-        if ((int16_t)reg_cx != GETPOS_X)
+        if ((int16_t)reg_cx != GetPosX())
             pos_x = static_cast<float>(reg_cx);
-        if ((int16_t)reg_dx != GETPOS_Y)
+        if ((int16_t)reg_dx != GetPosY())
             pos_y = static_cast<float>(reg_dx);
         LimitCoordinates();
         MOUSEDOS_DrawCursor();
@@ -1324,8 +1333,8 @@ uintptr_t MOUSEDOS_DoCallback(const MouseEventId event_id,
     reg_ax = static_cast<uint8_t>(event_id);
     reg_bl = buttons_12S.data;
     reg_bh = GetResetWheel8bit();
-    reg_cx = GETPOS_X;
-    reg_dx = GETPOS_Y;
+    reg_cx = GetPosX();
+    reg_dx = GetPosY();
     reg_si = static_cast<int16_t>(state.mickey_x);
     reg_di = static_cast<int16_t>(state.mickey_y);
 

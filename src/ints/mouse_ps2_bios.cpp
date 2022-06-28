@@ -189,11 +189,11 @@ static int16_t GetScaledMovement(const float d)
     const auto tmp1 = GetScaledValue(d);
     if (tmp1 > 0) {
         const auto tmp2 = std::round(tmp1 + 0.499f);
-        return std::min(tmp2, static_cast<float>(INT16_MAX));
+        return static_cast<int16_t>(std::min(tmp2, static_cast<float>(INT16_MAX)));
     }
     else {
         const auto tmp2 = std::round(tmp1 - 0.499f);
-        return std::max(tmp2, static_cast<float>(INT16_MIN));
+        return static_cast<int16_t>(std::max(tmp2, static_cast<float>(INT16_MIN)));
     }
 }
 
