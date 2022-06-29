@@ -201,6 +201,8 @@ void SpeedUpdate(float x_rel, float y_rel)
 bool MOUSEVMM_NotifyMoved(const float x_rel, const float y_rel,
                           const uint16_t x_abs, const uint16_t y_abs)
 {
+    if (!mouse_shared.active_vmm) return false;
+    
     SpeedUpdate(x_rel, y_rel);
 
     const auto old_x = scaled_x;

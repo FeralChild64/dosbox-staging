@@ -23,6 +23,7 @@
 #include <algorithm>
 
 #include "bios.h"
+#include "bitops.h"
 #include "callback.h"
 #include "checks.h"
 #include "cpu.h"
@@ -30,6 +31,8 @@
 #include "int10.h"
 #include "pic.h"
 #include "regs.h"
+
+using namespace bit::literals;
 
 // XXX CHECK_NARROWING();
 
@@ -150,6 +153,33 @@ static struct { // DOS driver state
 
 static RealPt uir_callback;
 
+// ***************************************************************************
+// Common helper routines
+// ***************************************************************************
+
+static uint16_t SignedToReg16(const int16_t x)
+{
+    if (x >= 0)
+        return static_cast<uint16_t>(x);
+    else
+        // -1 for 0xffff, -2 for 0xfffe, etc.
+        return static_cast<uint16_t>(0x10000 + x);
+}
+
+static uint16_t SignedToReg16(const float x)
+{
+    return SignedToReg16(static_cast<int16_t>(x));
+}
+
+static int16_t RegToSigned16(const uint16_t x)
+{
+    if (bit::is(x, b15))
+        // 0xffff for -1, 0xfffe for -2, etc.
+        return static_cast<int16_t>(x - 0x10000);
+    else
+        return static_cast<int16_t>(x);
+}
+
 static uint16_t GetPosX()
 {
     return static_cast<uint16_t>(std::lround(pos_x)) & state.gran_x;
@@ -218,8 +248,8 @@ void DrawCursorText()
     }
 
     // Save Background
-    state.backposx = x >> 3;
-    state.backposy = y >> 3;
+    state.backposx = static_cast<int16_t>(x >> 3);
+    state.backposy = static_cast<int16_t>(y >> 3);
     if (state.mode < 2)
         state.backposx >>= 1;
 
@@ -242,15 +272,13 @@ void DrawCursorText()
                   true);
     } else {
         uint16_t address = page * real_readw(BIOSMEM_SEG, BIOSMEM_PAGE_SIZE);
-        address += (state.backposy * real_readw(BIOSMEM_SEG, BIOSMEM_NB_COLS) +
-                    state.backposx) *
-                   2;
+        address += (state.backposy * real_readw(BIOSMEM_SEG, BIOSMEM_NB_COLS) + state.backposx) * 2;
         address /= 2;
         uint16_t cr = real_readw(BIOSMEM_SEG, BIOSMEM_CRTC_ADDRESS);
         IO_Write(cr, 0xe);
-        IO_Write(cr + 1, (address >> 8) & 0xff);
+        IO_Write(cr + 1, static_cast<uint8_t>((address >> 8) & 0xff));
         IO_Write(cr, 0xf);
-        IO_Write(cr + 1, address & 0xff);
+        IO_Write(cr + 1, static_cast<uint8_t>(address & 0xff));
     }
 }
 
@@ -347,7 +375,8 @@ static void RestoreCursorBackground()
 	for (y = y1; y <= y2; y++) {
 		dataPos += addx1;
 		for (x = x1; x <= x2; x++) {
-			INT10_PutPixel(x, y, state.page, state.backData[dataPos++]);
+			INT10_PutPixel(static_cast<uint16_t>(x), static_cast<uint16_t>(y),
+                           state.page, state.backData[dataPos++]);
 		};
 		dataPos += addx2;
 	};
@@ -394,7 +423,7 @@ void MOUSEDOS_DrawCursor()
     /* might be vidmode == 0x13?2:1 */
     int16_t xratio = 640;
     if (CurMode->swidth > 0)
-        xratio /= CurMode->swidth;
+        xratio /= static_cast<int16_t>(CurMode->swidth);
     if (xratio == 0)
         xratio = 1;
 
@@ -406,10 +435,10 @@ void MOUSEDOS_DrawCursor()
     int16_t x, y;
     uint16_t addx1, addx2, addy;
     uint16_t dataPos = 0;
-    int16_t x1       = GetPosX() / xratio - state.hot_x;
-    int16_t y1       = GetPosY() - state.hot_y;
-    int16_t x2       = x1 + CURSOR_SIZE_X - 1;
-    int16_t y2       = y1 + CURSOR_SIZE_Y - 1;
+    int16_t x1       = static_cast<int16_t>(GetPosX() / xratio - state.hot_x);
+    int16_t y1       = static_cast<int16_t>(GetPosY() - state.hot_y);
+    int16_t x2       = static_cast<int16_t>(x1 + CURSOR_SIZE_X - 1);
+    int16_t y2       = static_cast<int16_t>(y1 + CURSOR_SIZE_Y - 1);
 
     ClipCursorArea(x1, x2, y1, y2, addx1, addx2, addy);
 
@@ -417,13 +446,14 @@ void MOUSEDOS_DrawCursor()
     for (y = y1; y <= y2; y++) {
         dataPos += addx1;
         for (x = x1; x <= x2; x++) {
-            INT10_GetPixel(x, y, state.page, &state.backData[dataPos++]);
+            INT10_GetPixel(static_cast<uint16_t>(x), static_cast<uint16_t>(y),
+                           state.page, &state.backData[dataPos++]);
         };
         dataPos += addx2;
     };
     state.background = true;
-    state.backposx   = GetPosX() / xratio - state.hot_x;
-    state.backposy   = GetPosY() - state.hot_y;
+    state.backposx   = static_cast<int16_t>(GetPosX() / xratio - state.hot_x);
+    state.backposy   = static_cast<int16_t>(GetPosY() - state.hot_y);
 
     // Draw Mousecursor
     dataPos               = addy * CURSOR_SIZE_X;
@@ -451,7 +481,8 @@ void MOUSEDOS_DrawCursor()
                 pixel = pixel ^ 0x0f;
             cuMask <<= 1;
             // Set Pixel
-            INT10_PutPixel(x, y, state.page, pixel);
+            INT10_PutPixel(static_cast<uint16_t>(x), static_cast<uint16_t>(y),
+                           state.page, pixel);
             dataPos++;
         };
         dataPos += addx2;
@@ -481,7 +512,7 @@ static uint8_t GetResetWheel8bit()
     wheel = 0; // reading always int8_t the wheel counter
 
     // 0xff for -1, 0xfe for -2, etc.
-    return static_cast<int8_t>((tmp >= 0) ? tmp : 0x100 + tmp);
+    return static_cast<uint8_t>((tmp >= 0) ? tmp : (0x100 + tmp));
 }
 
 static uint16_t GetResetWheel16bit()
@@ -493,7 +524,7 @@ static uint16_t GetResetWheel16bit()
     wheel = 0; // reading always clears the wheel counter
 
     // 0xffff for -1, 0xfffe for -2, etc.
-    return static_cast<int8_t>((tmp >= 0) ? tmp : 0x10000 + tmp);
+    return static_cast<uint16_t>((tmp >= 0) ? tmp : (0x10000 + tmp));
 }
 
 static void SetMickeyPixelRate(const int16_t ratio_x, const int16_t ratio_y)
@@ -595,13 +626,13 @@ void MOUSEDOS_AfterNewVideoMode(const bool setmode)
     case 0x03:
     case 0x07: {
         state.gran_x = (mode < 2) ? 0xfff0 : 0xfff8;
-        state.gran_y = (int16_t)0xfff8;
+        state.gran_y = 0xfff8;
         Bitu rows    = IS_EGAVGA_ARCH
                              ? real_readb(BIOSMEM_SEG, BIOSMEM_NB_ROWS)
                              : 24;
         if ((rows == 0) || (rows > 250))
             rows = 25 - 1;
-        state.maxpos_y = 8 * (rows + 1) - 1;
+        state.maxpos_y = static_cast<int16_t>(8 * (rows + 1) - 1);
         break;
     }
     case 0x04:
@@ -1028,8 +1059,8 @@ static Bitu INT33_Handler()
         reg_bx = state.text_xor_mask;
         [[fallthrough]];
     case 0x0b: // MS MOUSE v1.0+ - read motion data
-        reg_cx = static_cast<int16_t>(state.mickey_x);
-        reg_dx = static_cast<int16_t>(state.mickey_y);
+        reg_cx = SignedToReg16(state.mickey_x);
+        reg_dx = SignedToReg16(state.mickey_y);
         state.mickey_x = 0;
         state.mickey_y = 0;
         break;
@@ -1047,7 +1078,7 @@ static Bitu INT33_Handler()
         ("Mouse light pen emulation not implemented");
         break;
     case 0x0f: // MS MOUSE v1.0+ - define mickey/pixel rate
-        SetMickeyPixelRate(reg_cx, reg_dx);
+        SetMickeyPixelRate(RegToSigned16(reg_cx), RegToSigned16(reg_dx));
         break;
     case 0x10: // MS MOUSE v1.0+ - define screen region for updating
         state.update_region_x[0] = (int16_t)reg_cx;
@@ -1344,8 +1375,8 @@ uintptr_t MOUSEDOS_DoCallback(const uint8_t mask,
     reg_bh = (mask & static_cast<uint8_t>(MouseEventId::WheelHasMoved)) ? GetResetWheel8bit() : 0;
     reg_cx = GetPosX();
     reg_dx = GetPosY();
-    reg_si = static_cast<int16_t>(state.mickey_x);
-    reg_di = static_cast<int16_t>(state.mickey_y);
+    reg_si = SignedToReg16(state.mickey_x);
+    reg_di = SignedToReg16(state.mickey_y);
 
     CPU_Push16(RealSeg(uir_callback));
     CPU_Push16(RealOff(uir_callback));
