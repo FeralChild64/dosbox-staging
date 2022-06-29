@@ -36,9 +36,8 @@ CHECK_NARROWING();
 // TODO before next PR:
 //
 // XXX try to fix CHECK_NARROWING(); problems in mouse_dos_driver.cpp
-// XXX improve the queue, it should aggregate events (MouseEventId -> MouseEventMask), test it(debug logs?)
-// XXX use 'raw_input' to enable/disable mouse acceleration (VMware, DOS)
-// XXX harmonize rounding in GetPosX / GetPosY / MOUSESERIAL_NotifyMoved / GetScaledMovement / MOUSEPS2_NotifyMoved
+// XXX implement mouse acceleration (VMware, DOS), adjust SPEEDEQ_DOS, SPEEDEQ_VMM
+// XXX test the queue (debug logs?) - possibly use the parameter
 
 // XXX already finished, to be put in PR notes:
 //
@@ -54,7 +53,7 @@ CHECK_NARROWING();
 //   and complicated to apply on non-refactored code
 // - Windows 3.x + DOS driver mouse stability fix ported from DOSBox X
 // - it should be now much harder (if not impossible) to crash emulator using INT33 function 0x17
-//   with malicious data
+//   with malicious data, functions 0x05 and 0x06 can't be forced anymore to read out-of-bounds data
 // - implemented more BIOS PS/2 mouse functions
 // - preparations for more intelligent 'autoseamless' mouse integration
 // Notes
@@ -77,15 +76,15 @@ MouseVideo  mouse_video;
 bool mouse_seamless_driver = false;
 bool mouse_suggest_show    = false;
 
-static uintptr_t int74_ret_callback = 0;
-
-static MouseButtons12  buttons_12   = 0; // host side state of buttons 1 (left), 2 (right)
-static MouseButtons345 buttons_345  = 0; // host side state of buttons 3 (middle), 4, and 5
+static MouseButtons12  buttons_12  = 0; // host side state of buttons 1 (left), 2 (right)
+static MouseButtons345 buttons_345 = 0; // host side state of buttons 3 (middle), 4, and 5
 
 static float sensitivity_x = 0.3f; // sensitivity, might depend on the GUI/GFX
 static float sensitivity_y = 0.3f; // for scaling all relative mouse movements
 
 static bool raw_input = true; // true = relative input without host OS mouse acceleration
+
+static uintptr_t int74_ret_callback = 0;
 
 // ***************************************************************************
 // Mouse button helper functions
@@ -121,15 +120,18 @@ typedef struct MouseEvent {
     bool req_vmm = false; // if virtual machine mouse needs an event
     bool req_dos = false; // if DOS mouse driver needs an event
 
-    MouseEventId    id = MouseEventId::NotDosEvent;
+    MouseEventId id = MouseEventId::NotDosEvent;
+	uint8_t mask    = 0;
     MouseButtons12S buttons_12S = 0;
+	
+	uint8_t aggr_mask = 0; // mask to check if button events can be aggregated
 
     MouseEvent() {}
-    MouseEvent(MouseEventId id) : id(id) {}
+    MouseEvent(MouseEventId id) : id(id), mask(static_cast<uint8_t>(id)) {}
 
 } MouseEvent;
 
-class MouseQueue final {
+static class MouseQueue final {
 
 public:
 
@@ -138,35 +140,33 @@ public:
     void AddEvent(MouseEvent &event);
     void FetchEvent(MouseEvent &event);
     void ClearEventsDOS();
-    void StartTimer();
+    void StartTimerIfNeeded();
     void Tick();
 
 private:
 
     MouseQueue(const MouseQueue&) = delete;
     MouseQueue &operator=(const MouseQueue&) = delete;
+	
+	void AggregateEventsDOS(MouseEvent &event);
+    MouseEvent &PopEventBtn();
+	void UpdateDelayCounters();
 
-    std::array<MouseEvent, 12> events = {}; // a modulo queue of events
-    uint8_t idx_first    = 0;  // index of the first event
-    uint8_t num_events   = 0;  // number of events in the queue
+    std::array<MouseEvent, 8> events = {}; // a modulo queue of events
+    uint8_t idx_first = 0; // index of the first event
+    uint8_t num_event = 0; // number of events in the queue
 
     MouseButtons12S last_buttons_12S = 0; // last buttons reported
 
-    bool queue_overflow  = false;
+    bool queue_overflow    = false;
     bool timer_in_progress = false;
 	
 	// Time in milliseconds which has to elapse before event can take place
-	uint8_t delay_ps2          = 0;
-	uint8_t delay_dos_priority = 0; // for move/wheel events
-	uint8_t delay_dos_button   = 0; // for button events
-	// NOTE: here we cheat a little (delay for buttons is separate and very small),
-	// so that button events can be sent to the DOS application with minimal latency.
-	// Due to hardware differences and multiple independent mouse driver
-	// implementations in the past, it is unlikely to cause problems. Besides,
-	// host OS and hardware have their limitations, too.
+	uint8_t delay_ps2     = 0;
+	uint8_t delay_dos_btn = 0; // for DOS button events
+	uint8_t delay_dos_mov = 0; // for DOS move/wheel events
 
-    // High prioroity events, handled before the queue
-
+    // Events for which a flag is enough to store them
     bool event_ps2       = false;
     bool event_dos_moved = false;
     bool event_dos_wheel = false;
@@ -175,33 +175,42 @@ private:
 	
 	uint32_t ticks_start = 0; // PIC_Ticks value when timer starts
 	
+	// Helper masks for aggregating DOS button events
+	static constexpr uint8_t aggr_mask_pressed =
+	    static_cast<uint8_t>(MouseEventId::PressedLeft)  |
+	    static_cast<uint8_t>(MouseEventId::PressedRight) |
+		static_cast<uint8_t>(MouseEventId::PressedMiddle);
+	static constexpr uint8_t aggr_mask_released =
+	    static_cast<uint8_t>(MouseEventId::ReleasedLeft)  |
+	    static_cast<uint8_t>(MouseEventId::ReleasedRight) |
+		static_cast<uint8_t>(MouseEventId::ReleasedMiddle);
+	
 	// Helpers to check if there are events in the queue
-	inline bool HasEventDOS_priotity() const { return event_dos_moved || event_dos_wheel; }
-	inline bool HasEventDOS_button() const { return (num_events != 0); }
-	inline bool HasEventDOS() const { return HasEventDOS_priotity() || HasEventDOS_button(); }
+	inline bool HasEventDOSmov() const { return event_dos_moved || event_dos_wheel; }
+	inline bool HasEventDOSbtn() const { return (num_event != 0); }
+	inline bool HasEventDOSany() const { return HasEventDOSmov() || HasEventDOSbtn(); }
 	inline bool HasEventPS2() const { return event_ps2; }
-    inline bool HasEventAny() const { return HasEventDOS() || HasEventPS2(); }
+    inline bool HasEventAny() const { return HasEventDOSany() || HasEventPS2(); }
 
-	// Helpers to check if there are events ready to be launched
+	// Helpers to check if there are events ready to be handled
 	inline bool HasReadyEventPS2() const {
 		return HasEventPS2() && !delay_ps2;
 	}
-	inline bool HasReadyEventDOS_priority() const
+	inline bool HasReadyEventDOSmov() const
 	{
-		return HasEventDOS_priotity() && !delay_dos_priority &&
+		return HasEventDOSmov() && !delay_dos_mov &&
 		       !mouse_shared.dos_cb_running; // callback busy = no new event
 	}	
-	inline bool HasReadyEventDOS_button() const
+	inline bool HasReadyEventDOSbtn() const
 	{
-		return HasEventDOS_button() && !delay_dos_button &&
-		       !HasEventDOS_priotity() &&     // move/wheel waiting = no button event
-		       !mouse_shared.dos_cb_running;  // callback busy = no new event
+		return HasEventDOSbtn() && !delay_dos_btn &&
+		       !mouse_shared.dos_cb_running; // callback busy = no new event
 	}
     inline bool HasReadyEventAny() const
     {
         return HasReadyEventPS2() ||
-               HasReadyEventDOS_priority() ||
-               HasReadyEventDOS_button();
+               HasReadyEventDOSmov() ||
+               HasReadyEventDOSbtn();
     }
 
 } queue;
@@ -211,7 +220,9 @@ static void MouseQueueTick(uint32_t)
     queue.Tick();
 }
 
-MouseQueue::MouseQueue() { }
+MouseQueue::MouseQueue()
+{
+}
 
 void MouseQueue::AddEvent(MouseEvent &event)
 {
@@ -219,29 +230,49 @@ void MouseQueue::AddEvent(MouseEvent &event)
     if (mouse_shared.active_dos && !mouse_shared.dos_cb_running)
         queue_overflow = false;
 
+    // If queue got overflowed due to DOS not taking events,
+    // don't accept any more events other than mouse move, as it might
+	// lead to strange effects in DOS application
+    if (queue_overflow && event.req_dos &&
+	    event.id != MouseEventId::MouseHasMoved) {
+        event.req_dos = false;
+        last_buttons_12S = event.buttons_12S;
+    }
+
+    // Mouse movements should be aggregated, no point in handling
+	// excessive amount of events
+	if (event.req_dos)
+		AggregateEventsDOS(event);
+
+    // Prevent unnecessary further processing
+    if (!event.req_dos && !event.req_ps2 && !event.req_vmm)
+        return; //event not relevant for any mouse
+
+    bool restart_timer = false;
     if (event.req_ps2 || event.req_vmm) {
+		if (!HasEventPS2() && timer_in_progress)
+		{
+			// We do not want the timer to start only then DOS event
+			// gets processed - for minimum latency it is better to
+			// restart the timer
+			restart_timer = true;
+		}
+
         // Events for PS/2 interfaces (or virtualizer compatible drivers)
         // do not carry any information - they are only notifications
         // that new data is available for fetching
         event_ps2 = true;
     }
 
-    // Previous implementation did this to 'prevent double-click while
-    // mouse was' - I'm not sure whether this is a valid reason, but it
-    // has a chance to improve mouse smoothness
-    if ((event_dos_moved && event.id == MouseEventId::MouseHasMoved) ||
-        (event_dos_wheel && event.id == MouseEventId::WheelHasMoved))
-        event.req_dos = false; // DOS queue already has such an event
-
-    // If queue got overflowed due to DOS not taking events,
-    // don't accept any more events other than mouse move, as it might
-	// lead to strange effects in DOS application
-    if (queue_overflow && event.id != MouseEventId::MouseHasMoved) {
-        event.req_dos = false;
-        last_buttons_12S = event.buttons_12S;
-    }
-
     if (event.req_dos) {
+		if (!HasEventDOSany() && timer_in_progress)
+		{
+			// We do not want the timer to start only then PS/2 event
+			// gets processed - for minimum latency it is better to
+			// restart the timer
+			restart_timer = true;
+		}		
+		
         if (event.id == MouseEventId::MouseHasMoved) {
             // Mouse has moved - put in priority place
             event_dos_moved = true;
@@ -250,74 +281,118 @@ void MouseQueue::AddEvent(MouseEvent &event)
             // Wheel has moved - put in priority place
             event_dos_wheel = true;
         }
-        else if (num_events >= events.size()) {
+        else if (num_event >= events.size()) {
             // No space left, queue overflow. Clear it (leave only
 			// movement notifications) and don't accept any more
 			// button/wheel events until application starts to react
-            num_events = 0;
+            num_event = 0;
 			event_dos_wheel = false;
             queue_overflow = true;
             last_buttons_12S = event.buttons_12S;
         }
         else {
             // Button press/release - put into the queue
-            const auto idx = (idx_first + num_events) % events.size();
-            num_events++;
+            const auto idx = (idx_first + num_event) % events.size();
+            num_event++;
             event.buttons_12S.data = GetButtonsSquished().data;
             events[idx] = event;
         }
     }
+	
+	if (restart_timer) {
+		timer_in_progress = false;
+		PIC_RemoveEvents(MouseQueueTick);
+		UpdateDelayCounters();
+		StartTimerIfNeeded();
+	}
+    else if (!timer_in_progress)
+		// If no timer in progress, handle the event now
+        PIC_ActivateIRQ(12);
+}
 
-    // Prevent unnecessary processing
-    if (!event.req_dos && !event.req_ps2 && !event.req_vmm)
-        return; //event not relevant for any mouse
+void MouseQueue::AggregateEventsDOS(MouseEvent &event)
+{
+	// Try to aggregate move / wheel events
+	if ((event_dos_moved && event.id == MouseEventId::MouseHasMoved) ||
+		(event_dos_wheel && event.id == MouseEventId::WheelHasMoved)) {
+		event.req_dos = false; // DOS queue already has such an event
+		return;
+	}
+	
+	// Try to aggregate button events
+	if (event.mask & aggr_mask_pressed)
+		// Set 'pressed+released' for every 'pressed' bit
+		event.aggr_mask = event.mask | (event.mask << 1);
+	else if (event.mask & aggr_mask_released)
+		// Set 'pressed+released' for every 'released' bit
+		event.aggr_mask = event.mask | (event.mask >> 1);
+	// Try to aggregate with the last queue event
+	if (num_event) {
+		auto &last_event = events[(idx_first + num_event) % events.size()];
+		if (!(last_event.aggr_mask & event.aggr_mask))
+		{
+			last_event.mask      |= event.mask;
+			last_event.aggr_mask |= event.aggr_mask;
+			// Event aggregated with the last one from the queue;
+			// DOS does not need it any more
+			event.req_dos = false;
+		}
+	}
+}
 
-    // If no timer in progress, launch the event immediately
-    if (!timer_in_progress)
-        Tick();
+MouseEvent &MouseQueue::PopEventBtn()
+{
+	assert(num_event > 0);
+
+	auto &event = events[idx_first];
+	idx_first = static_cast<uint8_t>((idx_first + 1) % events.size());
+	num_event--;
+
+	return event;
 }
 
 void MouseQueue::FetchEvent(MouseEvent &event)
 {
-	// XXX for DOS, aggregate events
-	
-	// First try DOS prioritized events
-    if (HasReadyEventDOS_priority()) {
+	// First try prioritized (move/wheel) DOS events
+    if (HasReadyEventDOSmov()) {
 		// Set delay before next DOS events
-		delay_dos_priority = mouse_shared.event_interval_dos;
-		delay_dos_button   = 1;
+		delay_dos_btn = mouse_shared.start_delay_dos_btn;
+		delay_dos_mov = mouse_shared.start_delay_dos_mov;
         // Fill in common event information
         event.req_dos = true;
         event.buttons_12S = last_buttons_12S;
-		// Fill in common event dependend information
+		// Mark which events to handle
         if (event_dos_moved) {
-            event.id = MouseEventId::MouseHasMoved;
+            event.mask |= static_cast<uint8_t>(MouseEventId::MouseHasMoved);
             event_dos_moved = false;
-            return;
-        } else { // event_dos_wheel
-            event.id = MouseEventId::WheelHasMoved;
+        }
+        if (event_dos_wheel) {
+            event.mask |= static_cast<uint8_t>(MouseEventId::WheelHasMoved);
             event_dos_wheel = false;
-            return;
-        }		
+        }
+		// If possible, aggregate button events
+		if (!HasReadyEventDOSbtn()) return;
+        const auto &event_btn = PopEventBtn();
+		event.mask |= event_btn.mask;
+		last_buttons_12S  = event_btn.buttons_12S;
+		event.buttons_12S = last_buttons_12S;		
+		return;
 	}
-	
+
     // We should prefer PS/2 events now (as the last was DOS one),
     // but we can't if there is no PS/2 event ready to be handled
     if (!HasReadyEventPS2())
         prefer_ps2 = false;
 
-	// Next try DOS button events
-    if (HasReadyEventDOS_button() && !prefer_ps2) {
+	// Try DOS button events
+    if (HasReadyEventDOSbtn() && !prefer_ps2) {
         // Next time prefer PS/2 events over buttons for DOS driver
         prefer_ps2 = true;
 		// Set delay before next DOS events
-		delay_dos_priority = std::max(delay_dos_priority, static_cast<uint8_t>(1));
-		delay_dos_button   = 1;
+		delay_dos_btn = mouse_shared.start_delay_dos_btn;
+		delay_dos_mov = std::max(delay_dos_mov, delay_dos_btn);
 		// Take event from the queue
-        event = events[idx_first];
-        idx_first = static_cast<uint8_t>((idx_first + 1) % events.size());
-        num_events--;
-        // Fill in event information
+        event = PopEventBtn();
         last_buttons_12S = event.buttons_12S;
         return;
     }
@@ -327,7 +402,7 @@ void MouseQueue::FetchEvent(MouseEvent &event)
         // Next time prefer DOS event
         prefer_ps2 = false;
 		// Set delay before next PS/2 events
-		delay_ps2 = mouse_shared.event_interval_ps2;
+		delay_ps2 = mouse_shared.start_delay_ps2;
         // PS/2 events are really dummy - merely a notification
         // that something has happened and driver has to react
         event.req_ps2 = true;
@@ -342,11 +417,11 @@ void MouseQueue::FetchEvent(MouseEvent &event)
 void MouseQueue::ClearEventsDOS()
 {
     // Clear DOS relevant part of the queue
-    num_events = 0;
-    event_dos_moved    = false;
-    event_dos_wheel    = false;
-	delay_dos_priority = 0;
-	delay_dos_button   = 0;
+    num_event = 0;
+    event_dos_moved = false;
+    event_dos_wheel = false;
+	delay_dos_mov   = 0;
+	delay_dos_btn   = 0;
 
     // The overflow reason is most likely gone
     queue_overflow = false;
@@ -357,7 +432,7 @@ void MouseQueue::ClearEventsDOS()
     }
 }
 
-void MouseQueue::StartTimer()
+void MouseQueue::StartTimerIfNeeded()
 {
 	// Do nothing if timer is already in progress
 	if (timer_in_progress)
@@ -366,48 +441,94 @@ void MouseQueue::StartTimer()
 	uint8_t delay = UINT8_MAX; // to mark 'not needed'
 	if (delay_ps2)
 		delay = std::min(delay, delay_ps2);
-	if (delay_dos_priority)
-		delay = std::min(delay, delay_dos_priority);
-	else if (delay_dos_button)
-		delay = std::min(delay, delay_dos_button);
-	// Enforce some minimal delay between events; needed
+	if (delay_dos_mov)
+		delay = std::min(delay, delay_dos_mov);
+	else if (delay_dos_btn)
+		delay = std::min(delay, delay_dos_btn);
+	// Enforce some non-zero delay between events; needed
 	// for example if DOS interrupt handler is busy
 	if (HasEventAny() && (delay == UINT8_MAX))
 		delay = 1;
-	
+
 	// If queue is empty and all expired, we need no timer
 	if (delay == UINT8_MAX)
 		return;
-	
+
 	// Start the timer
     ticks_start = PIC_Ticks;
     PIC_AddEvent(MouseQueueTick, static_cast<double>(delay));
 }
 
-void MouseQueue::Tick()
+void MouseQueue::UpdateDelayCounters()
 {
-    timer_in_progress = false;
-
-	// Calculate new values of delay counters
-	
-	uint32_t tmp = (PIC_Ticks > ticks_start) ? (PIC_Ticks - ticks_start) : 1;
+	const uint32_t tmp = (PIC_Ticks > ticks_start) ? (PIC_Ticks - ticks_start) : 1;
     uint8_t elapsed = static_cast<uint8_t>(std::min(tmp, static_cast<uint32_t>(UINT8_MAX)));
 	if (!ticks_start)
 		elapsed = 1;
+
 	auto calc_new_delay = [](const uint8_t delay, const uint8_t elapsed) {
 		return static_cast<uint8_t>((delay > elapsed) ? (delay - elapsed) : 0);
 	};
-	
-	delay_ps2          = calc_new_delay(delay_ps2, elapsed);
-	delay_dos_priority = calc_new_delay(delay_dos_priority, elapsed);
-	delay_dos_button   = calc_new_delay(delay_dos_button, elapsed);
+
+	delay_ps2     = calc_new_delay(delay_ps2, elapsed);
+	delay_dos_mov = calc_new_delay(delay_dos_mov, elapsed);
+	delay_dos_btn = calc_new_delay(delay_dos_btn, elapsed);
+
+	ticks_start = 0;
+}
+
+void MouseQueue::Tick()
+{
+    timer_in_progress = false;
+	UpdateDelayCounters();
 
 	// If we have anything to pass to guest side, activate interrupt;
-	// otherwise start the timer
+	// otherwise start the timer again
     if (HasReadyEventAny())
         PIC_ActivateIRQ(12);
 	else
-		StartTimer();
+		StartTimerIfNeeded();
+}
+
+// ***************************************************************************
+// Mouse ballistics
+// ***************************************************************************
+
+float MOUSE_BallisticsPoly(const float x)
+{
+	// This routine provides a function for mouse ballistics
+	//(cursor acceleration), to be reused in various mouse interfaces.
+	// Since this is a DOS emulator, the acceleration model is
+	// based on a historic PS/2 mouse specification.
+	
+	// If we don't have raw mouse input, stay with flat profile;
+	// in such case the acceleration is already handled by the host OS,
+	// adding our own could lead to hard to predict (most likely
+	// undesirable) effects
+    if (!raw_input)
+        return x;
+    
+    // Normal PS/2 mouse 2:1 scaling algorithm is just a substitution:
+    // 0 => 0, 1 => 1, 2 => 1, 3 => 3, 4 => 6, 5 => 9, other x => x * 2
+    // and the same for negatives. But we want smooth cursor movement,
+    // therefore we use this polynomial (least square regression,
+	// 3rd degree, on points -6, -5, ..., 0, ... , 5, 6, here scaled to
+	// give f(6.0) = 6.0).
+    // Moreover, this model is used not only to implement better PS/2
+	// 2:1 scaling - but also everytime we want to apply mouse
+	// acceleration by ourselves.
+	//
+	// Please treat this polynomial as yet another nod to the past,
+	// one more small touch of PC computing history :)
+    
+    if (x >= 6.0f || x <= -6.0f)
+        return x;
+
+    constexpr float a = 0.017153417f;
+    constexpr float b = 0.382477002f;
+
+    // Optimized polynomial: a*(x^3) + b*(x^1) 
+    return x * (a * x * x + b); 
 }
 
 
@@ -442,13 +563,13 @@ static uintptr_t INT74_Handler()
 
         // If DOS driver's client is not interested in this particular
         // type of event - skip it
-        if (!MOUSEDOS_HasCallback(event.id))
+        if (!MOUSEDOS_HasCallback(event.mask))
             return INT74_Exit();
     
         CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
         CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)) + 7);
 
-        return MOUSEDOS_DoCallback(event.id, event.buttons_12S);
+        return MOUSEDOS_DoCallback(event.mask, event.buttons_12S);
     }
 
     // If BIOS interface is active, use it to handle the event
@@ -467,7 +588,7 @@ static uintptr_t INT74_Handler()
 
 uintptr_t INT74_Ret_Handler()
 {
-    queue.StartTimer();
+    queue.StartTimerIfNeeded();
     return CBRET_NONE;
 }
 
@@ -601,28 +722,23 @@ void MOUSE_EventMoved(const int16_t x_rel, const int16_t y_rel,
     // would have broken the mouse pointer integration
 
     // Adapt relative movement - use sensitivity settings
+    auto x_mov = static_cast<float>(x_rel) * sensitivity_x;
+    auto y_mov = static_cast<float>(y_rel) * sensitivity_y;
 
-    auto x_sen = static_cast<float>(x_rel) * sensitivity_x;
-    auto y_sen = static_cast<float>(y_rel) * sensitivity_y;
-
-    // Make sure nothing crosses int16_t value even when added
-    // to internally stored sub-pixel movement 
-
-    static constexpr float max = 16380.0f;
-
-    x_sen = std::clamp(x_sen, -max, max);
-    y_sen = std::clamp(y_sen, -max, max);
+    // Clamp the resulting values to something sane, just in case
+    x_mov = std::clamp(x_mov, -MOUSE_REL_MAX, MOUSE_REL_MAX);
+    y_mov = std::clamp(y_mov, -MOUSE_REL_MAX, MOUSE_REL_MAX);
 
     // Notify mouse interfaces
 
     MouseEvent event(MouseEventId::MouseHasMoved);
 
     if (!mouse_video.autoseamless || mouse_is_captured) {
-        MOUSESERIAL_NotifyMoved(x_sen, y_sen);
-        event.req_ps2 = MOUSEPS2_NotifyMoved(x_sen, y_sen);
+        MOUSESERIAL_NotifyMoved(x_mov, y_mov);
+        event.req_ps2 = MOUSEPS2_NotifyMoved(x_mov, y_mov);
     }
-    event.req_vmm = MOUSEVMM_NotifyMoved(x_sen, y_sen, x_abs, y_abs);
-    event.req_dos = MOUSEDOS_NotifyMoved(x_sen, y_sen, x_abs, y_abs);
+    event.req_vmm = MOUSEVMM_NotifyMoved(x_mov, y_mov, x_abs, y_abs);
+    event.req_dos = MOUSEDOS_NotifyMoved(x_mov, y_mov, x_abs, y_abs);
 
     queue.AddEvent(event);
 }

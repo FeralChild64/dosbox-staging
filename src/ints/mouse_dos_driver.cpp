@@ -33,7 +33,8 @@
 
 // XXX CHECK_NARROWING();
 
-// This file implements the DOS virtual mouse driver
+// This file implements the DOS mouse driver interface,
+// using host system events
 
 // Reference:
 // - Ralf Brown's Interrupt List
@@ -53,7 +54,7 @@ enum class MouseCursor : uint8_t {
     Text     = 2
 };
 
-// These values represent hardware state, not driver state
+// These values represent 'hardware' state, not driver state
 
 float pos_x             = 0.0f;
 float pos_y             = 0.0f;
@@ -151,12 +152,12 @@ static RealPt uir_callback;
 
 static uint16_t GetPosX()
 {
-    return static_cast<uint16_t>(pos_x) & state.gran_x;
+    return static_cast<uint16_t>(std::lround(pos_x)) & state.gran_x;
 }
 
 static uint16_t GetPosY()
 {
-    return static_cast<uint16_t>(pos_y) & state.gran_y;
+    return static_cast<uint16_t>(std::lround(pos_y)) & state.gran_y;
 }
 
 // ***************************************************************************
@@ -548,8 +549,13 @@ static void SetInterruptRate(uint16_t rate_id)
     }
 
     // Convert rate in Hz to delay in milliseconds
-    if (rate_hz)
-        mouse_shared.event_interval_dos = static_cast<uint8_t>(1000 / rate_hz);
+    if (rate_hz) {
+        mouse_shared.start_delay_dos_mov = static_cast<uint8_t>(1000 / rate_hz);
+		mouse_shared.start_delay_dos_btn = mouse_shared.start_delay_dos_mov / 5;
+
+		assert(mouse_shared.start_delay_dos_mov >= 2);
+		assert(mouse_shared.start_delay_dos_btn >= 1);
+	}
 }
 
 static void ResetHardware()
@@ -580,8 +586,8 @@ void MOUSEDOS_AfterNewVideoMode(const bool setmode)
     if (setmode && mode == state.mode)
         LOG(LOG_MOUSE, LOG_NORMAL)
         ("New video mode is the same as the old");
-    state.gran_x = (int16_t)0xffff;
-    state.gran_y = (int16_t)0xffff;
+    state.gran_x = 0xffff;
+    state.gran_y = 0xffff;
     switch (mode) {
     case 0x00:
     case 0x01:
@@ -608,7 +614,7 @@ void MOUSEDOS_AfterNewVideoMode(const bool setmode)
     case 0x0e:
     case 0x13:
         if (mode == 0x0d || mode == 0x13)
-            state.gran_x = (int16_t)0xfffe;
+            state.gran_x = 0xfffe;
         state.maxpos_y = 199;
         break;
     case 0x0f:
@@ -786,9 +792,12 @@ bool MOUSEDOS_NotifyMoved(const float x_rel, const float y_rel,
 	const auto old_mickey_y = static_cast<int16_t>(state.mickey_y);
 
     if (mouse_is_captured)
-        MoveCursorCaptured(x_rel, y_rel);
+        MoveCursorCaptured(x_rel * SPEED_DOS,
+	                       y_rel * SPEED_DOS);
     else
-        MoveCursorSeamless(x_rel, y_rel, x_abs, y_abs);
+        MoveCursorSeamless(x_rel * SPEED_DOS,
+	                       y_rel * SPEED_DOS,
+	                       x_abs, y_abs);
     
     // Make sure cursor stays in the range defined by application
     LimitCoordinates();
@@ -804,7 +813,7 @@ bool MOUSEDOS_NotifyMoved(const float x_rel, const float y_rel,
 	// If we are here, there is some noticealbe change in mouse
 	// state - if callback is registered for mouse movement,
 	// than we definitely need the event
-	if (MOUSEDOS_HasCallback(MouseEventId::MouseHasMoved))
+	if (MOUSEDOS_HasCallback(static_cast<uint8_t>(MouseEventId::MouseHasMoved)))
 		return true;
 	
 	// Noticeable change, but no callback; we might still need the
@@ -824,7 +833,7 @@ bool MOUSEDOS_NotifyPressed(const MouseButtons12S new_buttons_12S,
     state.last_pressed_x[idx] = GetPosX();
     state.last_pressed_y[idx] = GetPosY();
 
-    return MOUSEDOS_HasCallback(event_id);
+    return MOUSEDOS_HasCallback(static_cast<uint8_t>(event_id));
 }
 
 bool MOUSEDOS_NotifyReleased(const MouseButtons12S new_buttons_12S,
@@ -839,7 +848,7 @@ bool MOUSEDOS_NotifyReleased(const MouseButtons12S new_buttons_12S,
     state.last_released_x[idx] = GetPosX();
     state.last_released_y[idx] = GetPosY();
 
-    return MOUSEDOS_HasCallback(event_id);
+    return MOUSEDOS_HasCallback(static_cast<uint8_t>(event_id));
 }
 
 bool MOUSEDOS_NotifyWheel(const int16_t w_rel)
@@ -855,7 +864,7 @@ bool MOUSEDOS_NotifyWheel(const int16_t w_rel)
     state.last_wheel_moved_x = GetPosX();
     state.last_wheel_moved_y = GetPosY();
 
-    return MOUSEDOS_HasCallback(MouseEventId::WheelHasMoved);
+    return MOUSEDOS_HasCallback(static_cast<uint8_t>(MouseEventId::WheelHasMoved));
 }
 
 static Bitu INT33_Handler()
@@ -1320,19 +1329,19 @@ uintptr_t UIR_Handler()
     return CBRET_NONE;
 }
 
-bool MOUSEDOS_HasCallback(const MouseEventId event_id)
+bool MOUSEDOS_HasCallback(const uint8_t mask)
 {
-    return state.sub_mask & static_cast<uint8_t>(event_id);
+    return state.sub_mask & mask;
 }
 
-uintptr_t MOUSEDOS_DoCallback(const MouseEventId event_id,
+uintptr_t MOUSEDOS_DoCallback(const uint8_t mask,
                               const MouseButtons12S buttons_12S)
 {
     mouse_shared.dos_cb_running = true;
 
-    reg_ax = static_cast<uint8_t>(event_id);
+    reg_ax = mask;
     reg_bl = buttons_12S.data;
-    reg_bh = GetResetWheel8bit();
+    reg_bh = (mask & static_cast<uint8_t>(MouseEventId::WheelHasMoved)) ? GetResetWheel8bit() : 0;
     reg_cx = GetPosX();
     reg_dx = GetPosY();
     reg_si = static_cast<int16_t>(state.mickey_x);

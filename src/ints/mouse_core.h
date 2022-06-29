@@ -23,13 +23,30 @@
 
 #include "bit_view.h"
 
-// IntelliMouse Explorer em,ulation is currently disabled - there is probably
+// IntelliMouse Explorer emulation is currently disabled - there is probably
 // no way to test it. The IntelliMouse 3.0 software can use it, but it seems
 // to require physical PS/2 mouse registers to work correctly, and these
 // are not emulated yet.
 
 // #define ENABLE_EXPLORER_MOUSE
 
+
+// ***************************************************************************
+// Common defined
+// ***************************************************************************
+
+// Generic maximum to protect against insane mouse speed
+#define MOUSE_REL_MAX 1024.0f
+
+// Mouse equalization for consistent user experience - please adjust values
+// so that on full screen, with RAW mouse input, the mouse feel is similar
+// to Windows 3.11 for Workgroups with PS/2 mouse driver and default settings
+#define SPEED_DOS 1.0f  // for DOS driver
+#define SPEED_VMM 100.0f // for VMware-type drivers
+// Constants to move 'intersection point' for the acceleration curve
+// Requires raw mouse input, otherwise there is no effect
+// Larger values = higher mouse acceleration
+#define ACCEL_VMM 100.0f
 
 // ***************************************************************************
 // Common structures and variables
@@ -43,8 +60,14 @@ public:
     
     bool dos_cb_running = false; // true = DOS callback is running
 
-    uint8_t event_interval_ps2 = 5; // in milliseconds
-    uint8_t event_interval_dos = 5;
+	// NOTE: we are cheating a little (delay for buttons is separate and much smaller),
+	// so that button events can be sent to the DOS application with minimal latency.
+	// Due to hardware differences and multiple independent mouse driver
+	// implementations in the past, it is unlikely to cause problems. Besides,
+	// host OS and hardware have their limitations, too
+    uint8_t start_delay_ps2     = 5; // for PS/2 events, in milliseconds
+	uint8_t start_delay_dos_btn = 1; // for DOS button events
+    uint8_t start_delay_dos_mov = 5; // for DOS move/wheel events
 };
 
 class MouseVideo {
@@ -149,6 +172,8 @@ void MOUSE_NotifyStateChanged();
 void MOUSE_NotifyMovedFake();     // for VMware protocol support
 void MOUSE_NotifyDosReset();
 
+float MOUSE_BallisticsPoly(const float x);
+
 // ***************************************************************************
 // Serial mouse
 // ***************************************************************************
@@ -224,9 +249,9 @@ enum class MouseEventId : uint8_t {
 void MOUSEDOS_Init();
 void MOUSEDOS_DrawCursor();
 
-bool MOUSEDOS_HasCallback(const MouseEventId event_id);
-uintptr_t MOUSEDOS_DoCallback(const MouseEventId event_id,
-                                 const MouseButtons12S buttons_12S);
+bool MOUSEDOS_HasCallback(const uint8_t mask);
+uintptr_t MOUSEDOS_DoCallback(const uint8_t mask,
+                              const MouseButtons12S buttons_12S);
 // - needs relative movements
 // - understands up to 3 buttons
 // - needs index of button which changed state

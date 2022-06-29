@@ -57,8 +57,12 @@ void MOUSESERIAL_NotifyMoved(const float x_rel, const float y_rel)
 	delta_x += x_rel;
 	delta_y += y_rel;
 
-	const int16_t dx = static_cast<int16_t>(std::round(delta_x));
-	const int16_t dy = static_cast<int16_t>(std::round(delta_y));
+    // Clamp the resulting values to something sane, just in case
+    delta_x = std::clamp(delta_x, -MOUSE_REL_MAX, MOUSE_REL_MAX);
+    delta_y = std::clamp(delta_y, -MOUSE_REL_MAX, MOUSE_REL_MAX);
+
+	const int16_t dx = static_cast<int16_t>(std::lround(delta_x));
+	const int16_t dy = static_cast<int16_t>(std::lround(delta_y));
 
 	if (dx != 0 || dy != 0) {
 		for (auto &listener : listeners)

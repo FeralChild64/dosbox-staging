@@ -163,22 +163,8 @@ static float GetScaledValue(const float x)
 {
     if (!scaling_21)
         return x;
-
-    if (x >= 6.0f || x <= -6.0f)
-        return x * 2.0f;
-    
-    // Normal PS/2 mouse scaling algorithm is a simple substitution:
-    // 1 => 1, 2 => 1, 3 => 3, 4 => 6, 5 => 9, other x => x * 2
-    // and the same for negatives. But we want smooth cursor movement,
-    // therefore we use this approximation polynomial (least square
-    // regression), scaled to give f(6.0) = 12.0 almost precisely.
-    // Points taken for approximation: -6, -5, ..., 0, ... , 5, 6
-    
-    static constexpr float a = 0.034306833f;
-    static constexpr float b = 0.764954004f;
-
-    // Optimized polynomial: a*(x^3) + b*(x^1) 
-    return x * (x * x * a + b); 
+	else
+		return MOUSE_BallisticsPoly(x) * 2.0f;
 }
 
 static int16_t GetScaledMovement(const float d)
@@ -308,7 +294,7 @@ static void CmdSetSampleRate(const uint8_t new_rate_hz)
         rate_hz = new_rate_hz;
     
     // Convert rate in Hz to delay in milliseconds
-    mouse_shared.event_interval_ps2 = static_cast<uint8_t>(1000 / rate_hz);
+    mouse_shared.start_delay_ps2 = static_cast<uint8_t>(1000 / rate_hz);
 
     // Handle extended mouse protocol unlock sequences
     auto unlock = [](const std::vector<uint8_t> &sequence,
@@ -361,8 +347,12 @@ bool MOUSEPS2_NotifyMoved(const float x_rel, const float y_rel)
     delta_x += x_rel;
     delta_y += y_rel;
 
-    return (std::abs(GetScaledValue(delta_x)) >= 0.6) ||
-           (std::abs(GetScaledValue(delta_y)) >= 0.6);
+    // Clamp the resulting values to something sane, just in case
+    delta_x = std::clamp(delta_x, -MOUSE_REL_MAX, MOUSE_REL_MAX);
+    delta_y = std::clamp(delta_y, -MOUSE_REL_MAX, MOUSE_REL_MAX);
+
+    return (std::fabs(GetScaledValue(delta_x)) >= 0.5f) ||
+           (std::fabs(GetScaledValue(delta_y)) >= 0.5f);
 }
 
 bool MOUSEPS2_NotifyPressedReleased(const MouseButtons12S new_buttons_12S,
