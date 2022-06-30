@@ -72,7 +72,7 @@ static uint8_t packet[4]  = {0};   // packet to be transferred via BIOS interfac
 static uint8_t rate_hz    = 0;     // maximum rate at which the mouse state is updated
 static bool    scaling_21 = false; // NOTE: scaling only works for stream mode,
                                    // not when reading data manually!
-								   // https://www3.tuhh.de/osg/Lehre/SS21/V_BSB/doc/ps2mouse.html
+                                   // https://www3.tuhh.de/osg/Lehre/SS21/V_BSB/doc/ps2mouse.html
 
 static uint8_t counts_mm  = 0;     // counts per mm
 static float counts_rate  = 0.0f;  // 1.0 is 4 counts per mm
@@ -127,7 +127,7 @@ static void SetType(const MouseType new_type)
         }
 
         LOG_MSG("MOUSE (PS/2): %s", type_name);
-        
+
         packet[0] = 0;
         packet[1] = 0;
         packet[2] = 0;
@@ -163,8 +163,8 @@ static float GetScaledValue(const float x)
 {
     if (!scaling_21)
         return x;
-	else
-		return MOUSE_BallisticsPoly(x) * 2.0f;
+    else
+        return x * MOUSE_GetBallisticsCoeff(x) * 2.0f;
 }
 
 static int16_t GetScaledMovement(const float d)
@@ -199,7 +199,7 @@ void MOUSEPS2_UpdatePacket()
         bit_view<6, 1> overflow_x;
         bit_view<7, 1> overflow_y;
     } mdat;
-    
+
     mdat.left   = buttons.left;
     mdat.right  = buttons.right;
     mdat.middle = buttons.middle;
@@ -239,7 +239,7 @@ void MOUSEPS2_UpdatePacket()
         dx += 0x100;
         mdat.sign_x = 1;
     }
-    
+
     dy %= 0x100;
     if (dy < 0) {
         dy += 0x100;
@@ -256,9 +256,9 @@ void MOUSEPS2_UpdatePacket()
     else if (type == MouseType::Explorer) {
         packet[3] = GetResetWheel4bit();
         if (buttons.extra_1)
-            bit::set(packet[3], b4); 
+            bit::set(packet[3], b4);
         if (buttons.extra_2)
-            bit::set(packet[3], b5); 
+            bit::set(packet[3], b5);
     }
 #endif // ENABLE_EXPLORER_MOUSE
     else
@@ -283,7 +283,7 @@ static void CmdSetSampleRate(const uint8_t new_rate_hz)
 {
     ResetCounters();
 
-    if (new_rate_hz != 10 && new_rate_hz != 20 && new_rate_hz != 40 && 
+    if (new_rate_hz != 10 && new_rate_hz != 20 && new_rate_hz != 40 &&
         new_rate_hz != 60 && new_rate_hz != 80 && new_rate_hz != 100 &&
         new_rate_hz != 200) {
         // Invalid parameter, set default
@@ -292,7 +292,7 @@ static void CmdSetSampleRate(const uint8_t new_rate_hz)
     }
     else
         rate_hz = new_rate_hz;
-    
+
     // Convert rate in Hz to delay in milliseconds
     mouse_shared.start_delay_ps2 = static_cast<uint8_t>(1000 / rate_hz);
 
@@ -403,8 +403,8 @@ static RealPt ps2_callback   = 0;
 void MOUSEBIOS_Reset()
 {
     CmdReset();
-	PIC_SetIRQMask(12, false); // lower IRQ line
-	MOUSEVMM_Deactivate(); // VBADOS seems to expect this
+    PIC_SetIRQMask(12, false); // lower IRQ line
+    MOUSEVMM_Deactivate(); // VBADOS seems to expect this
 }
 
 void MOUSEBIOS_SetCallback(const uint16_t pseg, const uint16_t pofs)
@@ -498,17 +498,17 @@ uint8_t MOUSEBIOS_GetStatus()
         // bit 3 - reserved
         bit_view<4, 1> scaling_21;
         bit_view<5, 1> reporting;
-        bit_view<6, 1> mode_remote;    
+        bit_view<6, 1> mode_remote;
         // bit 7 - reserved
     } ret;
-    
+
     ret.left   = buttons.left;
     ret.right  = buttons.right;
     ret.middle = buttons.middle;
-    
+
     ret.scaling_21 = scaling_21;
     ret.reporting  = 1;
-    
+
     return ret.data;
 }
 

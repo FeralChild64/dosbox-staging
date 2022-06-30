@@ -41,12 +41,12 @@
 // Mouse equalization for consistent user experience - please adjust values
 // so that on full screen, with RAW mouse input, the mouse feel is similar
 // to Windows 3.11 for Workgroups with PS/2 mouse driver and default settings
-#define SPEED_DOS 1.0f  // for DOS driver
-#define SPEED_VMM 100.0f // for VMware-type drivers
+#define SENS_DOS 1.0f  // for DOS driver
+#define SENS_VMM 2.4f // for VMware-type drivers
 // Constants to move 'intersection point' for the acceleration curve
 // Requires raw mouse input, otherwise there is no effect
 // Larger values = higher mouse acceleration
-#define ACCEL_VMM 100.0f
+#define ACCEL_VMM 1.0f
 
 // ***************************************************************************
 // Common structures and variables
@@ -57,16 +57,16 @@ public:
     bool active_bios = false; // true = BIOS has a registered callback
     bool active_dos  = false; // true = DOS driver has a functioning callback
     bool active_vmm  = false; // true = VMware-compatible driver is active
-    
+
     bool dos_cb_running = false; // true = DOS callback is running
 
-	// NOTE: we are cheating a little (delay for buttons is separate and much smaller),
-	// so that button events can be sent to the DOS application with minimal latency.
-	// Due to hardware differences and multiple independent mouse driver
-	// implementations in the past, it is unlikely to cause problems. Besides,
-	// host OS and hardware have their limitations, too
+    // NOTE: we are cheating a little (delay for buttons is separate and much smaller),
+    // so that button events can be sent to the DOS application with minimal latency.
+    // Due to hardware differences and multiple independent mouse driver
+    // implementations in the past, it is unlikely to cause problems. Besides,
+    // host OS and hardware have their limitations, too
     uint8_t start_delay_ps2     = 5; // for PS/2 events, in milliseconds
-	uint8_t start_delay_dos_btn = 1; // for DOS button events
+    uint8_t start_delay_dos_btn = 1; // for DOS button events
     uint8_t start_delay_dos_mov = 5; // for DOS move/wheel events
 };
 
@@ -79,8 +79,8 @@ public:
 
     uint16_t clip_x = 0;   // clipping = size of black border (one side)
     uint16_t clip_y = 0;
-	
-	bool autoseamless = true;
+
+    bool autoseamless = true;
 };
 
 extern MouseShared mouse_shared;
@@ -172,7 +172,7 @@ void MOUSE_NotifyStateChanged();
 void MOUSE_NotifyMovedFake();     // for VMware protocol support
 void MOUSE_NotifyDosReset();
 
-float MOUSE_BallisticsPoly(const float x);
+float MOUSE_GetBallisticsCoeff(const float x);
 
 // ***************************************************************************
 // Serial mouse
@@ -260,10 +260,10 @@ bool MOUSEDOS_NotifyMoved(const float x_rel, const float y_rel,
                           const uint16_t x_abs, const uint16_t y_abs);
 bool MOUSEDOS_NotifyPressed(const MouseButtons12S buttons_12S,
                             const uint8_t idx,
-							const MouseEventId event_id);
+                            const MouseEventId event_id);
 bool MOUSEDOS_NotifyReleased(const MouseButtons12S buttons_12S,
                              const uint8_t idx,
-							 const MouseEventId event_id);
+                             const MouseEventId event_id);
 bool MOUSEDOS_NotifyWheel(const int16_t w_rel);
 
 

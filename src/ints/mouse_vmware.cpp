@@ -23,6 +23,7 @@
 #include <chrono>
 
 #include "checks.h"
+#include "pic.h"
 #include "regs.h"
 #include "inout.h"
 
@@ -80,9 +81,12 @@ static float pos_x = 0.0;
 static float pos_y = 0.0;
 
 // Speed measurement
-static auto  time_start = std::chrono::steady_clock::now();
-static float distance   = 0.0f;
-static float last_speed = 0.0f; // in ticks per second
+static auto  time_start  = std::chrono::steady_clock::now();
+static auto  ticks_start = PIC_Ticks;
+static float distance    = 0.0f; // distance since last measurement
+
+static float speed    = 0.0f;    // in ticks per second
+
 
 // ***************************************************************************
 // VMware interface implementation
@@ -90,34 +94,34 @@ static float last_speed = 0.0f; // in ticks per second
 
 static void MOUSEVMM_Activate()
 {
-	if (!mouse_shared.active_vmm) {
-		mouse_shared.active_vmm = true;
-		LOG_MSG("MOUSE (PS/2): VMware protocol enabled");
-		if (mouse_is_captured) {
-			// If mouse is captured, prepare sane start settings
-			// (center of the screen, will trigger mouse move event)
-			pos_x = mouse_video.res_x / 2.0f;
-			pos_y = mouse_video.res_y / 2.0f;
-			scaled_x = 0.0f;
-			scaled_y = 0.0f;
-		}
-		MOUSEPS2_UpdateButtonSquish();
-		MOUSE_NotifyStateChanged();
-	}
-	buttons.data = 0;
-	wheel = 0;
+    if (!mouse_shared.active_vmm) {
+        mouse_shared.active_vmm = true;
+        LOG_MSG("MOUSE (PS/2): VMware protocol enabled");
+        if (mouse_is_captured) {
+            // If mouse is captured, prepare sane start settings
+            // (center of the screen, will trigger mouse move event)
+            pos_x = mouse_video.res_x / 2.0f;
+            pos_y = mouse_video.res_y / 2.0f;
+            scaled_x = 0.0f;
+            scaled_y = 0.0f;
+        }
+        MOUSEPS2_UpdateButtonSquish();
+        MOUSE_NotifyStateChanged();
+    }
+    buttons.data = 0;
+    wheel = 0;
 }
 
 void MOUSEVMM_Deactivate()
 {
-	if (mouse_shared.active_vmm) {
-		mouse_shared.active_vmm = false;
-		LOG_MSG("MOUSE (PS/2): VMware protocol disabled");
-		MOUSEPS2_UpdateButtonSquish();
-		MOUSE_NotifyStateChanged();
-	}
-	buttons.data = 0;
-	wheel = 0;
+    if (mouse_shared.active_vmm) {
+        mouse_shared.active_vmm = false;
+        LOG_MSG("MOUSE (PS/2): VMware protocol disabled");
+        MOUSEPS2_UpdateButtonSquish();
+        MOUSE_NotifyStateChanged();
+    }
+    buttons.data = 0;
+    wheel = 0;
 }
 
 static void CmdGetVersion()
@@ -147,10 +151,10 @@ static void CmdAbsPointerCommand()
     switch (static_cast<VMwareAbsPointer>(reg_ebx)) {
     case VMwareAbsPointer::Enable: break; // can be safely ignored
     case VMwareAbsPointer::Relative:
-		MOUSEVMM_Deactivate();
+        MOUSEVMM_Deactivate();
         break;
     case VMwareAbsPointer::Absolute:
-	    MOUSEVMM_Activate();
+        MOUSEVMM_Activate();
         break;
     default:
         LOG_WARNING("MOUSE (PS/2): unimplemented VMware subcommand 0x%08x", reg_ebx);
@@ -179,30 +183,39 @@ static uint32_t PortReadVMware(const io_port_t, const io_width_t)
 
 void SpeedUpdate(float x_rel, float y_rel)
 {
-    const auto time_now = std::chrono::steady_clock::now();
-    const auto diff     = time_now - time_start;
-    const auto diff_ms  = std::chrono::duration_cast<std::chrono::milliseconds>(diff).count();
+    // XXX static const auto min_diff_time = std::chrono::steady_clock::period.N; // .D
+    static const auto min_diff_ms = 1; // XXX convert from steady_clock::period
+    static constexpr uint32_t min_diff_ticks = 50;
 
-    distance += std::sqrt(x_rel * x_rel + y_rel * y_rel);
+    const auto time_now   = std::chrono::steady_clock::now();
+    const auto diff_time  = time_now  - time_start;
+    const auto diff_ticks = PIC_Ticks - ticks_start;
 
-    if ((diff_ms > 200) ||
-        (diff_ms > 20 && distance > 0.1f)) {
-        // Time to give speed results
-        last_speed = 1000.0f * distance / static_cast<float>(diff_ms);
+    const auto diff_ms = std::chrono::duration_cast<std::chrono::milliseconds>(diff_time).count();
 
-        // LOG_ERR("XXX VMM - diff_ms %f, distance %f, speed %f", static_cast<double>(diff_ms), static_cast<double>(distance), static_cast<double>(last_speed));    
+    if (diff_ms >= 0) {
+        // Update distance travelled by the cursor
+        distance += std::sqrt(x_rel * x_rel + y_rel * y_rel);
 
-        // And restart the measurement
-        time_start = time_now; 
-        distance   = 0.0f;
+        // Make sure enough time passed for accurate speed calculation
+        if (diff_ms < min_diff_ms || diff_ticks < min_diff_ticks)
+            return;
+
+        // Update cursor speed
+        speed = 1000.0f * distance / static_cast<float>(diff_ms);
     }
+
+    // Start new measurement
+    distance    = 0.0f;
+    time_start  = time_now;
+    ticks_start = PIC_Ticks;
 }
 
 bool MOUSEVMM_NotifyMoved(const float x_rel, const float y_rel,
                           const uint16_t x_abs, const uint16_t y_abs)
 {
     if (!mouse_shared.active_vmm) return false;
-    
+
     SpeedUpdate(x_rel, y_rel);
 
     const auto old_x = scaled_x;
@@ -217,16 +230,10 @@ bool MOUSEVMM_NotifyMoved(const float x_rel, const float y_rel,
             // with host OS - we can use relative movement with configured
             // sensitivity and built-in pointer acceleration model
 
-            // Scale the parameters to have similar units with various mice
-            // (DOS, VMware, etc.)
-            constexpr auto speed_vmm = SPEED_VMM * 0.2f;
-            constexpr auto accel_vmm = ACCEL_VMM * 0.1f;
+            const auto coeff = MOUSE_GetBallisticsCoeff(speed * ACCEL_VMM);
+            const auto delta = relative * coeff;
 
-            // XXX write proper formula here!!!
-            auto coeff = MOUSE_BallisticsPoly(speed_vmm * accel_vmm) / speed_vmm;
-            auto delta = relative * coeff;
-
-            // LOG_ERR("XXX VMM - rel %f, coeff %f, delta %f", static_cast<double>(relative), static_cast<double>(coeff), static_cast<double>(delta)); 
+            // LOG_ERR("XXX VMM - rel %f, speed %f, coeff %f", static_cast<double>(relative), static_cast<double>(speed), static_cast<double>(coeff));
 
             position += delta;
         }

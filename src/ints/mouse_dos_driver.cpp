@@ -34,7 +34,7 @@
 
 using namespace bit::literals;
 
-// XXX CHECK_NARROWING();
+CHECK_NARROWING();
 
 // This file implements the DOS mouse driver interface,
 // using host system events
@@ -68,7 +68,7 @@ uint8_t rate_hz         = 0; // TODO: add proper reaction for 0 (disable driver)
 static struct { // DOS driver state
 
     // Structure containing (only!) data which should be
-	// saved/restored during task switching
+    // saved/restored during task switching
 
     // DANGER, WILL ROBINSON!
     ///
@@ -130,8 +130,8 @@ static struct { // DOS driver state
     int16_t hot_x      = 0; // cursor hot spot, horizontal
     int16_t hot_y      = 0; // cursor hot spot, vertical
     bool background    = false;
-    int16_t backposx   = 0;
-    int16_t backposy   = 0;
+    uint16_t backposx  = 0;
+    uint16_t backposy  = 0;
     uint8_t backData[CURSOR_SIZE_XY] = {0};
     MouseCursor cursor_type = MouseCursor::Software;
 
@@ -198,12 +198,12 @@ static constexpr uint16_t DEFAULT_TEXT_AND_MASK = 0x77FF;
 static constexpr uint16_t DEFAULT_TEXT_XOR_MASK = 0x7700;
 
 static uint16_t DEFAULT_SCREEN_MASK[CURSOR_SIZE_Y] = {
-	0x3FFF, 0x1FFF, 0x0FFF, 0x07FF, 0x03FF, 0x01FF, 0x00FF, 0x007F,
+    0x3FFF, 0x1FFF, 0x0FFF, 0x07FF, 0x03FF, 0x01FF, 0x00FF, 0x007F,
     0x003F, 0x001F, 0x01FF, 0x00FF, 0x30FF, 0xF87F, 0xF87F, 0xFCFF
 };
 
 static uint16_t DEFAULT_CURSOR_MASK[CURSOR_SIZE_Y] = {
-	0x0000, 0x4000, 0x6000, 0x7000, 0x7800, 0x7C00, 0x7E00, 0x7F00,
+    0x0000, 0x4000, 0x6000, 0x7000, 0x7800, 0x7C00, 0x7E00, 0x7F00,
     0x7F80, 0x7C00, 0x6C00, 0x4600, 0x0600, 0x0300, 0x0300, 0x0000
 };
 
@@ -248,8 +248,8 @@ void DrawCursorText()
     }
 
     // Save Background
-    state.backposx = static_cast<int16_t>(x >> 3);
-    state.backposy = static_cast<int16_t>(y >> 3);
+    state.backposx = x >> 3;
+    state.backposy = y >> 3;
     if (state.mode < 2)
         state.backposx >>= 1;
 
@@ -272,7 +272,7 @@ void DrawCursorText()
                   true);
     } else {
         uint16_t address = page * real_readw(BIOSMEM_SEG, BIOSMEM_PAGE_SIZE);
-        address += (state.backposy * real_readw(BIOSMEM_SEG, BIOSMEM_NB_COLS) + state.backposx) * 2;
+        address += static_cast<uint16_t>((state.backposy * real_readw(BIOSMEM_SEG, BIOSMEM_NB_COLS) + state.backposx) * 2);
         address /= 2;
         uint16_t cr = real_readw(BIOSMEM_SEG, BIOSMEM_CRTC_ADDRESS);
         IO_Write(cr, 0xe);
@@ -334,7 +334,7 @@ static void ClipCursorArea(int16_t &x1, int16_t &x2, int16_t &y1, int16_t &y2,
     addx1 = addx2 = addy = 0;
     // Clip up
     if (y1 < 0) {
-        addy += (-y1);
+        addy += static_cast<uint16_t>(-y1);
         y1 = 0;
     }
     // Clip down
@@ -348,7 +348,7 @@ static void ClipCursorArea(int16_t &x1, int16_t &x2, int16_t &y1, int16_t &y2,
     };
     // Clip right
     if (x2 > state.clipx) {
-        addx2 = x2 - state.clipx;
+        addx2 = static_cast<uint16_t>(x2 - state.clipx);
         x2    = state.clipx;
     };
 }
@@ -360,27 +360,27 @@ static void RestoreCursorBackground()
 
     SaveVgaRegisters();
 
-	// Restore background
-	int16_t x, y;
-	uint16_t addx1, addx2, addy;
-	uint16_t dataPos = 0;
-	int16_t x1       = state.backposx;
-	int16_t y1       = state.backposy;
-	int16_t x2       = x1 + CURSOR_SIZE_X - 1;
-	int16_t y2       = y1 + CURSOR_SIZE_Y - 1;
+    // Restore background
+    int16_t x, y;
+    uint16_t addx1, addx2, addy;
+    uint16_t dataPos = 0;
+    int16_t x1       = static_cast<int16_t>(state.backposx);
+    int16_t y1       = static_cast<int16_t>(state.backposy);
+    int16_t x2       = x1 + CURSOR_SIZE_X - 1;
+    int16_t y2       = y1 + CURSOR_SIZE_Y - 1;
 
-	ClipCursorArea(x1, x2, y1, y2, addx1, addx2, addy);
+    ClipCursorArea(x1, x2, y1, y2, addx1, addx2, addy);
 
-	dataPos = addy * CURSOR_SIZE_X;
-	for (y = y1; y <= y2; y++) {
-		dataPos += addx1;
-		for (x = x1; x <= x2; x++) {
-			INT10_PutPixel(static_cast<uint16_t>(x), static_cast<uint16_t>(y),
+    dataPos = addy * CURSOR_SIZE_X;
+    for (y = y1; y <= y2; y++) {
+        dataPos += addx1;
+        for (x = x1; x <= x2; x++) {
+            INT10_PutPixel(static_cast<uint16_t>(x), static_cast<uint16_t>(y),
                            state.page, state.backData[dataPos++]);
-		};
-		dataPos += addx2;
-	};
-	state.background = false;
+        };
+        dataPos += addx2;
+    };
+    state.background = false;
 
     RestoreVgaRegisters();
 }
@@ -452,8 +452,8 @@ void MOUSEDOS_DrawCursor()
         dataPos += addx2;
     };
     state.background = true;
-    state.backposx   = static_cast<int16_t>(GetPosX() / xratio - state.hot_x);
-    state.backposy   = static_cast<int16_t>(GetPosY() - state.hot_y);
+    state.backposx   = GetPosX() / xratio - state.hot_x;   // XXX conversion from 'int' to 'uint16_t'
+    state.backposy   = GetPosY() - state.hot_y;            // XXX conversion from 'int' to 'uint16_t'
 
     // Draw Mousecursor
     dataPos               = addy * CURSOR_SIZE_X;
@@ -498,7 +498,7 @@ void MOUSEDOS_DrawCursor()
 static void UpdateDriverActive()
 {
     mouse_shared.active_dos = (state.sub_mask != 0);
-	MOUSE_NotifyStateChanged();
+    MOUSE_NotifyStateChanged();
 }
 
 static uint8_t GetResetWheel8bit()
@@ -529,8 +529,8 @@ static uint16_t GetResetWheel16bit()
 
 static void SetMickeyPixelRate(const int16_t ratio_x, const int16_t ratio_y)
 {
-	// According to https://www.stanislavs.org/helppc/int_33-f.html
-	// the values should be non-negative (highest bit not set)
+    // According to https://www.stanislavs.org/helppc/int_33-f.html
+    // the values should be non-negative (highest bit not set)
 
     if ((ratio_x > 0) && (ratio_y > 0)) {
         constexpr auto X_MICKEY = 8.0f;
@@ -545,10 +545,10 @@ static void SetMickeyPixelRate(const int16_t ratio_x, const int16_t ratio_y)
 
 static void SetDoubleSpeedThreshold(uint16_t threshold)
 {
-	if (threshold)
-		state.dspeed_threshold = threshold;
-	else
-		state.dspeed_threshold = 64; // default value		
+    if (threshold)
+        state.dspeed_threshold = threshold;
+    else
+        state.dspeed_threshold = 64; // default value
 }
 
 static void SetSensitivity(uint16_t px, uint16_t py, uint16_t dspeed_threshold)
@@ -582,11 +582,11 @@ static void SetInterruptRate(uint16_t rate_id)
     // Convert rate in Hz to delay in milliseconds
     if (rate_hz) {
         mouse_shared.start_delay_dos_mov = static_cast<uint8_t>(1000 / rate_hz);
-		mouse_shared.start_delay_dos_btn = mouse_shared.start_delay_dos_mov / 5;
+        mouse_shared.start_delay_dos_btn = mouse_shared.start_delay_dos_mov / 5;
 
-		assert(mouse_shared.start_delay_dos_mov >= 2);
-		assert(mouse_shared.start_delay_dos_btn >= 1);
-	}
+        assert(mouse_shared.start_delay_dos_mov >= 2);
+        assert(mouse_shared.start_delay_dos_btn >= 1);
+    }
 }
 
 static void ResetHardware()
@@ -684,7 +684,7 @@ static void Reset()
     MOUSEDOS_AfterNewVideoMode(false);
 
     SetMickeyPixelRate(8, 16);
-	SetDoubleSpeedThreshold(0); // set default value
+    SetDoubleSpeedThreshold(0); // set default value
 
     state.enabled    = true;
     state.cute_mouse = false;
@@ -707,9 +707,9 @@ static void Reset()
         state.last_released_y[idx] = 0;
     }
 
-    state.sub_mask = 0;    
+    state.sub_mask = 0;
     mouse_shared.dos_cb_running = false;
-    
+
     UpdateDriverActive();
     MOUSE_NotifyDosReset();
 }
@@ -719,13 +719,13 @@ static void LimitCoordinates()
     auto limit = [](float &pos, const int16_t minpos, const int16_t maxpos) {
         const float min = static_cast<float>(minpos);
         const float max = static_cast<float>(maxpos);
-        
+
         pos = std::clamp(pos, min, max);
     };
 
     // TODO: If the pointer go out of limited coordinates,
-	//       trigger showing mouse_suggest_show
-    
+    //       trigger showing mouse_suggest_show
+
     limit(pos_x, state.minpos_x, state.maxpos_x);
     limit(pos_y, state.minpos_y, state.maxpos_y);
 }
@@ -744,13 +744,13 @@ static void UpdateMickeysOnMove(float &dx, float &dy, const float x_rel, const f
         if (mickey >= 32768.0f)
             mickey -= 65536.0f;
         else if (mickey <= -32769.0f)
-            mickey += 65536.0f;    
+            mickey += 65536.0f;
     };
-    
+
     // Calculate cursor displacement
     dx = calculate_d(x_rel, state.pxs_per_mickey_x, state.senv_x);
     dy = calculate_d(y_rel, state.pxs_per_mickey_y, state.senv_y);
-    
+
     // Update mickey counters
     update_mickey(state.mickey_x, dx, state.mickeys_per_px_x);
     update_mickey(state.mickey_y, dy, state.mickeys_per_px_y);
@@ -759,9 +759,9 @@ static void UpdateMickeysOnMove(float &dx, float &dy, const float x_rel, const f
 static void MoveCursorCaptured(const float x_rel, const float y_rel)
 {
     // Update mickey counters
-	float dx = 0.0f;
-	float dy = 0.0f;
-	UpdateMickeysOnMove(dx, dy, x_rel, y_rel);
+    float dx = 0.0f;
+    float dy = 0.0f;
+    UpdateMickeysOnMove(dx, dy, x_rel, y_rel);
 
     // Apply mouse movement according to our acceleration model
     pos_x += dx;
@@ -772,12 +772,12 @@ static void MoveCursorSeamless(const float x_rel, const float y_rel,
                                const uint16_t x_abs, const uint16_t y_abs)
 {
     // In automatic seamless mode do not update mickeys without
-	// captured mouse, as this makes games like DOOM behaving strangely
-	if (!mouse_video.autoseamless) {
-		float dx = 0.0f;
-		float dy = 0.0f;
-		UpdateMickeysOnMove(dx, dy, x_rel, y_rel);
-	}
+    // captured mouse, as this makes games like DOOM behaving strangely
+    if (!mouse_video.autoseamless) {
+        float dx = 0.0f;
+        float dy = 0.0f;
+        UpdateMickeysOnMove(dx, dy, x_rel, y_rel);
+    }
 
     auto calculate = [](const uint16_t absolute,
                         const uint16_t res,
@@ -818,45 +818,42 @@ bool MOUSEDOS_NotifyMoved(const float x_rel, const float y_rel,
 {
     const auto old_pos_x = GetPosX();
     const auto old_pos_y = GetPosY();
-	
-	const auto old_mickey_x = static_cast<int16_t>(state.mickey_x);
-	const auto old_mickey_y = static_cast<int16_t>(state.mickey_y);
+
+    const auto old_mickey_x = static_cast<int16_t>(state.mickey_x);
+    const auto old_mickey_y = static_cast<int16_t>(state.mickey_y);
 
     if (mouse_is_captured)
-        MoveCursorCaptured(x_rel * SPEED_DOS,
-	                       y_rel * SPEED_DOS);
+        MoveCursorCaptured(x_rel, y_rel);
     else
-        MoveCursorSeamless(x_rel * SPEED_DOS,
-	                       y_rel * SPEED_DOS,
-	                       x_abs, y_abs);
-    
+        MoveCursorSeamless(x_rel, y_rel, x_abs, y_abs);
+
     // Make sure cursor stays in the range defined by application
     LimitCoordinates();
-    
+
     // Filter out unneeded events (like sub-pixel mouse movements,
-	// which won't change guest side mouse state)
-	const bool abs_changed = (old_pos_x != GetPosX()) || (old_pos_y != GetPosY());
-	const bool rel_changed = (old_mickey_x != static_cast<int16_t>(state.mickey_x)) ||
-	                         (old_mickey_y != static_cast<int16_t>(state.mickey_y));
-	if (!abs_changed && !rel_changed)
-		return false;
-	
-	// If we are here, there is some noticealbe change in mouse
-	// state - if callback is registered for mouse movement,
-	// than we definitely need the event
-	if (MOUSEDOS_HasCallback(static_cast<uint8_t>(MouseEventId::MouseHasMoved)))
-		return true;
-	
-	// Noticeable change, but no callback; we might still need the
-	// event for cursor redraw routine - check this	
-	return abs_changed && !state.hidden && !state.inhibit_draw;
+    // which won't change guest side mouse state)
+    const bool abs_changed = (old_pos_x != GetPosX()) || (old_pos_y != GetPosY());
+    const bool rel_changed = (old_mickey_x != static_cast<int16_t>(state.mickey_x)) ||
+                             (old_mickey_y != static_cast<int16_t>(state.mickey_y));
+    if (!abs_changed && !rel_changed)
+        return false;
+
+    // If we are here, there is some noticealbe change in mouse
+    // state - if callback is registered for mouse movement,
+    // than we definitely need the event
+    if (MOUSEDOS_HasCallback(static_cast<uint8_t>(MouseEventId::MouseHasMoved)))
+        return true;
+
+    // Noticeable change, but no callback; we might still need the
+    // event for cursor redraw routine - check this
+    return abs_changed && !state.hidden && !state.inhibit_draw;
 }
 
 bool MOUSEDOS_NotifyPressed(const MouseButtons12S new_buttons_12S,
                             const uint8_t idx,
-							const MouseEventId event_id)
+                            const MouseEventId event_id)
 {
-	assert(idx < NUM_BUTTONS);
+    assert(idx < NUM_BUTTONS);
 
     buttons = new_buttons_12S;
 
@@ -869,9 +866,9 @@ bool MOUSEDOS_NotifyPressed(const MouseButtons12S new_buttons_12S,
 
 bool MOUSEDOS_NotifyReleased(const MouseButtons12S new_buttons_12S,
                              const uint8_t idx,
-							 const MouseEventId event_id)
+                             const MouseEventId event_id)
 {
-	assert(idx < NUM_BUTTONS);
+    assert(idx < NUM_BUTTONS);
 
     buttons = new_buttons_12S;
 
@@ -932,7 +929,7 @@ static Bitu INT33_Handler()
     {
         // If position isn't different from current position, don't
         // change it. (position is rounded so numbers get lost when the
-        // rounded number is set) (arena/simulation Wolf)		
+        // rounded number is set) (arena/simulation Wolf)
         if ((int16_t)reg_cx != GetPosX())
             pos_x = static_cast<float>(reg_cx);
         if ((int16_t)reg_dx != GetPosY())
@@ -977,7 +974,7 @@ static Bitu INT33_Handler()
             reg_bx = state.times_released[idx];
             reg_cx = state.last_released_x[idx];
             reg_dx = state.last_released_y[idx];
-   
+
             state.times_released[idx] = 0;
         } else {
             // unsupported - try to do something same
@@ -998,8 +995,8 @@ static Bitu INT33_Handler()
         state.maxpos_x = std::max((int16_t)reg_cx, (int16_t)reg_dx);
         // Battlechess wants this
         pos_x = std::clamp(pos_x,
-		                   static_cast<float>(state.minpos_x),
-						   static_cast<float>(state.maxpos_x));
+                           static_cast<float>(state.minpos_x),
+                           static_cast<float>(state.maxpos_x));
         // Or alternatively this:
         // pos_x = (state.maxpos_x - state.minpos_x + 1) / 2;
         LOG(LOG_MOUSE, LOG_NORMAL)
@@ -1014,8 +1011,8 @@ static Bitu INT33_Handler()
         state.maxpos_y = std::max((int16_t)reg_cx, (int16_t)reg_dx);
         // Battlechess wants this
         pos_y = std::clamp(pos_y,
-		                   static_cast<float>(state.minpos_y),
-						   static_cast<float>(state.maxpos_y));
+                           static_cast<float>(state.minpos_y),
+                           static_cast<float>(state.maxpos_y));
         // Or alternatively this:
         // pos_y = (state.maxpos_y - state.minpos_y + 1) / 2;
         LOG(LOG_MOUSE, LOG_NORMAL)
@@ -1023,13 +1020,13 @@ static Bitu INT33_Handler()
         break;
     case 0x09: // MS MOUSE v3.0+ - define GFX cursor
     {
-		auto clamp_hot = [](const uint16_t reg, const int cursor_size)
-		{
-			return std::clamp((int16_t)reg,
-			                  static_cast<int16_t>(-cursor_size),
-							  static_cast<int16_t>(cursor_size));
-		};
-		
+        auto clamp_hot = [](const uint16_t reg, const int cursor_size)
+        {
+            return std::clamp((int16_t)reg,
+                              static_cast<int16_t>(-cursor_size),
+                              static_cast<int16_t>(cursor_size));
+        };
+
         PhysPt src = SegPhys(es) + reg_dx;
         MEM_BlockRead(src, state.user_def_screen_mask, CURSOR_SIZE_Y * 2);
         src += CURSOR_SIZE_Y * 2;
@@ -1072,8 +1069,8 @@ static Bitu INT33_Handler()
         break;
     case 0x0d: // MS MOUSE v1.0+ - light pen emulation on
     case 0x0e: // MS MOUSE v1.0+ - light pen emulation off
-	    // Both buttons down = pen pressed, otherwise pen considered off-screen
-	    // TODO: maybe implement light pen using SDL touch events?
+        // Both buttons down = pen pressed, otherwise pen considered off-screen
+        // TODO: maybe implement light pen using SDL touch events?
         LOG(LOG_MOUSE, LOG_ERROR)
         ("Mouse light pen emulation not implemented");
         break;
@@ -1104,7 +1101,7 @@ static Bitu INT33_Handler()
         ("Large graphics cursor block not implemented");
         break;
     case 0x13: // MS MOUSE v5.0+ - set double-speed threshold
-	    SetDoubleSpeedThreshold(reg_bx);
+        SetDoubleSpeedThreshold(reg_bx);
         break;
     case 0x14: // MS MOUSE v3.0+ - exchange event-handler
     {
@@ -1133,11 +1130,11 @@ static Bitu INT33_Handler()
         LOG(LOG_MOUSE, LOG_WARN)("Loading driver state...");
         MEM_BlockRead(SegPhys(es) + reg_dx, &state, sizeof(state));
         UpdateDriverActive();
-		// FIXME: we should probably fake an event for mouse movement, redraw cursor, etc.
+        // FIXME: we should probably fake an event for mouse movement, redraw cursor, etc.
         break;
     case 0x18: // MS MOUSE v6.0+ - set alternate mouse user handler
     case 0x19: // MS MOUSE v6.0+ - set alternate mouse user handler
-		LOG(LOG_MOUSE, LOG_WARN)
+        LOG(LOG_MOUSE, LOG_WARN)
         ("Alternate mouse user handler not implemented");
         break;
     case 0x1a: // MS MOUSE v6.0+ - set mouse sensitivity
