@@ -35,27 +35,33 @@ CHECK_NARROWING();
 
 // TODO before next PR:
 //
-// XXX try to fix CHECK_NARROWING(); problems in mouse_dos_driver.cpp
-// XXX test mouse acceleration fo VMware, adjust SPEEDEQ_DOS, SPEEDEQ_VMM
-// XXX finalize the queue, test it (debug logs?)
+// XXX try to fix remaining CHECK_NARROWING(); problems in mouse_dos_driver.cpp
+// XXX adjust SPEEDEQ_DOS, SPEEDEQ_VMM, ACCEL_VMM, write callibration instruction
+// XXX test the queue
+// XXX add dedicated function to clamp the relative mouse movement
 
 // XXX already finished, to be put in PR notes:
 //
 // User visible changes
-// - Windows 3.1 mouse driver https://git.javispedro.com/cgit/vbados.git is now fully working
+// - Windows 3.1 mouse driver https://git.javispedro.com/cgit/vbados.git is now fully working;
+//   make sure to read the manual (requires DOS TSR, otherwise falls back to PS/2 mode)
+// - VMware compatible drivers should behave much better in fullscreen mode,
+//   close to the PS/2 mice
 // - CuteMouse 2.1 (not 2.0!), if started with /O command line option, is now able
 //   to use wheel on emulated PS/2 mouse
-// - software banging mouse BIOS directly (like Windows 3.x) can now show cursor behavior
-//   much more similar original hardware, especially with raw input enabled
+// - possibly lower latency with PS/2 or DOS mouse emulation (results might vary depending on the
+//   host OS/hardware and sensitivity settings)
 // Internal changes
-// - large refactoring - BIOS+PS/2 and DOS driver mouse interfaces were put into separate files
+// - large refactoring - PS/2 BIOS and DOS driver mouse interfaces were put into separate files,
+//   internal queue was rewritten with early elimiation of unnecessary events, aggregation of
+//   events for DOS driver (event type is a bitfield!), and mostly independend  handling of
+//   PS/2 BIOS and DOS driver mouse interfaces
 // - implemented several cleanups suggested during 'part 1' pull requests, but were too risky
 //   and complicated to apply on non-refactored code
 // - Windows 3.x + DOS driver mouse stability fix ported from DOSBox X
 // - it should be now much harder (if not impossible) to crash emulator using INT33 function 0x17
-//   with malicious data, functions 0x05 and 0x06 can't be forced anymore to read out-of-bounds data
+//   with malicious data, functions 0x05 and 0x06 can't be forced to read out-of-bounds data anymore
 // - implemented more BIOS PS/2 mouse functions
-// - preparations for more intelligent 'autoseamless' mouse integration
 // Notes
 // The main goal of this PR is to make the mouse code easier to maintain and extend. All the user
 // visible improvements are either positive side effects, or changes which could now be implemented
@@ -67,17 +73,36 @@ CHECK_NARROWING();
 //   on black borders (if window ration is not the same as emulated screen ratio), or when
 //   no DOS application / VMware-compatible driver is listening to absolute mouse prsition events
 // - original DOS mouse driver has a speed threshold (INT 33 function 0x13), above which the pointer
-//   speed is doubled; this should be emulated; also custom mouse acceleration profiles (functions
-//   0x2b-0x2e, 0x33) are worth emulating if software if found which can use them; this would, however,
-//   require the removal of current DOS mouse pointer acceleration code
+//   speed is doubled - this should be emulated; also custom mouse acceleration profiles (functions
+//   0x2b-0x2e, 0x33) are worth emulating if software is found which can use them
+// - at least on Linux it should be possible to feed different host mice events into different emulated
+//   mice (would require linking against libinput), this would allow two player Settlers or Lemming games
+
+MouseShared mouse_shared;
+MouseVideo  mouse_video;
+
+bool mouse_seamless_driver = false;
+bool mouse_suggest_show    = false;
+
+static MouseButtons12  buttons_12  = 0; // host side state of buttons 1 (left), 2 (right)
+static MouseButtons345 buttons_345 = 0; // host side state of buttons 3 (middle), 4, and 5
+
+static bool raw_input = true; // true = relative input without host OS mouse acceleration
+
+static uintptr_t int74_ret_callback = 0;
+
+// ***************************************************************************
+// Debug code, normally not enabled
+// ***************************************************************************
 
 // #define ENABLE_DEBUG_TIMING
 
 #ifndef ENABLE_DEBUG_TIMING
-#define DEBUG_TIMING(...)
+#define DEBUG_TIMING(...) ;
 #else
-// XXX we need better macro
-#define DEBUG_TIMING(fmt, ...) LOG_WARNING("(timing) %08d: " fmt, DEBUG_GetDiffTicks(), __VA_ARGS__);
+// TODO: after migrating to C++20, allow to skip the 2nd argument by using
+// '__VA_OPT__(,) __VA_ARGS__' instead of ', __VA_ARGS__'
+#define DEBUG_TIMING(fmt, ...) LOG_ERR("(timing) %08d: " fmt, DEBUG_GetDiffTicks(), __VA_ARGS__);
 
 static uint32_t DEBUG_GetDiffTicks()
 {
@@ -92,22 +117,6 @@ static uint32_t DEBUG_GetDiffTicks()
 }
 
 #endif
-
-MouseShared mouse_shared;
-MouseVideo  mouse_video;
-
-bool mouse_seamless_driver = false;
-bool mouse_suggest_show    = false;
-
-static MouseButtons12  buttons_12  = 0; // host side state of buttons 1 (left), 2 (right)
-static MouseButtons345 buttons_345 = 0; // host side state of buttons 3 (middle), 4, and 5
-
-static float sensitivity_x = 0.3f; // sensitivity, might depend on the GUI/GFX
-static float sensitivity_y = 0.3f; // for scaling all relative mouse movements
-
-static bool raw_input = true; // true = relative input without host OS mouse acceleration
-
-static uintptr_t int74_ret_callback = 0;
 
 // ***************************************************************************
 // Mouse button helper functions
@@ -184,8 +193,6 @@ private:
     bool queue_overflow    = false;
     bool timer_in_progress = false;
 
-    // XXX DOS wheel flag should bechecked once again once the counters are fetched
-
     // Time in milliseconds which has to elapse before event can take place
     uint8_t delay_ps2     = 0;
     uint8_t delay_dos_btn = 0; // for DOS button events
@@ -251,7 +258,7 @@ MouseQueue::MouseQueue()
 
 void MouseQueue::AddEvent(MouseEvent &event)
 {
-    DEBUG_TIMING("AddEvent: %s %s %s",
+    DEBUG_TIMING("AddEvent:   %s %s %s",
                  event.req_ps2 ? "PS2" : "---",
                  event.req_vmm ? "VMM" : "---",
                  event.req_dos ? "DOS" : "---");
@@ -338,7 +345,7 @@ void MouseQueue::AddEvent(MouseEvent &event)
         StartTimerIfNeeded();
     }
     else if (!timer_in_progress) {
-        DEBUG_TIMING("ActivateIRQ", 0);
+        DEBUG_TIMING("ActivateIRQ, line %d", __LINE__);
         // If no timer in progress, handle the event now
         PIC_ActivateIRQ(12);
     }
@@ -514,9 +521,12 @@ void MouseQueue::StartTimerIfNeeded()
     // for example if DOS interrupt handler is busy
     delay = std::max(delay, static_cast<uint8_t>(1));
 
+    LOG_ERR("XXX StartTimer PS2 %d DOS %d/%d, => %d", delay_ps2, delay_dos_mov, delay_dos_btn, delay);
+
     // Start the timer
     DEBUG_TIMING("StartTimer, %d", delay);
     ticks_start = PIC_Ticks;
+    timer_in_progress = true;
     PIC_AddEvent(MouseQueueTick, static_cast<double>(delay));
 }
 
@@ -548,7 +558,7 @@ void MouseQueue::Tick()
     // If we have anything to pass to guest side, activate interrupt;
     // otherwise start the timer again
     if (HasReadyEventAny()) {
-        DEBUG_TIMING("ActivateIRQ", 0);
+        DEBUG_TIMING("ActivateIRQ, line %d", __LINE__);
         PIC_ActivateIRQ(12);
     }
     else
@@ -618,7 +628,7 @@ static uintptr_t INT74_Handler()
 {
     MouseEvent event;
     queue.FetchEvent(event);
-    DEBUG_TIMING("FetchEvent: %s %s",
+    DEBUG_TIMING("FetchEvent: %s <<< %s",
                  event.req_ps2 ? "PS2" : "---",
                  event.req_dos ? "DOS" : "---");
 
@@ -702,26 +712,9 @@ static MouseEventId SelectIdReleased(const uint8_t idx, const bool changed_12S)
 // External notifications
 // ***************************************************************************
 
-void MOUSE_SetConfig(const int32_t new_sensitivity_x,
-                     const int32_t new_sensitivity_y,
-                     const bool new_raw_input)
+void MOUSE_SetConfig(const bool new_raw_input)
 {
-    auto adapt = [](const int32_t sensitivity) {
-        constexpr float min = 0.01f;
-        constexpr float max = 100.0f;
-
-        const float tmp = std::clamp(static_cast<float>(sensitivity) / 100.0f,
-                                     -max, max);
-
-        if (tmp >= 0)
-            return std::max(tmp, min);
-        else
-            return std::min(tmp, -min);
-    };
-
-    sensitivity_x = adapt(new_sensitivity_x);
-    sensitivity_y = adapt(new_sensitivity_y);
-    raw_input     = new_raw_input;
+    raw_input = new_raw_input;
 }
 
 void MOUSE_NewScreenParams(const uint16_t clip_x, const uint16_t clip_y,
@@ -772,7 +765,7 @@ void MOUSE_NotifyStateChanged()
         GFX_UpdateMouseState();
 }
 
-void MOUSE_EventMoved(const int16_t x_rel, const int16_t y_rel,
+void MOUSE_EventMoved(const float x_rel, const float y_rel,
                       const uint16_t x_abs, const uint16_t y_abs)
 {
     // From the GUI we are getting mouse movement data in two
@@ -796,12 +789,9 @@ void MOUSE_EventMoved(const int16_t x_rel, const int16_t y_rel,
     // would have broken the mouse pointer integration
 
     // Adapt relative movement - use sensitivity settings
-    auto x_mov = static_cast<float>(x_rel) * sensitivity_x;
-    auto y_mov = static_cast<float>(y_rel) * sensitivity_y;
-
     // Clamp the resulting values to something sane, just in case
-    x_mov = std::clamp(x_mov, -MOUSE_REL_MAX, MOUSE_REL_MAX);
-    y_mov = std::clamp(y_mov, -MOUSE_REL_MAX, MOUSE_REL_MAX);
+    auto x_mov = std::clamp(x_rel, -MOUSE_REL_MAX, MOUSE_REL_MAX);
+    auto y_mov = std::clamp(y_rel, -MOUSE_REL_MAX, MOUSE_REL_MAX);
 
     // Notify mouse interfaces
 

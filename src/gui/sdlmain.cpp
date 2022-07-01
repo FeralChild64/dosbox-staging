@@ -1101,11 +1101,11 @@ static void NewMouseScreenParams()
 {
 	int abs_x, abs_y;
 	SDL_GetMouseState(&abs_x, &abs_y);
+	abs_x = std::clamp(abs_x, 0, static_cast<int>(UINT16_MAX));
+	abs_y =	std::clamp(abs_y, 0, static_cast<int>(UINT16_MAX));
 
-	MOUSE_NewScreenParams(sdl.clip.x,
-	                      sdl.clip.y,
-	                      sdl.clip.w,
-	                      sdl.clip.h,
+	MOUSE_NewScreenParams(sdl.clip.x, sdl.clip.y,
+	                      sdl.clip.w, sdl.clip.h,
 	                      sdl.desktop.fullscreen,
 	                      check_cast<uint16_t>(abs_x),
 	                      check_cast<uint16_t>(abs_y));
@@ -3525,8 +3525,8 @@ static void GUI_StartUp(Section *sec)
 
 		// Apply the user's mouse sensitivity settings
 		Prop_multival *p3 = section->Get_multival("sensitivity");
-		const auto xsens = p3->GetSection()->Get_int("xsens");
-		const auto ysens = p3->GetSection()->Get_int("ysens");
+		sdl.mouse.xsensitivity = static_cast<float>(p3->GetSection()->Get_int("xsens")) / 100.0f;
+		sdl.mouse.ysensitivity = static_cast<float>(p3->GetSection()->Get_int("ysens")) / 100.0f;
 
 		// Apply raw mouse input setting
 		const auto raw_mouse_input = section->Get_bool("raw_mouse_input");
@@ -3535,7 +3535,7 @@ static void GUI_StartUp(Section *sec)
 		                        SDL_HINT_OVERRIDE);
 
 		// Notify mouse emulation routines about the configuration
-		MOUSE_SetConfig(xsens, ysens, raw_mouse_input);
+		MOUSE_SetConfig(raw_mouse_input);
 	}
 	LOG_MSG("SDL: Mouse %s%s.", mouse_control_msg.c_str(), middle_control_msg.c_str());
 
@@ -3567,8 +3567,8 @@ static void HandleMouseMotion(SDL_MouseMotionEvent *motion)
 {
 	if (mouse_seamless_driver || mouse_is_captured ||
 	    sdl.mouse.control_choice == Seamless)
-		MOUSE_EventMoved(check_cast<int16_t>(motion->xrel),
-		                 check_cast<int16_t>(motion->yrel),
+		MOUSE_EventMoved(static_cast<float>(motion->xrel) * sdl.mouse.xsensitivity,
+		                 static_cast<float>(motion->yrel) * sdl.mouse.ysensitivity,
 		                 std::clamp(motion->x, 0, static_cast<int>(UINT16_MAX)),
 		                 std::clamp(motion->y, 0, static_cast<int>(UINT16_MAX)));
 }

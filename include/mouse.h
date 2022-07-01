@@ -26,14 +26,13 @@
 // Notifications from external subsystems - all should go via these methods
 // ***************************************************************************
 
-void MOUSE_EventMoved(const int16_t x_rel, const int16_t y_rel,
+void MOUSE_EventMoved(const float x_rel, const float y_rel,
                       const uint16_t x_abs, const uint16_t y_abs);
 void MOUSE_EventPressed(const uint8_t idx);
 void MOUSE_EventReleased(const uint8_t idx);
 void MOUSE_EventWheel(const int16_t w_rel);
 
-void MOUSE_SetConfig(const int32_t sensitivity_x, const int32_t sensitivity_y,
-                     const bool raw_input);
+void MOUSE_SetConfig(const bool raw_input);
 void MOUSE_NewScreenParams(const uint16_t clip_x, const uint16_t clip_y,
                            const uint16_t res_x, const uint16_t res_y,
                            const bool fullscreen, const uint16_t x_abs,
