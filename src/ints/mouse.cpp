@@ -761,7 +761,7 @@ void MOUSE_NotifyRateDOS(const uint8_t rate_hz)
     // they also introduce some latency.
     val_btn = val_btn / 5;
 
-    // TODO: make a configuration option(s) for this, same for PS/2 mouse 
+    // TODO: make a configuration option(s) for this, same for PS/2 mouse
 }
 
 void MOUSE_NotifyRatePS2(const uint8_t rate_hz)

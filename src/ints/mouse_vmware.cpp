@@ -182,17 +182,17 @@ static uint32_t PortReadVMware(const io_port_t, const io_width_t)
 }
 
 void SpeedUpdate(float x_rel, float y_rel)
-{	
+{
     constexpr auto n = static_cast<float>(std::chrono::steady_clock::period::num);
     constexpr auto d = static_cast<float>(std::chrono::steady_clock::period::den);
     constexpr auto period_ms = 1000.0f * n / d;
     // For the measurement duration require no more than 400 milliseconds
     // and at least 10 times the clock granularity
     constexpr uint32_t max_diff_ms = 400;
-    constexpr uint32_t min_diff_ms = std::min(static_cast<uint32_t>(1), 
+    constexpr uint32_t min_diff_ms = std::min(static_cast<uint32_t>(1),
                                              static_cast<uint32_t>(period_ms * 10));
 
-	// Require at least 40 ticks of PIC emulator to pass
+    // Require at least 40 ticks of PIC emulator to pass
     constexpr uint32_t min_diff_ticks = 40;
 
     const auto time_now   = std::chrono::steady_clock::now();
@@ -201,10 +201,10 @@ void SpeedUpdate(float x_rel, float y_rel)
 
     const auto diff_ms = std::chrono::duration_cast<std::chrono::milliseconds>(diff_time).count();
 
-	if (diff_ms > std::max(max_diff_ms, static_cast<uint32_t>(10 * period_ms))) {
-		// Do not wait any more for movement, consider speed to be 0
-		speed = 0.0f;
-	} else if (diff_ms >= 0) {
+    if (diff_ms > std::max(max_diff_ms, static_cast<uint32_t>(10 * period_ms))) {
+        // Do not wait any more for movement, consider speed to be 0
+        speed = 0.0f;
+    } else if (diff_ms >= 0) {
         // Update distance travelled by the cursor
         distance += std::sqrt(x_rel * x_rel + y_rel * y_rel);
 
