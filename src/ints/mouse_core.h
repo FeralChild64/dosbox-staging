@@ -32,17 +32,14 @@
 
 
 // ***************************************************************************
-// Common defined
+// Common defines
 // ***************************************************************************
-
-// Generic maximum to protect against insane mouse speed
-#define MOUSE_REL_MAX 1024.0f
 
 // Mouse equalization for consistent user experience - please adjust values
 // so that on full screen, with RAW mouse input, the mouse feel is similar
 // to Windows 3.11 for Workgroups with PS/2 mouse driver and default settings
-#define SENS_DOS 1.0f  // for DOS driver
-#define SENS_VMM 2.4f // for VMware-type drivers
+#define SENS_DOS 1.0f // for DOS driver
+#define SENS_VMM 3.0f // for VMware-type drivers
 // Constants to move 'intersection point' for the acceleration curve
 // Requires raw mouse input, otherwise there is no effect
 // Larger values = higher mouse acceleration
@@ -59,15 +56,6 @@ public:
     bool active_vmm  = false; // true = VMware-compatible driver is active
 
     bool dos_cb_running = false; // true = DOS callback is running
-
-    // NOTE: we are cheating a little (delay for buttons is separate and much smaller),
-    // so that button events can be sent to the DOS application with minimal latency.
-    // Due to hardware differences and multiple independent mouse driver
-    // implementations in the past, it is unlikely to cause problems. Besides,
-    // host OS and hardware have their limitations, too
-    uint8_t start_delay_ps2     = 5; // for PS/2 events, in milliseconds
-    uint8_t start_delay_dos_btn = 1; // for DOS button events
-    uint8_t start_delay_dos_mov = 5; // for DOS move/wheel events
 };
 
 class MouseVideo {
@@ -80,7 +68,9 @@ public:
     uint16_t clip_x = 0;   // clipping = size of black border (one side)
     uint16_t clip_y = 0;
 
-    bool autoseamless = true;
+    // TODO: once the mechanism is fully implemented, provide an option
+    // in the configuration file to enable it
+    bool autoseamless = false;
 };
 
 extern MouseShared mouse_shared;
@@ -168,11 +158,15 @@ union MouseButtons12S { // use where buttons 3/4/5 are squished into a virtual m
 // Main mouse module
 // ***************************************************************************
 
-void MOUSE_NotifyStateChanged();
-void MOUSE_NotifyMovedFake();     // for VMware protocol support
-void MOUSE_NotifyDosReset();
+float MOUSE_GetBallisticsCoeff(const float speed);
+float MOUSE_ClampRelMov(const float rel);
 
-float MOUSE_GetBallisticsCoeff(const float x);
+void MOUSE_NotifyMovedFake(); // for VMware protocol support
+void MOUSE_NotifyRateDOS(const uint8_t rate_hz);
+void MOUSE_NotifyRatePS2(const uint8_t rate_hz);
+void MOUSE_NotifyResetDOS();
+void MOUSE_NotifyStateChanged();
+
 
 // ***************************************************************************
 // Serial mouse

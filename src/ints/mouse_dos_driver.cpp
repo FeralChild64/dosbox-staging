@@ -452,8 +452,8 @@ void MOUSEDOS_DrawCursor()
         dataPos += addx2;
     };
     state.background = true;
-    state.backposx   = GetPosX() / xratio - state.hot_x;   // XXX conversion from 'int' to 'uint16_t'
-    state.backposy   = GetPosY() - state.hot_y;            // XXX conversion from 'int' to 'uint16_t'
+    state.backposx   = static_cast<uint16_t>(GetPosX() / xratio - state.hot_x);
+    state.backposy   = static_cast<uint16_t>(GetPosY() - state.hot_y);
 
     // Draw Mousecursor
     dataPos               = addy * CURSOR_SIZE_X;
@@ -572,20 +572,17 @@ static void SetSensitivity(uint16_t px, uint16_t py, uint16_t dspeed_threshold)
 static void SetInterruptRate(uint16_t rate_id)
 {
     switch (rate_id) {
-    case 0:  rate_hz =   0; break; // no events
+    case 0:  rate_hz =   0; break; // no events, TODO: this should be simulated
     case 1:  rate_hz =  30; break;
     case 2:  rate_hz =  50; break;
     case 3:  rate_hz = 100; break;
     default: rate_hz = 200; break; // above 4 is not suported, set max
     }
 
-    // Convert rate in Hz to delay in milliseconds
+    // Update event queue settings
     if (rate_hz) {
-        mouse_shared.start_delay_dos_mov = static_cast<uint8_t>(1000 / rate_hz);
-        mouse_shared.start_delay_dos_btn = mouse_shared.start_delay_dos_mov / 5;
-
-        assert(mouse_shared.start_delay_dos_mov >= 2);
-        assert(mouse_shared.start_delay_dos_btn >= 1);
+        // Update event queue settings
+        MOUSE_NotifyRateDOS(rate_hz);
     }
 }
 
@@ -674,7 +671,7 @@ void MOUSEDOS_AfterNewVideoMode(const bool setmode)
     state.cursor_type        = MouseCursor::Software;
     state.enabled            = true;
 
-    MOUSE_NotifyDosReset();
+    MOUSE_NotifyResetDOS();
 }
 
 // FIXME: Much too empty, NewVideoMode contains stuff that should be in here
@@ -711,7 +708,7 @@ static void Reset()
     mouse_shared.dos_cb_running = false;
 
     UpdateDriverActive();
-    MOUSE_NotifyDosReset();
+    MOUSE_NotifyResetDOS();
 }
 
 static void LimitCoordinates()
@@ -822,10 +819,13 @@ bool MOUSEDOS_NotifyMoved(const float x_rel, const float y_rel,
     const auto old_mickey_x = static_cast<int16_t>(state.mickey_x);
     const auto old_mickey_y = static_cast<int16_t>(state.mickey_y);
 
+    const auto x_mov = MOUSE_ClampRelMov(x_rel * SENS_DOS);
+    const auto y_mov = MOUSE_ClampRelMov(y_rel * SENS_DOS);
+
     if (mouse_is_captured)
-        MoveCursorCaptured(x_rel, y_rel);
+        MoveCursorCaptured(x_mov, y_mov);
     else
-        MoveCursorSeamless(x_rel, y_rel, x_abs, y_abs);
+        MoveCursorSeamless(x_mov, y_mov, x_abs, y_abs);
 
     // Make sure cursor stays in the range defined by application
     LimitCoordinates();

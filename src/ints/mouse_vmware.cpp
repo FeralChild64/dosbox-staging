@@ -85,7 +85,7 @@ static auto  time_start  = std::chrono::steady_clock::now();
 static auto  ticks_start = PIC_Ticks;
 static float distance    = 0.0f; // distance since last measurement
 
-static float speed    = 0.0f;    // in ticks per second
+static float speed = 0.0f;
 
 
 // ***************************************************************************
@@ -212,8 +212,9 @@ void SpeedUpdate(float x_rel, float y_rel)
         if (diff_ms < min_diff_ms || diff_ticks < min_diff_ticks)
             return;
 
-        // Update cursor speed
-        speed = 1000.0f * distance / static_cast<float>(diff_ms);
+        // Update cursor speed (multiply it by 20.0f to put ACCEL_VMM in a
+        // reasonable range, similar to SENS_DOS or SENS_VMM)
+        speed = 20.0f * ACCEL_VMM * distance / static_cast<float>(diff_ms);
     }
 
     // Start new measurement
@@ -227,7 +228,11 @@ bool MOUSEVMM_NotifyMoved(const float x_rel, const float y_rel,
 {
     if (!mouse_shared.active_vmm) return false;
 
-    SpeedUpdate(x_rel, y_rel);
+    const auto x_mov = x_rel * SENS_VMM;
+    const auto y_mov = y_rel * SENS_VMM;
+
+
+    SpeedUpdate(x_mov, y_mov);
 
     const auto old_x = scaled_x;
     const auto old_y = scaled_y;
@@ -241,12 +246,10 @@ bool MOUSEVMM_NotifyMoved(const float x_rel, const float y_rel,
             // with host OS - we can use relative movement with configured
             // sensitivity and built-in pointer acceleration model
 
-            const auto coeff = MOUSE_GetBallisticsCoeff(speed * ACCEL_VMM);
+            const auto coeff = MOUSE_GetBallisticsCoeff(speed);
             const auto delta = relative * coeff;
 
-            // LOG_ERR("XXX VMM - rel %f, speed %f, coeff %f", static_cast<double>(relative), static_cast<double>(speed), static_cast<double>(coeff));
-
-            position += delta;
+            position += MOUSE_ClampRelMov(delta);
         }
         else
             // Cursor position controlled by the host OS
@@ -261,8 +264,8 @@ bool MOUSEVMM_NotifyMoved(const float x_rel, const float y_rel,
         return static_cast<uint16_t>(tmp);
     };
 
-    scaled_x = calculate(pos_x, x_rel, x_abs, mouse_video.res_x, mouse_video.clip_x);
-    scaled_y = calculate(pos_y, y_rel, y_abs, mouse_video.res_y, mouse_video.clip_y);
+    scaled_x = calculate(pos_x, x_mov, x_abs, mouse_video.res_x, mouse_video.clip_x);
+    scaled_y = calculate(pos_y, y_mov, y_abs, mouse_video.res_y, mouse_video.clip_y);
 
     // Filter out unneeded events (like sub-pixel mouse movements,
     // which won't change guest side mouse state)

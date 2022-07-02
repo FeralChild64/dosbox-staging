@@ -33,15 +33,6 @@
 
 CHECK_NARROWING();
 
-// TODO before next PR:
-//
-// XXX try to fix remaining CHECK_NARROWING(); problems in mouse_dos_driver.cpp
-// XXX adjust SPEEDEQ_DOS, SPEEDEQ_VMM, ACCEL_VMM, write callibration instruction
-// XXX test the queue
-// XXX add dedicated function to clamp the relative mouse movement
-
-// XXX already finished, to be put in PR notes:
-//
 // User visible changes
 // - Windows 3.1 mouse driver https://git.javispedro.com/cgit/vbados.git is now fully working;
 //   make sure to read the manual (requires DOS TSR, otherwise falls back to PS/2 mode)
@@ -95,14 +86,14 @@ static uintptr_t int74_ret_callback = 0;
 // Debug code, normally not enabled
 // ***************************************************************************
 
-// #define ENABLE_DEBUG_TIMING
+// #define DEBUG_QUEUE_ENABLE
 
-#ifndef ENABLE_DEBUG_TIMING
-#define DEBUG_TIMING(...) ;
+#ifndef DEBUG_QUEUE_ENABLE
+#define DEBUG_QUEUE(...) ;
 #else
 // TODO: after migrating to C++20, allow to skip the 2nd argument by using
 // '__VA_OPT__(,) __VA_ARGS__' instead of ', __VA_ARGS__'
-#define DEBUG_TIMING(fmt, ...) LOG_ERR("(timing) %08d: " fmt, DEBUG_GetDiffTicks(), __VA_ARGS__);
+#define DEBUG_QUEUE(fmt, ...) LOG_INFO("(queue) %04d: " fmt, DEBUG_GetDiffTicks(), __VA_ARGS__);
 
 static uint32_t DEBUG_GetDiffTicks()
 {
@@ -174,6 +165,10 @@ public:
     void ClearEventsDOS();
     void StartTimerIfNeeded();
     void Tick();
+
+    uint8_t start_delay_ps2     = 5; // for PS/2 events, in milliseconds
+    uint8_t start_delay_dos_btn = 1; // for DOS button events
+    uint8_t start_delay_dos_mov = 5; // for DOS move/wheel events
 
 private:
 
@@ -258,7 +253,7 @@ MouseQueue::MouseQueue()
 
 void MouseQueue::AddEvent(MouseEvent &event)
 {
-    DEBUG_TIMING("AddEvent:   %s %s %s",
+    DEBUG_QUEUE("AddEvent:   %s %s %s",
                  event.req_ps2 ? "PS2" : "---",
                  event.req_vmm ? "VMM" : "---",
                  event.req_dos ? "DOS" : "---");
@@ -293,11 +288,14 @@ void MouseQueue::AddEvent(MouseEvent &event)
 
     bool restart_timer = false;
     if (event.req_ps2) {
-        if (!HasEventPS2() && timer_in_progress)
+        if (!HasEventPS2() && timer_in_progress &&
+            !delay_ps2) {
+            DEBUG_QUEUE("AddEvent: restart timer for %s", "PS2");
             // We do not want the timer to start only then DOS event
             // gets processed - for minimum latency it is better to
             // restart the timer
             restart_timer = true;
+        }
 
         // Events for PS/2 interfaces (or virtualizer compatible drivers)
         // do not carry any information - they are only notifications
@@ -306,8 +304,9 @@ void MouseQueue::AddEvent(MouseEvent &event)
     }
 
     if (event.req_dos) {
-        if (!HasEventDOSany() && timer_in_progress)
-        {
+        if (!HasEventDOSany() && timer_in_progress &&
+            !delay_dos_btn && !delay_dos_mov) {
+            DEBUG_QUEUE("AddEvent: restart timer for %s", "DOS");
             // We do not want the timer to start only then PS/2 event
             // gets processed - for minimum latency it is better to
             // restart the timer
@@ -338,14 +337,13 @@ void MouseQueue::AddEvent(MouseEvent &event)
     }
 
     if (restart_timer) {
-        DEBUG_TIMING("AddEvent: terminate", 0);
         timer_in_progress = false;
         PIC_RemoveEvents(MouseQueueTick);
         UpdateDelayCounters();
         StartTimerIfNeeded();
     }
     else if (!timer_in_progress) {
-        DEBUG_TIMING("ActivateIRQ, line %d", __LINE__);
+        DEBUG_QUEUE("ActivateIRQ, in %s", __FUNCTION__);
         // If no timer in progress, handle the event now
         PIC_ActivateIRQ(12);
     }
@@ -413,8 +411,8 @@ void MouseQueue::FetchEvent(MouseEvent &event)
     // First try prioritized (move/wheel) DOS events
     if (HasReadyEventDOSmov()) {
         // Set delay before next DOS events
-        delay_dos_btn = mouse_shared.start_delay_dos_btn;
-        delay_dos_mov = mouse_shared.start_delay_dos_mov;
+        delay_dos_btn = start_delay_dos_btn;
+        delay_dos_mov = start_delay_dos_mov;
         // Fill in common event information
         event.req_dos = true;
         event.buttons_12S = last_buttons_12S;
@@ -446,7 +444,7 @@ void MouseQueue::FetchEvent(MouseEvent &event)
         // Next time prefer PS/2 events over buttons for DOS driver
         prefer_ps2 = true;
         // Set delay before next DOS events
-        delay_dos_btn = mouse_shared.start_delay_dos_btn;
+        delay_dos_btn = start_delay_dos_btn;
         delay_dos_mov = std::max(delay_dos_mov, delay_dos_btn);
         // Take event from the queue
         event = PopEventBtn();
@@ -459,7 +457,7 @@ void MouseQueue::FetchEvent(MouseEvent &event)
         // Next time prefer DOS event
         prefer_ps2 = false;
         // Set delay before next PS/2 events
-        delay_ps2 = mouse_shared.start_delay_ps2;
+        delay_ps2 = start_delay_ps2;
         // PS/2 events are really dummy - merely a notification
         // that something has happened and driver has to react
         event.req_ps2 = true;
@@ -521,10 +519,8 @@ void MouseQueue::StartTimerIfNeeded()
     // for example if DOS interrupt handler is busy
     delay = std::max(delay, static_cast<uint8_t>(1));
 
-    LOG_ERR("XXX StartTimer PS2 %d DOS %d/%d, => %d", delay_ps2, delay_dos_mov, delay_dos_btn, delay);
-
     // Start the timer
-    DEBUG_TIMING("StartTimer, %d", delay);
+    DEBUG_QUEUE("StartTimer, %d", delay);
     ticks_start = PIC_Ticks;
     timer_in_progress = true;
     PIC_AddEvent(MouseQueueTick, static_cast<double>(delay));
@@ -550,7 +546,7 @@ void MouseQueue::UpdateDelayCounters()
 
 void MouseQueue::Tick()
 {
-    DEBUG_TIMING("Tick", 0);
+    DEBUG_QUEUE("%s", "Tick");
 
     timer_in_progress = false;
     UpdateDelayCounters();
@@ -558,7 +554,7 @@ void MouseQueue::Tick()
     // If we have anything to pass to guest side, activate interrupt;
     // otherwise start the timer again
     if (HasReadyEventAny()) {
-        DEBUG_TIMING("ActivateIRQ, line %d", __LINE__);
+        DEBUG_QUEUE("ActivateIRQ, in %s", __FUNCTION__);
         PIC_ActivateIRQ(12);
     }
     else
@@ -566,7 +562,7 @@ void MouseQueue::Tick()
 }
 
 // ***************************************************************************
-// Mouse ballistics
+// Common helper calculations
 // ***************************************************************************
 
 float MOUSE_GetBallisticsCoeff(const float speed)
@@ -612,6 +608,12 @@ float MOUSE_GetBallisticsCoeff(const float speed)
     // one more small touch of 20th century PC computing history :)
 }
 
+float MOUSE_ClampRelMov(const float rel)
+{
+    // Enforce upper limit of relative mouse movement
+    return std::clamp(rel, -2048.0f, 2048.0f);
+}
+
 // ***************************************************************************
 // Interrupt 74 implementation
 // ***************************************************************************
@@ -628,7 +630,7 @@ static uintptr_t INT74_Handler()
 {
     MouseEvent event;
     queue.FetchEvent(event);
-    DEBUG_TIMING("FetchEvent: %s <<< %s",
+    DEBUG_QUEUE("FetchEvent: %s <<< %s",
                  event.req_ps2 ? "PS2" : "---",
                  event.req_dos ? "DOS" : "---");
 
@@ -651,7 +653,7 @@ static uintptr_t INT74_Handler()
         CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
         CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)) + 7);
 
-        DEBUG_TIMING("INT74: DOS", 0);
+        DEBUG_QUEUE("INT74: %s", "DOS");
         return MOUSEDOS_DoCallback(event.mask, event.buttons_12S);
     }
 
@@ -661,7 +663,7 @@ static uintptr_t INT74_Handler()
         CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
         CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)));
 
-        DEBUG_TIMING("INT74: PS2", 0);
+        DEBUG_QUEUE("INT74: %s", "PS2");
         MOUSEPS2_UpdatePacket();
         return MOUSEBIOS_DoCallback();
     }
@@ -733,9 +735,46 @@ void MOUSE_NewScreenParams(const uint16_t clip_x, const uint16_t clip_y,
     mouse_video.fullscreen = fullscreen;
 
     MOUSEVMM_NewScreenParams(x_abs, y_abs);
+    MOUSE_NotifyStateChanged();
 }
 
-void MOUSE_NotifyDosReset()
+void MOUSE_NotifyRateDOS(const uint8_t rate_hz)
+{
+    auto &val_mov = queue.start_delay_dos_mov;
+    auto &val_btn = queue.start_delay_dos_btn;
+
+    // Convert rate in Hz to delay in milliseconds
+    val_mov = static_cast<uint8_t>(1000 / rate_hz);
+    // Cheat a little, do not allow to set more than 10 milliseconds. Some
+    // old games might have tried to set lower rate to reduce number of IRQs
+    // and save CPU power - this is no longer necessary. Windows 3.1 also
+    // sets a suboptimal value in its PS/2 driver.
+    // Original DOSBox forces 5 milliseconds all the time, but this is
+    // probably an overkill - 10 milliseconds is already twice the typical
+    // 50 Hz screen refresh rate.
+    val_mov = std::min(val_mov, static_cast<uint8_t>(10));
+    // Cheat a little once again - our delay for buttons is separate and much
+    // smaller, so that button events can be sent to the DOS application with
+    // minimal latency. Due to hardware differences and multiple independent
+    // mouse driver implementations in the past, it is unlikely to cause
+    // problems. Besides, host OS and hardware have their limitations, too,
+    // they also introduce some latency.
+    val_btn = val_btn / 5;
+
+    // TODO: make a configuration option(s) for this, same for PS/2 mouse 
+}
+
+void MOUSE_NotifyRatePS2(const uint8_t rate_hz)
+{
+    auto &val_ps2 = queue.start_delay_ps2;
+
+    // Convert rate in Hz to delay in milliseconds
+    val_ps2 = static_cast<uint8_t>(1000 / rate_hz);
+    // Cheat a little, like with DOS driver
+    val_ps2 = std::min(val_ps2, static_cast<uint8_t>(10));
+}
+
+void MOUSE_NotifyResetDOS()
 {
     queue.ClearEventsDOS();
 }
@@ -780,31 +819,20 @@ void MOUSE_EventMoved(const float x_rel, const float y_rel,
     //   be fed to VMware seamless mouse emulation and similar
     //   interfaces
     //
-    // Our DOS mouse driver (INT 33h)is a bit special, as it can
+    // Our DOS mouse driver (INT 33h) is a bit special, as it can
     // act both ways (seamless and non-seamless mouse pointer),
     // so it needs data in both formats.
-    //
-    // Our own sensitivity settings should ONLY be applied to
-    // relative mouse movement - applying it to absolute data
-    // would have broken the mouse pointer integration
-
-    // Adapt relative movement - use sensitivity settings
-    // Clamp the resulting values to something sane, just in case
-    auto x_mov = std::clamp(x_rel, -MOUSE_REL_MAX, MOUSE_REL_MAX);
-    auto y_mov = std::clamp(y_rel, -MOUSE_REL_MAX, MOUSE_REL_MAX);
 
     // Notify mouse interfaces
 
     MouseEvent event(MouseEventId::MouseHasMoved);
 
     if (!mouse_video.autoseamless || mouse_is_captured) {
-        MOUSESERIAL_NotifyMoved(x_mov, y_mov);
-        event.req_ps2 = MOUSEPS2_NotifyMoved(x_mov, y_mov);
+        MOUSESERIAL_NotifyMoved(x_rel, y_rel);
+        event.req_ps2 = MOUSEPS2_NotifyMoved(x_rel, y_rel);
     }
-    event.req_vmm = MOUSEVMM_NotifyMoved(
-        x_mov * SENS_VMM, y_mov * SENS_VMM, x_abs, y_abs);
-    event.req_dos = MOUSEDOS_NotifyMoved(
-        x_mov * SENS_DOS, y_mov * SENS_DOS, x_abs, y_abs);
+    event.req_vmm = MOUSEVMM_NotifyMoved(x_rel, y_rel, x_abs, y_abs);
+    event.req_dos = MOUSEDOS_NotifyMoved(x_rel, y_rel, x_abs, y_abs);
 
     queue.AddEvent(event);
 }
