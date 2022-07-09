@@ -235,6 +235,10 @@ void Program::WriteOut_NoParsing(const char * format) {
 //	DOS_WriteFile(STDOUT,(uint8_t *)format,&size);
 }
 
+void Program::WriteOut_Flush() {
+	DOS_FlushFile(STDOUT);
+}
+
 void Program::ResetLastWrittenChar(char c)
 {
 	last_written_character = c;
