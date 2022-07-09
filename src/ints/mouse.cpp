@@ -23,6 +23,8 @@
 #include <algorithm>
 #include <array>
 
+#include "../libs/manymouse/manymouse.h"
+
 #include "callback.h"
 #include "checks.h"
 #include "cpu.h"
@@ -983,11 +985,31 @@ void MOUSE_EventWheel(const int16_t w_rel)
 }
 
 // ***************************************************************************
+// ManyMouse glue code
+// ***************************************************************************
+
+static void manymouse_init()
+{
+    const auto num_mice = ManyMouse_Init();
+    if (num_mice < 0) {
+        LOG_ERR("MOUSE: ManyMouse initialization failed");
+        ManyMouse_Quit();
+        return;
+    }
+
+    LOG_INFO("MOUSE: ManyMouse driver: %s", ManyMouse_DriverName());
+
+    // XXX
+}
+
+// ***************************************************************************
 // Initialization
 // ***************************************************************************
 
 void MOUSE_Init(Section * /*sec*/)
 {
+    manymouse_init();
+
     // Callback for ps2 irq
     auto call_int74 = CALLBACK_Allocate();
     CALLBACK_Setup(call_int74, &int74_handler, CB_IRQ12, "int 74");

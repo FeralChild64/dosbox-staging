@@ -29,6 +29,7 @@ libints = static_library(
         sdl2_dep,
         libghc_dep,
         libloguru_dep,
+        manymouse_dep,
     ],
 )
 
