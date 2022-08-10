@@ -57,19 +57,9 @@ bool MOUSEDOS_NotifyMoved(const float x_rel,
                           const uint16_t y_abs);
 bool MOUSEDOS_NotifyWheel(const int16_t w_rel);
 
-bool MOUSEDOS_UpdateMoved();
-bool MOUSEDOS_UpdateButtons(const MouseButtons12S buttons_12S);
-bool MOUSEDOS_UpdateWheel();
-
-// ***************************************************************************
-// Serial mouse
-// ***************************************************************************
-
-// - needs relative movements
-// - understands up to 3 buttons
-// - needs index of button which changed state
-
-// Nnothing to declare
+uint8_t MOUSEDOS_UpdateMoved();
+uint8_t MOUSEDOS_UpdateButtons(const MouseButtons12S buttons_12S);
+uint8_t MOUSEDOS_UpdateWheel();
 
 // ***************************************************************************
 // PS/2 mouse
@@ -84,7 +74,6 @@ bool MOUSEPS2_SendPacket();
 // - needs relative movements
 // - understands up to 5 buttons in Intellimouse Explorer mode
 // - understands up to 3 buttons in other modes
-// - provides a way to generate dummy event, for VMware mouse integration
 
 bool MOUSEPS2_NotifyMoved(const float x_rel, const float y_rel);
 bool MOUSEPS2_NotifyButton(const MouseButtons12S buttons_12S,
@@ -117,5 +106,28 @@ bool MOUSEVMM_NotifyMoved(const float x_rel,
 bool MOUSEVMM_NotifyButton(const MouseButtons12S buttons_12S);
 bool MOUSEVMM_NotifyWheel(const int16_t w_rel);
 
+// ***************************************************************************
+// Serial mouse
+// ***************************************************************************
+
+// - needs relative movements
+// - understands up to 3 buttons
+// - needs index of button which changed state
+
+// Nothing to declare
+
+// ***************************************************************************
+// Bus/InPort mouse
+// ***************************************************************************
+
+void MOUSEBUS_Init();
+void MOUSEBUS_Update();
+
+// - needs relative movements
+// - understands up to 3 buttons
+// - wheel is not supported
+
+bool MOUSEBUS_NotifyMoved(const float x_rel, const float y_rel);
+bool MOUSEBUS_NotifyButton(const MouseButtons12S buttons_12S);
 
 #endif // DOSBOX_MOUSE_INTERNALS_H

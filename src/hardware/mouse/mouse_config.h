@@ -37,6 +37,7 @@ struct MousePredefined {
     const float sensitivity_ps2 = 1.0f;
     const float sensitivity_vmm = 3.0f;
     const float sensitivity_com = 1.0f;
+    const float sensitivity_bus = 1.0f;
     // Constants to move 'intersection point' for the acceleration curve
     // Requires raw mouse input, otherwise there is no effect
     // Larger values = higher mouse acceleration
@@ -83,16 +84,17 @@ struct MouseConfig {
 
     // From [mouse] section
 
-    bool enable_mouse_dos = false;
+    bool mouse_dos_enable = false;
+    bool mouse_dos_immediate = false;
 
     MouseModelPS2 model_ps2 = MouseModelPS2::Standard;
 
     MouseModelCOM model_com[num_mouse_interfaces_com] = { MouseModelCOM::Wheel };
     bool model_com_auto_msm[num_mouse_interfaces_com] = { true };
 
-    MouseModelBus model_bus = MouseModelBus::NoMouse; // XXX use
-    uint16_t bus_base = 0; // XXX use
-    uint8_t  bus_irq  = 0; // XXX use
+    MouseModelBus model_bus = MouseModelBus::NoMouse;
+    uint16_t bus_base = 0;
+    uint8_t  bus_irq  = 0;
 
     uint16_t min_rate[num_mouse_interfaces]       = { 0 };
     uint8_t sensitivity_x[num_mouse_interfaces]   = { 0 };

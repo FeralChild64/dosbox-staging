@@ -41,14 +41,14 @@ enum class MouseInterfaceId : uint8_t {
     DOS,  // emulated DOS mouse driver
 //  VMM,  // TODO: consider separate settings for VMware (in the future VirtualBox too) mouse
     PS2,  // PS/2 mouse (this includes VMware mouse protocol)
-//  BUS,  // TODO: bus / InPort mouse (planned, not emulated yet)
     COM1, // serial mouse
     COM2,
     COM3,
     COM4,
+    BUS,  // Bus / InPort mouse
 
     First = DOS,
-    Last  = COM4,
+    Last  = BUS,
     None  = UINT8_MAX
 };
 
@@ -141,8 +141,8 @@ public:
     const std::string &GetMappedDeviceName() const;
     uint8_t GetSensitivityX() const; // 1-99
     uint8_t GetSensitivityY() const; // 1-99
-    uint16_t GetMinRate() const; // 10-320, 0 for none
-    uint16_t GetRate() const; // 10-320, 0 for N/A
+    uint16_t GetMinRate() const; // 10-500, 0 for none
+    uint16_t GetRate() const; // current rate, 10-500, 0 for N/A
 
 private:
 

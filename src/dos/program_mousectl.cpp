@@ -39,7 +39,7 @@ void MOUSECTL::Run()
     // TODO: once exit codes are supported, set it according to result
 }
 
-bool MOUSECTL::ParseAndRun()
+bool MOUSECTL::ParseAndRun() // XXX add support for 'mouse_dos_immediate' setting
 {
     // Put all the parameters into vector
     std::vector<std::string> params;
@@ -191,6 +191,9 @@ void MOUSECTL::WriteInterfaceName(const MouseInterfaceId interface_id)
         break;
     case MouseInterfaceId::COM4:
         WriteOut(convert_ansi_markup("[color=cyan]COM4[reset]").c_str());
+        break;
+    case MouseInterfaceId::BUS:
+        WriteOut(convert_ansi_markup("[color=cyan]BUS[reset]").c_str());
         break;
     case MouseInterfaceId::None:
         WriteOut("    ");
@@ -488,7 +491,7 @@ void MOUSECTL::AddMessages()
             "  [color=green]mousectl[reset] [[color=white]INTERFACE[reset] ...] -r [min_rate]\n"
             "\n"
             "Where:\n"
-            "  [color=white]INTERFACE[reset]      one of [color=white]DOS[reset], [color=white]PS/2[reset], [color=white]COM1[reset], [color=white]COM2[reset], [color=white]COM3[reset], [color=white]COM4[reset]\n"
+            "  [color=white]INTERFACE[reset]      one of [color=white]DOS[reset], [color=white]PS/2[reset], [color=white]COM1[reset], [color=white]COM2[reset], [color=white]COM3[reset], [color=white]COM4[reset], [color=white]BUS[reset]\n"
             "  -map -unmap    maps/unmaps physical mouse, honors DOS wildcards in name\n"
             "  -s -sx -sy     sets sensitivity / for x axis / for y axis, value is 1-99\n"
             "  -r             sets minimum mouse sampling rate\n"
@@ -513,17 +516,20 @@ void MOUSECTL::AddMessages()
     MSG_Add("SHELL_CMD_MOUSECTL_NO_PHYSICAL_MICE",   "No physical mice detected");
     MSG_Add("SHELL_CMD_MOUSECTL_NO_MATCH",           "No available mouse matching the pattern found");
 
-    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_HEADER1", "[color=white]Interface     Sensitivity     Rate     Status[reset]\n");
+    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_HEADER1", "[color=white]Interface     Sensitivity     Rate(Hz)     Status[reset]\n");
     MSG_Add("SHELL_CMD_MOUSECTL_TABLE_HEADER2", "[color=white]Interface     Mouse Name[reset]\n");
+
+    // XXX rework so that strings do not end with spaces (inconvenient for translations)
     MSG_Add("SHELL_CMD_MOUSECTL_TABLE_INTERFACE_SPACING",   "          ");
     MSG_Add("SHELL_CMD_MOUSECTL_TABLE_INTERFACE_UNMAPPED",  "not mapped    ");
-    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_SENSITIVITY",         " X:%02d Y:%02d     ");
-    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_RATE_HZ",             "%3d     ");
-    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_RATE_NA",             "  -     ");
-    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_STATUS_HOST",         "uses system pointer");
-    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_STATUS_MAPPED",       "mapped physical mouse");
-    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_STATUS_DISCONNECTED", "[color=red]mapped mouse disconnected[reset]");
-    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_STATUS_DISABLED",     "disabled");
+
+    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_SENSITIVITY",         " X:%02d Y:%02d");
+    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_RATE_HZ",             "        %3d");
+    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_RATE_NA",             "          -");
+    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_STATUS_HOST",         "     uses system pointer");
+    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_STATUS_MAPPED",       "     mapped physical mouse");
+    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_STATUS_DISCONNECTED", "     [color=red]mapped mouse disconnected[reset]");
+    MSG_Add("SHELL_CMD_MOUSECTL_TABLE_STATUS_DISABLED",     "     disabled");
 
     MSG_Add("SHELL_CMD_MOUSECTL_TABLE_HINT_RATE_COM", "Sampling rates for mice on [color=cyan]COM[reset] interfaces are estimations only.");
     MSG_Add("SHELL_CMD_MOUSECTL_TABLE_HINT_RATE_MIN", "Sampling rates for which minimum value is set are marked with '*'.");

@@ -36,16 +36,17 @@ public:
     static MouseInterface *GetDOS();
     static MouseInterface *GetPS2();
     static MouseInterface *GetSerial(const uint8_t port_id);
+    static MouseInterface *GetBUS();
 
-    virtual void NotifyMoved(MouseEvent &event,
+    virtual void NotifyMoved(MouseEvent &ev,
                              const float x_rel,
                              const float y_rel,
                              const uint16_t x_abs,
                              const uint16_t y_abs) = 0;
-    virtual void NotifyButton(MouseEvent &event,
+    virtual void NotifyButton(MouseEvent &ev,
                               const uint8_t idx,
                               const bool pressed) = 0;
-    virtual void NotifyWheel(MouseEvent &event,
+    virtual void NotifyWheel(MouseEvent &ev,
                              const int16_t w_rel) = 0;
 
     void NotifyInterfaceRate(const uint16_t rate_hz);

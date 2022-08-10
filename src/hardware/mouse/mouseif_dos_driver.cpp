@@ -56,6 +56,18 @@ static constexpr uint8_t num_buttons = 3;
 
 enum class MouseCursor : uint8_t { Software = 0, Hardware = 1, Text = 2 };
 
+// This enum has to be compatible with mask in DOS driver function 0x0c
+enum class MouseEventId : uint8_t {
+    NotDosEvent    = 0,
+    MouseHasMoved  = 1 << 0,
+    PressedLeft    = 1 << 1,
+    ReleasedLeft   = 1 << 2,
+    PressedRight   = 1 << 3,
+    ReleasedRight  = 1 << 4,
+    PressedMiddle  = 1 << 5,
+    ReleasedMiddle = 1 << 6,
+};
+
 // These values represent 'hardware' state, not driver state
 
 static MouseButtons12S buttons = 0;
@@ -172,7 +184,7 @@ static struct { // DOS driver state
 
     } background = {};
 
-    MouseCursor cursor_type          = MouseCursor::Software;
+    MouseCursor cursor_type = MouseCursor::Software;
 
     // cursor shape definition
     uint16_t text_and_mask = 0;
@@ -648,7 +660,12 @@ static void set_interrupt_rate(const uint16_t rate_id)
 
 static void reset_hardware()
 {
+    // Resetting the wheel API status in reset() might seem to be a more
+    // logical approach, but this is clearly not what CuteMouse does;
+    // if this is done in reset(), the DN2 is unable to use mouse wheel
+    state.wheel_api = false;
     counter_w = 0;
+
     PIC_SetIRQMask(12, false); // lower IRQ line
 
     // Trigger sampling rate refresh
@@ -683,11 +700,11 @@ void MOUSEDOS_NotifyMinRate(const uint16_t value_hz,
     // This is too much (at least Ultima Underworld I and II do not
     // like this).
 
-    // Set default value to 125 Hz (which is the rate of Bluetooth
-    // mice and basic non-gaming USB mice), this should be enough
-    // for reasonably smooth gaming - and hopefully safe too.
+    // Set default value to 200 Hz (which is the maximum setting for
+    // PS/2 mice - and hopefully this is safe (if it's not, user can
+    // always adjust it in configuration file or with MOUSECTL.COM).
     if (!rate_to_set)
-        rate_to_set = 125;
+        rate_to_set = 200;
 
     if (force_update || rate_hz != rate_to_set) {
         rate_hz = rate_to_set;
@@ -785,8 +802,7 @@ static void reset()
     set_mickey_pixel_rate(8, 16);
     set_double_speed_threshold(0); // set default value
 
-    state.enabled   = true;
-    state.wheel_api = false;
+    state.enabled = true;
 
     pos_x = static_cast<float>((state.maxpos_x + 1) / 2);
     pos_y = static_cast<float>((state.maxpos_y + 1) / 2);
@@ -921,7 +937,7 @@ static bool is_captured()
     return mouse_is_captured || is_mapped;
 }
 
-bool MOUSEDOS_UpdateMoved()
+static uint8_t move_cursor()
 {
     const auto old_pos_x = get_pos_x();
     const auto old_pos_y = get_pos_y();
@@ -960,13 +976,24 @@ bool MOUSEDOS_UpdateMoved()
     const bool rel_changed = (old_mickey_x != state.mickey_counter_x) ||
                              (old_mickey_y != state.mickey_counter_y);
 
-    return abs_changed || rel_changed;
+    if (abs_changed || rel_changed)
+        return static_cast<uint8_t>(MouseEventId::MouseHasMoved);
+    else
+        return 0;
 }
 
-bool MOUSEDOS_UpdateButtons(const MouseButtons12S new_buttons_12S)
+uint8_t MOUSEDOS_UpdateMoved()
+{
+    if (mouse_config.mouse_dos_immediate)
+        return static_cast<uint8_t>(MouseEventId::MouseHasMoved);
+    else
+        return move_cursor();
+}
+
+uint8_t MOUSEDOS_UpdateButtons(const MouseButtons12S new_buttons_12S)
 {
     if (buttons.data == new_buttons_12S.data)
-        return false;
+        return 0;
 
     auto mark_pressed = [](const uint8_t idx) {
         state.last_pressed_x[idx] = get_pos_x();
@@ -980,26 +1007,36 @@ bool MOUSEDOS_UpdateButtons(const MouseButtons12S new_buttons_12S)
         ++state.times_released[idx];
     };
 
-    if (new_buttons_12S.left && !buttons.left)
+    uint8_t mask = 0;
+    if (new_buttons_12S.left && !buttons.left) {
         mark_pressed(0);
-    else if (!new_buttons_12S.left && buttons.left)
+        mask |= static_cast<uint8_t>(MouseEventId::PressedLeft);
+    } else if (!new_buttons_12S.left && buttons.left) {
         mark_released(0);
+        mask |= static_cast<uint8_t>(MouseEventId::ReleasedLeft);
+    }
 
-    if (new_buttons_12S.right && !buttons.right)
+    if (new_buttons_12S.right && !buttons.right) {
         mark_pressed(1);
-    else if (!new_buttons_12S.right && buttons.right)
+        mask |= static_cast<uint8_t>(MouseEventId::PressedRight);
+    } else if (!new_buttons_12S.right && buttons.right) {
         mark_released(1);
+        mask |= static_cast<uint8_t>(MouseEventId::ReleasedRight);
+    }
 
-    if (new_buttons_12S.middle && !buttons.middle)
+    if (new_buttons_12S.middle && !buttons.middle) {
         mark_pressed(2);
-    else if (!new_buttons_12S.middle && buttons.middle)
+        mask |= static_cast<uint8_t>(MouseEventId::PressedMiddle);
+    } else if (!new_buttons_12S.middle && buttons.middle) {
         mark_released(2);
+        mask |= static_cast<uint8_t>(MouseEventId::ReleasedMiddle);
+    }
 
     buttons = new_buttons_12S;
     return true;
 }
 
-bool MOUSEDOS_UpdateWheel()
+static uint8_t move_wheel()
 {
     counter_w = MOUSE_ClampToInt8(static_cast<int32_t>(counter_w + pending.w_rel));
 
@@ -1009,7 +1046,18 @@ bool MOUSEDOS_UpdateWheel()
     state.last_wheel_moved_x = get_pos_x();
     state.last_wheel_moved_y = get_pos_y();
 
-    return (counter_w != 0);
+    if (counter_w != 0)
+        return static_cast<uint8_t>(MouseEventId::MouseHasMoved);
+    else
+        return 0;
+}
+
+uint8_t MOUSEDOS_UpdateWheel()
+{
+    if (mouse_config.mouse_dos_immediate)
+        return static_cast<uint8_t>(MouseEventId::MouseHasMoved);
+    else
+        return move_wheel();
 }
 
 bool MOUSEDOS_NotifyMoved(const float x_rel,
@@ -1046,18 +1094,20 @@ bool MOUSEDOS_NotifyMoved(const float x_rel,
     // calls with 0x0f parameter (changing the callback settings)
     // constantly (don't ask me, why) - doing too much optimization
     // can cause the game to skip mouse events.
-    //
-    // Also, do not update mouse state here - Ultima Underworld I and II
-    // do not like mouse states updated in real time, it ends up with
-    // mouse movements being ignored by the game randomly.
 
-    return event_needed;
+    if (!event_needed)
+        return 0;
+
+    if (mouse_config.mouse_dos_immediate)
+        return (move_cursor() != 0);
+    else
+        return true;
 }
 
 bool MOUSEDOS_NotifyWheel(const int16_t w_rel)
 {
     if (!state.wheel_api)
-        return false;
+        return 0;
 
     // Although in some places it is possible for the guest code to get
     // wheel counter in 16-bit format, scrolling hundreds of lines in one
@@ -1065,7 +1115,13 @@ bool MOUSEDOS_NotifyWheel(const int16_t w_rel)
     // reuse the code written for other mouse modules
     pending.w_rel = MOUSE_ClampToInt8(pending.w_rel + w_rel);
 
-    return (pending.w_rel != 0);
+    if (pending.w_rel == 0)
+        return 0;
+
+    if (mouse_config.mouse_dos_immediate)
+        return (move_wheel() != 0);
+    else
+        return true;
 }
 
 static Bitu int33_handler()
@@ -1536,11 +1592,11 @@ Bitu MOUSEDOS_DoCallback(const uint8_t mask,
                          const MouseButtons12S buttons_12S)
 {
     mouse_shared.dos_cb_running = true;
-    const bool is_wheel = mask & mouse_mask::wheel_has_moved;
+    const bool check_wheel = mask & static_cast<uint8_t>(MouseEventId::MouseHasMoved);
 
     reg_ax = mask;
     reg_bl = buttons_12S.data;
-    reg_bh = is_wheel ? get_reset_wheel_8bit() : 0;
+    reg_bh = check_wheel ? get_reset_wheel_8bit() : 0;
     reg_cx = get_pos_x();
     reg_dx = get_pos_y();
     reg_si = signed_to_reg16(state.mickey_counter_x);

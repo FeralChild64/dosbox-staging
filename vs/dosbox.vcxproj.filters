@@ -211,6 +211,9 @@
     <ClCompile Include="..\src\hardware\mouse\mouse_queue.cpp">
       <Filter>src\hardware\mouse</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\hardware\mouse\mouseif_bus_inport.cpp">
+      <Filter>src\hardware\mouse</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\hardware\mouse\mouseif_dos_driver.cpp">
       <Filter>src\hardware\mouse</Filter>
     </ClCompile>

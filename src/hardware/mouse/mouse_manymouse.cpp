@@ -24,6 +24,7 @@
 #include "callback.h"
 #include "checks.h"
 #include "pic.h"
+#include "string_utils.h"
 
 CHECK_NARROWING();
 
@@ -154,10 +155,13 @@ void ManyMouseGlue::Rescan()
     ClearPhysicalMice();
 
     for (uint8_t idx = 0; idx < num_mice; idx++) {
-        std::string name = ManyMouse_DeviceName(idx);
+        const auto name_utf8 = ManyMouse_DeviceName(idx);
+        std::string name;
+        UTF8_RenderForDos(name_utf8, name);
 
         // Remove non-ASCII and control characters
         for (auto pos = name.size(); pos > 0; pos--) {
+            // XXX replace 0x7f with space
             if (name[pos - 1] < 0x20 || name[pos - 1] > 0x7e)
                 name.erase(pos - 1, 1);
         }

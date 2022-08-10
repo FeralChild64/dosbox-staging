@@ -12,6 +12,7 @@ libmisc_sources = [
     'rwqueue.cpp',
     'setup.cpp',
     'support.cpp',
+    'unicode.cpp',
 ]
 
 libmisc = static_library(

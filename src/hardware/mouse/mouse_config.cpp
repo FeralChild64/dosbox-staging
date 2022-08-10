@@ -79,13 +79,21 @@ static std::vector<std::string> list_rates = {
     "160", // approx. limit for 4800 baud serial mouse
     "200", // PS/2 mouse, bus/InPort mouse
     "250", // USB mouse (gaming)
-    "320", // approx. limit for 9600 baud serial mouse
+    "330", // approx. limit for 9600 baud serial mouse
+    "500", // USB mouse (gaming)
 
 // Todays gaming USB mice are capable of even higher sampling
 // rates (like 1000 Hz), but such rates are way higher than
 // anything DOS games were designed for; most likely such rates
 // would only result in emulator slowdowns and compatibility
 // issues.
+};
+
+static std::vector<std::string> list_bases_bus = {
+     "230",
+     "234",
+     "238",
+     "23c",
 };
 
 bool MouseConfig::ParseSerialModel(const std::string &model_str,
@@ -147,11 +155,12 @@ static void config_read(Section *section)
 
     PropMultiVal *prop_multi = nullptr;
 
-    // Mouse enable/disable settings
+    // Mouse - DOS driver
 
-    mouse_config.enable_mouse_dos = conf->Get_bool("mouse_dos");
+    mouse_config.mouse_dos_enable = conf->Get_bool("mouse_dos");
+    mouse_config.mouse_dos_immediate = conf->Get_bool("mouse_dos_immediate");
 
-    // Mouse models
+    // Mouse - PS/2 AUX port
 
     std::string prop_str = conf->Get_string("model_ps2");
     if (prop_str == list_models_ps2[0])
@@ -162,6 +171,8 @@ static void config_read(Section *section)
     if (prop_str == list_models_ps2[2])
         mouse_config.model_ps2 = MouseModelPS2::Explorer;
 #endif
+
+    // Mouse - serial (COM port) mice
 
     auto set_model_com = [](const std::string &model_str,
                             MouseModelCOM& model_var,
@@ -208,6 +219,8 @@ static void config_read(Section *section)
             model_var = MouseModelBus::InPort;
     };
 
+    // Mouse - Bus/InPort mouse
+
     prop_str = conf->Get_string("model_bus");
     set_model_bus(prop_str, mouse_config.model_bus);
     mouse_config.bus_base = conf->Get_hex("busbase");
@@ -230,6 +243,8 @@ static void config_read(Section *section)
     auto &sensitivity_com3_y = array_y[static_cast<uint8_t>(MouseInterfaceId::COM3)];
     auto &sensitivity_com4_x = array_x[static_cast<uint8_t>(MouseInterfaceId::COM4)];
     auto &sensitivity_com4_y = array_y[static_cast<uint8_t>(MouseInterfaceId::COM4)];
+    auto &sensitivity_bus_x  = array_x[static_cast<uint8_t>(MouseInterfaceId::BUS)];
+    auto &sensitivity_bus_y  = array_y[static_cast<uint8_t>(MouseInterfaceId::BUS)];
 
     prop_multi = conf->GetMultiVal("sensitivity_dos");
     assert(prop_multi);
@@ -261,6 +276,11 @@ static void config_read(Section *section)
     sensitivity_com4_x = static_cast<uint8_t>(prop_multi->GetSection()->Get_int("x"));
     sensitivity_com4_y = static_cast<uint8_t>(prop_multi->GetSection()->Get_int("y"));
 
+    prop_multi = conf->GetMultiVal("sensitivity_bus");
+    assert(prop_multi);
+    sensitivity_bus_x = static_cast<uint8_t>(prop_multi->GetSection()->Get_int("x"));
+    sensitivity_bus_y = static_cast<uint8_t>(prop_multi->GetSection()->Get_int("y"));
+
     // Mouse sampling rate
 
     auto &array_rate = mouse_config.min_rate;
@@ -271,6 +291,7 @@ static void config_read(Section *section)
     auto &rate_com2 = array_rate[static_cast<uint8_t>(MouseInterfaceId::COM2)];
     auto &rate_com3 = array_rate[static_cast<uint8_t>(MouseInterfaceId::COM3)];
     auto &rate_com4 = array_rate[static_cast<uint8_t>(MouseInterfaceId::COM4)];
+    auto &rate_bus  = array_rate[static_cast<uint8_t>(MouseInterfaceId::BUS)];
 
     auto set_rate = [](const std::string &rate_str, uint16_t& min_rate) {
         if (rate_str == list_rates[0])
@@ -291,6 +312,8 @@ static void config_read(Section *section)
     set_rate(prop_str, rate_com3);
     prop_str = conf->Get_string("min_rate_com4");
     set_rate(prop_str, rate_com4);
+    prop_str = conf->Get_string("min_rate_bus");
+    set_rate(prop_str, rate_bus);
 
     // Physical device name patterns
 
@@ -333,6 +356,18 @@ static void config_init(Section_prop &secprop)
                         "Notes:\n"
                         "   Disable if you intend to use original MOUSE.COM driver in emulated DOS.\n"
                         "   When guest OS is booted, built-in driver gets disabled automatically.");
+
+    prop_bool = secprop.Add_bool("mouse_dos_immediate", only_at_start, false);
+    assert(prop_bool);
+    prop_bool->Set_help("Updates mouse movement counters immediately, without waiting for interrupt.\n"
+                        "May improve gameplay, especially in fast paced games (arcade, FPS, etc.) - as\n"
+                        "for some games it effectively boosts the mouse sampling rate to 1000 Hz, without\n"
+                        "increasing interrupt overhead.\n"
+                        "Might cause compatibility issues. List of known incompatible games:\n"
+                        "   - Ultima Underworld: The Stygian Abyss\n"
+                        "   - Ultima Underworld II: Labyrinth of Worlds\n"
+                        "Please file a bug with the project if you find another game that fails when\n"
+                        "this is enabled, we will update this list.\n");
 
     // Mouse models
 
@@ -383,15 +418,15 @@ static void config_init(Section_prop &secprop)
     prop_str->Set_values(list_models_bus);
     prop_str->Set_help("Bus mouse model");
 
-    prop_hex = secprop.Add_hex("busbase", only_at_start);
+    prop_hex = secprop.Add_hex("busbase", only_at_start, 0x23c);
     assert(prop_hex);
-    // XXX set_values
-    prop_hex->Set_help("Bus mouse I/O port");
+    prop_hex->Set_values(list_bases_bus);
+    prop_hex->Set_help("The IO base address of the Bus/InPort mouse");
 
-    prop_int = secprop.Add_int("busirq", only_at_start);
+    prop_int = secprop.Add_int("busirq", only_at_start, 5);
     assert(prop_hex);
-    // XXX set_values
-    prop_int->Set_help("Bus mouse IRQ");
+    prop_int->SetMinMax(2, 5);
+    prop_int->Set_help("The IRQ number of the Bus/InPort mouse");
 
     // Mouse sensitivity
 
@@ -408,7 +443,7 @@ static void config_init(Section_prop &secprop)
 
     prop_multi = secprop.AddMultiVal("sensitivity_ps2", only_at_start, ",");
     prop_multi->SetValue("50");
-    prop_multi->Set_help("PS/2 AUX port mouse sensitivity, 0-100.");
+    prop_multi->Set_help("PS/2 AUX port mouse sensitivity, 1-99.");
     prop_int = prop_multi->GetSection()->Add_int("x", only_at_start, 50);
     prop_int->SetMinMax(1, 99);
     prop_int = prop_multi->GetSection()->Add_int("y", only_at_start, 50);
@@ -416,7 +451,7 @@ static void config_init(Section_prop &secprop)
 
     prop_multi = secprop.AddMultiVal("sensitivity_com1", only_at_start, ",");
     prop_multi->SetValue("50");
-    prop_multi->Set_help("COM1 (serial) port mouse sensitivity, 0-100.");
+    prop_multi->Set_help("COM1 (serial) port mouse sensitivity, 1-99.");
     prop_int = prop_multi->GetSection()->Add_int("x", only_at_start, 50);
     prop_int->SetMinMax(1, 99);
     prop_int = prop_multi->GetSection()->Add_int("y", only_at_start, 50);
@@ -424,7 +459,7 @@ static void config_init(Section_prop &secprop)
 
     prop_multi = secprop.AddMultiVal("sensitivity_com2", only_at_start, ",");
     prop_multi->SetValue("50");
-    prop_multi->Set_help("COM2 (serial) port mouse sensitivity, 0-100.");
+    prop_multi->Set_help("COM2 (serial) port mouse sensitivity, 1-99.");
     prop_int = prop_multi->GetSection()->Add_int("x", only_at_start, 50);
     prop_int->SetMinMax(1, 99);
     prop_int = prop_multi->GetSection()->Add_int("y", only_at_start, 50);
@@ -432,7 +467,7 @@ static void config_init(Section_prop &secprop)
 
     prop_multi = secprop.AddMultiVal("sensitivity_com3", only_at_start, ",");
     prop_multi->SetValue("50");
-    prop_multi->Set_help("COM3 (serial) port mouse sensitivity, 0-100.");
+    prop_multi->Set_help("COM3 (serial) port mouse sensitivity, 1-99.");
     prop_int = prop_multi->GetSection()->Add_int("x", only_at_start, 50);
     prop_int->SetMinMax(1, 99);
     prop_int = prop_multi->GetSection()->Add_int("y", only_at_start, 50);
@@ -440,7 +475,15 @@ static void config_init(Section_prop &secprop)
 
     prop_multi = secprop.AddMultiVal("sensitivity_com4", only_at_start, ",");
     prop_multi->SetValue("50");
-    prop_multi->Set_help("COM4 (serial) port mouse sensitivity, 0-100.");
+    prop_multi->Set_help("COM4 (serial) port mouse sensitivity, 1-99.");
+    prop_int = prop_multi->GetSection()->Add_int("x", only_at_start, 50);
+    prop_int->SetMinMax(1, 99);
+    prop_int = prop_multi->GetSection()->Add_int("y", only_at_start, 50);
+    prop_int->SetMinMax(1, 99);
+
+    prop_multi = secprop.AddMultiVal("sensitivity_bus", only_at_start, ",");
+    prop_multi->SetValue("50");
+    prop_multi->Set_help("Bus/InPort mouse sensitivity, 1-99.");
     prop_int = prop_multi->GetSection()->Add_int("x", only_at_start, 50);
     prop_int->SetMinMax(1, 99);
     prop_int = prop_multi->GetSection()->Add_int("y", only_at_start, 50);
@@ -453,10 +496,11 @@ static void config_init(Section_prop &secprop)
     prop_str->Set_values(list_rates);
     prop_str->Set_help("Internal DOS mouse driver minimal sampling rate.\n"
                        "Rate might be higher if guest software requests it.\n"
-                       "Standard USB mice are limited to 125 Hz - use a gaming\n"
-                       "mouse, or higher sampling rates will have no effect.\n"
-                       "High values might be good for action games, but can also\n"
-                       "introduce compatibility problems.\n"
+                       "High values increase mouse smoothness and control precission, especially in fast\n"
+                       "paced games (arcade, FPS, etc.), but reduces performance a little and can cause\n"
+                       "compatibility problems with badly written games/software.\n"
+                       "Bluetooth mice and standard USB mice are limited to 125 Hz - use a gaming mouse\n"
+                       "for playing, or else higher sampling rates will have no effect.\n"
                        "Minimal sampling rate for any mouse can be chaged using internal command MOUSECTL.\n");
 
     prop_str = secprop.Add_string("min_rate_ps2", only_at_start, list_rates[0].c_str());
@@ -483,6 +527,11 @@ static void config_init(Section_prop &secprop)
     assert(prop_str);
     prop_str->Set_values(list_rates);
     prop_str->Set_help("COM4 (serial) port mouse minimal sampling rate.");
+
+    prop_str = secprop.Add_string("min_rate_bus", only_at_start, list_rates[0].c_str());
+    assert(prop_str);
+    prop_str->Set_values(list_rates);
+    prop_str->Set_help("Bus/InPort mouse minimal sampling rate.");
 
     // Physical device name patterns
 

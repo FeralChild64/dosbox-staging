@@ -594,6 +594,7 @@ IF %ERRORLEVEL% LSS 8 SET ERRORLEVEL = 0</Command>
     <ClCompile Include="..\src\hardware\mouse\mouse_interfaces.cpp" />
     <ClCompile Include="..\src\hardware\mouse\mouse_manymouse.cpp" />
     <ClCompile Include="..\src\hardware\mouse\mouse_queue.cpp" />
+    <ClCompile Include="..\src\hardware\mouse\mouseif_bus_inport.cpp" />
     <ClCompile Include="..\src\hardware\mouse\mouseif_dos_driver.cpp" />
     <ClCompile Include="..\src\hardware\mouse\mouseif_ps2_bios.cpp" />
     <ClCompile Include="..\src\hardware\mouse\mouseif_virtual_machines.cpp" />

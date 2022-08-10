@@ -32,7 +32,7 @@ CHECK_NARROWING();
 std::vector<MouseInterface *> mouse_interfaces = {};
 
 static constexpr auto rate_hz_min = static_cast<uint16_t>(10);
-static constexpr auto rate_hz_max = static_cast<uint16_t>(320);
+static constexpr auto rate_hz_max = static_cast<uint16_t>(500);
 
 
 // ***************************************************************************
@@ -154,15 +154,15 @@ class InterfaceDos final : public MouseInterface
 {
 public:
 
-    void NotifyMoved(MouseEvent &event,
+    void NotifyMoved(MouseEvent &ev,
                      const float x_rel,
                      const float y_rel,
                      const uint16_t x_abs,
                      const uint16_t y_abs) override;
-    void NotifyButton(MouseEvent &event,
+    void NotifyButton(MouseEvent &ev,
                       const uint8_t idx,
                       const bool pressed) override;
-    void NotifyWheel(MouseEvent &event,
+    void NotifyWheel(MouseEvent &ev,
                      const int16_t w_rel) override;
 
     void NotifyBooting() override;
@@ -180,24 +180,21 @@ private:
 
     void UpdateRawMapped() override;
     void UpdateRate() override;
-
-    MouseEventId ButtonEventId(const uint8_t idx,
-                               const bool pressed) const;
 };
 
 class InterfacePS2 final : public MouseInterface
 {
 public:
 
-    void NotifyMoved(MouseEvent &event,
+    void NotifyMoved(MouseEvent &ev,
                      const float x_rel,
                      const float y_rel,
                      const uint16_t x_abs,
                      const uint16_t y_abs) override;
-    void NotifyButton(MouseEvent &event,
+    void NotifyButton(MouseEvent &ev,
                       const uint8_t idx,
                       const bool pressed) override;
-    void NotifyWheel(MouseEvent &event,
+    void NotifyWheel(MouseEvent &ev,
                      const int16_t w_rel) override;
 
 private:
@@ -223,15 +220,15 @@ class InterfaceCOM final : public MouseInterface
 {
 public:
 
-    void NotifyMoved(MouseEvent &event,
+    void NotifyMoved(MouseEvent &ev,
                      const float x_rel,
                      const float y_rel,
                      const uint16_t x_abs,
                      const uint16_t y_abs) override;
-    void NotifyButton(MouseEvent &event,
+    void NotifyButton(MouseEvent &ev,
                       const uint8_t idx,
                       const bool pressed) override;
-    void NotifyWheel(MouseEvent &event,
+    void NotifyWheel(MouseEvent &ev,
                      const int16_t w_rel) override;
 
     void UpdateRate() override;
@@ -251,6 +248,35 @@ private:
 
     uint8_t port_id = 0;
     CSerialMouse *listener = nullptr;
+};
+
+class InterfaceBUS final : public MouseInterface
+{
+public:
+
+    void NotifyMoved(MouseEvent &ev,
+                     const float x_rel,
+                     const float y_rel,
+                     const uint16_t x_abs,
+                     const uint16_t y_abs) override;
+    void NotifyButton(MouseEvent &ev,
+                      const uint8_t idx,
+                      const bool pressed) override;
+    void NotifyWheel(MouseEvent &ev,
+                     const int16_t w_rel) override;
+
+    void UpdateRate() override;
+
+private:
+
+    friend class MouseInterface;
+
+    InterfaceBUS();
+    ~InterfaceBUS() = default;
+    InterfaceBUS(const InterfaceBUS &other) = delete;
+    InterfaceBUS &operator=(const InterfaceBUS &other) = delete;
+
+    void Init() override;
 };
 
 // ***************************************************************************
@@ -279,6 +305,9 @@ void MouseInterface::InitAllInstances()
         case MouseInterfaceId::COM3:
         case MouseInterfaceId::COM4:
             mouse_interfaces.emplace_back(new InterfaceCOM(i - i_com1));
+            break;
+        case MouseInterfaceId::BUS:
+            mouse_interfaces.emplace_back(new InterfaceBUS());
             break;
         default:
             assert(false);
@@ -321,6 +350,12 @@ MouseInterface *MouseInterface::GetSerial(const uint8_t port_id)
     LOG_ERR("MOUSE: Ports above COM4 not supported");
     assert(false);
     return nullptr;
+}
+
+MouseInterface *MouseInterface::GetBUS()
+{
+    const auto idx = static_cast<uint8_t>(MouseInterfaceId::BUS);
+    return MouseInterface::Get(static_cast<MouseInterfaceId>(idx));
 }
 
 MouseInterface::MouseInterface(const MouseInterfaceId interface_id,
@@ -560,10 +595,12 @@ void MouseInterface::ConfigResetMinRate()
 
 void MouseInterface::RegisterListener(CSerialMouse &)
 {
+    assert(false); // should never be called for unsupported interface
 }
 
 void MouseInterface::UnRegisterListener()
 {
+    assert(false); // should never be called for unsupported interface
 }
 
 void MouseInterface::UpdateConfig()
@@ -689,39 +726,28 @@ InterfaceDos::InterfaceDos() :
 
 void InterfaceDos::Init()
 {
-    if (mouse_config.enable_mouse_dos) {
+    if (mouse_config.mouse_dos_enable) {
         MOUSEDOS_Init();
         MouseInterface::Init();
     } else
         emulated = false;
 }
 
-MouseEventId InterfaceDos::ButtonEventId(const uint8_t idx, const bool pressed) const
-{
-    switch (idx) {
-    case 0: return pressed ? MouseEventId::PressedLeft   : MouseEventId::ReleasedLeft;
-    case 1: return pressed ? MouseEventId::PressedRight  : MouseEventId::ReleasedRight;
-    case 2:
-    case 3:
-    case 4: return pressed ? MouseEventId::PressedMiddle : MouseEventId::ReleasedMiddle;
-    default: return MouseEventId::NotDosEvent;
-    }
-}
-
-void InterfaceDos::NotifyMoved(MouseEvent &event,
+void InterfaceDos::NotifyMoved(MouseEvent &ev,
                                const float x_rel,
                                const float y_rel,
                                const uint16_t x_abs,
                                const uint16_t y_abs)
 {
-    event.request_dos = MOUSEDOS_NotifyMoved(
+    ev.dos_moved = MOUSEDOS_NotifyMoved(
         x_rel * sensitivity_coeff_x,
         y_rel * sensitivity_coeff_y,
         x_abs,
         y_abs);
+    ev.request_dos = ev.dos_moved;
 }
 
-void InterfaceDos::NotifyButton(MouseEvent &event,
+void InterfaceDos::NotifyButton(MouseEvent &ev,
                                 const uint8_t idx,
                                 const bool pressed)
 {
@@ -729,17 +755,16 @@ void InterfaceDos::NotifyButton(MouseEvent &event,
     if (GCC_UNLIKELY(!ChangedButtonsSquished()))
         return;
 
-    event.dos_id      = ButtonEventId(idx, pressed);
-    event.dos_mask    = static_cast<uint8_t>(event.dos_id);
-    event.dos_buttons = GetButtonsSquished();
-
-    event.request_dos = true;
+    ev.dos_button  = true;
+    ev.dos_buttons = GetButtonsSquished();
+    ev.request_dos = true;
 }
 
-void InterfaceDos::NotifyWheel(MouseEvent &event,
+void InterfaceDos::NotifyWheel(MouseEvent &ev,
                                const int16_t w_rel)
 {
-    event.request_dos = MOUSEDOS_NotifyWheel(w_rel);
+    ev.dos_wheel = MOUSEDOS_NotifyWheel(w_rel);
+    ev.request_dos = ev.dos_wheel;
 }
 
 void InterfaceDos::NotifyBooting()
@@ -779,7 +804,7 @@ void InterfacePS2::Init()
     MouseInterface::Init();
 }
 
-void InterfacePS2::NotifyMoved(MouseEvent &event,
+void InterfacePS2::NotifyMoved(MouseEvent &ev,
                                const float x_rel,
                                const float y_rel,
                                const uint16_t x_abs,
@@ -792,10 +817,10 @@ void InterfacePS2::NotifyMoved(MouseEvent &event,
                                                   x_abs,
                                                   y_abs);
 
-    event.request_ps2 = request_ps2 || request_vmm;
+    ev.request_ps2 = request_ps2 || request_vmm;
 }
 
-void InterfacePS2::NotifyButton(MouseEvent &event,
+void InterfacePS2::NotifyButton(MouseEvent &ev,
                                 const uint8_t idx,
                                 const bool pressed)
 {
@@ -807,16 +832,16 @@ void InterfacePS2::NotifyButton(MouseEvent &event,
                                                    GetButtonsJoined());
     const bool request_vmm = MOUSEVMM_NotifyButton(GetButtonsSquished());
 
-    event.request_ps2 = request_ps2 || request_vmm;
+    ev.request_ps2 = request_ps2 || request_vmm;
 }
 
-void InterfacePS2::NotifyWheel(MouseEvent &event,
+void InterfacePS2::NotifyWheel(MouseEvent &ev,
                                const int16_t w_rel)
 {
     const bool request_ps2 = MOUSEPS2_NotifyWheel(w_rel);
     const bool request_vmm = MOUSEVMM_NotifyWheel(w_rel);
 
-    event.request_ps2 = request_ps2 || request_vmm;
+    ev.request_ps2 = request_ps2 || request_vmm;
 }
 
 void InterfacePS2::UpdateRawMapped()
@@ -913,4 +938,53 @@ void InterfaceCOM::UnRegisterListener()
     listener = nullptr;
     emulated = false;
     ManyMouseGlue::GetInstance().ShutdownIfSafe();
+}
+
+InterfaceBUS::InterfaceBUS() :
+    MouseInterface(MouseInterfaceId::BUS, mouse_predefined.sensitivity_bus)
+{
+    UpdateSensitivity();
+}
+
+void InterfaceBUS::Init()
+{
+    if (mouse_config.model_bus == MouseModelBus::NoMouse)
+    {
+        emulated = false;
+        return;
+    }
+
+    MOUSEBUS_Init();
+}
+
+void InterfaceBUS::NotifyMoved(MouseEvent &ev,
+                               const float x_rel,
+                               const float y_rel,
+                               const uint16_t x_abs,
+                               const uint16_t y_abs)
+{
+    ev.request_bus = MOUSEBUS_NotifyMoved(x_rel * sensitivity_coeff_x,
+                                          y_rel * sensitivity_coeff_y);
+}
+
+void InterfaceBUS::NotifyButton(MouseEvent &ev,
+                                const uint8_t idx,
+                                const bool pressed)
+{
+    UpdateButtons(idx, pressed);
+    if (GCC_UNLIKELY(!ChangedButtonsSquished()))
+        return;
+
+    ev.request_bus = MOUSEBUS_NotifyButton(GetButtonsSquished());
+}
+
+void InterfaceBUS::NotifyWheel(MouseEvent &, const int16_t)
+{
+    // Bus/InPort mice do not suport wheel
+}
+
+void InterfaceBUS::UpdateRate()
+{
+    MouseInterface::UpdateRate();
+    MouseQueue::GetInstance().SetRateBUS(rate_hz);
 }

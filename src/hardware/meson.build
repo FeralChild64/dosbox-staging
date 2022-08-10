@@ -7,6 +7,7 @@ libhardware_sources = files(
     'mouse/mouse_interfaces.cpp',
     'mouse/mouse_manymouse.cpp',
     'mouse/mouse_queue.cpp',
+    'mouse/mouseif_bus_inport.cpp',
     'mouse/mouseif_dos_driver.cpp',
     'mouse/mouseif_ps2_bios.cpp',
     'mouse/mouseif_virtual_machines.cpp',

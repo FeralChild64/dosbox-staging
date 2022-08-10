@@ -1,10 +1,17 @@
 resources = [
     'de.lng',
+    'de.utf8.lng',
     'en.lng',
+    'en.utf8.lng',
     'es.lng',
+    'es.utf8.lng',
     'fr.lng',
+    'fr.utf8.lng',
     'it.lng',
+    'it.utf8.lng',
     'pl.lng',
     'pl.cp437.lng',
+    'pl.utf8.lng',
     'ru.lng',
+    'ru.utf8.lng',
 ]

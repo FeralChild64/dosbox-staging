@@ -2,6 +2,9 @@ resource_dirs = [
     'freedos-cpi',
     'freedos-keyboard',
     'glshaders',
+    'mapping',
+    'mapping-unicode.org',
+    'mapping-wikipedia.org',
     'translations',
     # insert new resource subdirectory names here
 ]

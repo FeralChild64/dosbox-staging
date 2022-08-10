@@ -175,47 +175,16 @@ union MouseButtons12S {
 // Internal mouse event types
 // ***************************************************************************
 
-// XXX bit_view?
-// This enum has to be compatible with mask in DOS driver function 0x0c
-enum class MouseEventId : uint8_t {
-    NotDosEvent    = 0,
-    MouseHasMoved  = 1 << 0,
-    PressedLeft    = 1 << 1,
-    ReleasedLeft   = 1 << 2,
-    PressedRight   = 1 << 3,
-    ReleasedRight  = 1 << 4,
-    PressedMiddle  = 1 << 5,
-    ReleasedMiddle = 1 << 6,
-    WheelHasMoved  = 1 << 7,
-};
-
-namespace mouse_mask {
-    constexpr uint8_t mouse_has_moved = static_cast<uint8_t>(MouseEventId::MouseHasMoved);
-    constexpr uint8_t wheel_has_moved = static_cast<uint8_t>(MouseEventId::WheelHasMoved);
-    constexpr uint8_t button_pressed  = static_cast<uint8_t>(MouseEventId::PressedLeft) +
-                                        static_cast<uint8_t>(MouseEventId::PressedRight) +
-                                        static_cast<uint8_t>(MouseEventId::PressedMiddle);
-    constexpr uint8_t button_released = static_cast<uint8_t>(MouseEventId::ReleasedLeft) +
-                                        static_cast<uint8_t>(MouseEventId::ReleasedRight) +
-                                        static_cast<uint8_t>(MouseEventId::ReleasedMiddle);
-    constexpr uint8_t button          = button_pressed + button_released;
-};
-
 struct MouseEvent {
-    bool request_ps2 = false; // if PS/2 mouse emulation needs an event
     bool request_dos = false; // if DOS mouse driver needs an event
+    bool request_ps2 = false; // if PS/2 mouse emulation needs an event
+    bool request_bus = false; // if Bus mouse emulation needs an event
 
-    MouseEventId     dos_id        = MouseEventId::NotDosEvent;
-    uint8_t          dos_mask      = 0;
+    bool dos_moved   = false;
+    bool dos_button  = false;
+    bool dos_wheel   = false;
 
-    MouseButtons12S  dos_buttons   = 0;
-
-    uint8_t aggregate_mask = 0; // to check if button events can be aggregated
-
-    MouseEvent() = default;
-    MouseEvent(MouseEventId dos_id) :
-        dos_id(dos_id),
-        dos_mask(static_cast<uint8_t>(dos_id)) {}
+    MouseButtons12S dos_buttons = 0;
 };
 
 

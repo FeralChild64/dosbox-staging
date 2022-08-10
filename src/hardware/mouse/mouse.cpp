@@ -57,45 +57,44 @@ static Bitu int74_exit()
 
 static Bitu int74_handler()
 {
-    MouseEvent event;
-    queue.FetchEvent(event);
+    MouseEvent ev;
+    queue.FetchEvent(ev);
 
     // Handle DOS events
-    if (event.request_dos) {
+    if (ev.request_dos) {
 
-        if ((event.dos_mask & mouse_mask::mouse_has_moved) &&
-            !MOUSEDOS_UpdateMoved())
-            event.dos_mask &= static_cast<uint8_t>(~mouse_mask::mouse_has_moved & 0xff);
-        if ((event.dos_mask & mouse_mask::wheel_has_moved) &&
-            !MOUSEDOS_UpdateWheel())
-            event.dos_mask &= static_cast<uint8_t>(~mouse_mask::wheel_has_moved & 0xff);
-        if ((event.dos_mask & mouse_mask::button) &&
-            !MOUSEDOS_UpdateButtons(event.dos_buttons))
-            event.dos_mask &= static_cast<uint8_t>(~mouse_mask::button & 0xff);
+        uint8_t mask = 0;
+        if (ev.dos_moved) {
+            mask = MOUSEDOS_UpdateMoved();
 
-        // Taken from DOSBox X: HERE within the IRQ 12 handler is the
-        // appropriate place to redraw the cursor. OSes like Windows 3.1
-        // expect real-mode code to do it in response to IRQ 12, not
-        // "out of the blue" from the SDL event handler like the
-        // original DOSBox code did it. Doing this allows the INT 33h
-        // emulation to draw the cursor while not causing Windows 3.1 to
-        // crash or behave erratically.
-        if (event.dos_mask & mouse_mask::mouse_has_moved)
-            MOUSEDOS_DrawCursor();
+            // Taken from DOSBox X: HERE within the IRQ 12 handler is the
+            // appropriate place to redraw the cursor. OSes like Windows 3.1
+            // expect real-mode code to do it in response to IRQ 12, not
+            // "out of the blue" from the SDL event handler like the
+            // original DOSBox code did it. Doing this allows the INT 33h
+            // emulation to draw the cursor while not causing Windows 3.1 to
+            // crash or behave erratically.
+            if (mask)
+                MOUSEDOS_DrawCursor();
+        }
+        if (ev.dos_button)
+            mask |= MOUSEDOS_UpdateButtons(ev.dos_buttons);
+        if (ev.dos_wheel)
+            mask |= MOUSEDOS_UpdateWheel();
 
         // If DOS driver's client is not interested in this particular
         // type of event - skip it
-        if (!MOUSEDOS_HasCallback(event.dos_mask))
+        if (!MOUSEDOS_HasCallback(mask))
             return int74_exit();
 
         CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
         CPU_Push16(RealOff(static_cast<RealPt>(CALLBACK_RealPointer(int74_ret_callback)) + 7));
 
-        return MOUSEDOS_DoCallback(event.dos_mask, event.dos_buttons);
+        return MOUSEDOS_DoCallback(mask, ev.dos_buttons);
     }
 
     // Handle PS/2 and BIOS mouse events
-    if (event.request_ps2 && mouse_shared.active_bios) {
+    if (ev.request_ps2 && mouse_shared.active_bios) {
         CPU_Push16(RealSeg(CALLBACK_RealPointer(int74_ret_callback)));
         CPU_Push16(RealOff(CALLBACK_RealPointer(int74_ret_callback)));
 
@@ -165,10 +164,9 @@ void MOUSE_NotifyFakePS2()
     auto interface = MouseInterface::GetPS2();
 
     if (interface && interface->IsUsingEvents()) {
-        MouseEvent event(MouseEventId::NotDosEvent);
-        event.request_ps2 = true;
-
-        queue.AddEvent(event);
+        MouseEvent ev;
+        ev.request_ps2 = true;
+        queue.AddEvent(ev);
     }
 }
 
@@ -202,12 +200,11 @@ void MOUSE_EventMoved(const float x_rel,
 
     // Notify mouse interfaces
 
-    MouseEvent event(MouseEventId::MouseHasMoved);
+    MouseEvent ev;
     for (auto &interface : mouse_interfaces)
         if (interface->IsUsingHostPointer())
-            interface->NotifyMoved(event, x_rel, y_rel, x_abs, y_abs);
-
-    queue.AddEvent(event);
+            interface->NotifyMoved(ev, x_rel, y_rel, x_abs, y_abs);
+    queue.AddEvent(ev);
 }
 
 void MOUSE_EventMoved(const float x_rel,
@@ -216,22 +213,20 @@ void MOUSE_EventMoved(const float x_rel,
 {
     auto interface = MouseInterface::Get(interface_id);
     if (interface && interface->IsUsingEvents()) {
-        MouseEvent event(MouseEventId::MouseHasMoved);
-        interface->NotifyMoved(event, x_rel, y_rel, 0, 0);
-        queue.AddEvent(event);
+        MouseEvent ev;
+        interface->NotifyMoved(ev, x_rel, y_rel, 0, 0);
+        queue.AddEvent(ev);
     }
 }
 
 void MOUSE_EventButton(const uint8_t idx,
                        const bool pressed)
 {
-    // Real event ID will be set later, if necessary
-    MouseEvent event(MouseEventId::NotDosEvent);
+    MouseEvent ev;
     for (auto &interface : mouse_interfaces)
         if (interface->IsUsingHostPointer())
-            interface->NotifyButton(event, idx, pressed);
-
-    queue.AddEvent(event);
+            interface->NotifyButton(ev, idx, pressed);
+    queue.AddEvent(ev);
 }
 
 void MOUSE_EventButton(const uint8_t idx,
@@ -240,20 +235,19 @@ void MOUSE_EventButton(const uint8_t idx,
 {
     auto interface = MouseInterface::Get(interface_id);
     if (interface && interface->IsUsingEvents()) {
-        MouseEvent event(MouseEventId::NotDosEvent);
-        interface->NotifyButton(event, idx, pressed);
-        queue.AddEvent(event);
+        MouseEvent ev;
+        interface->NotifyButton(ev, idx, pressed);
+        queue.AddEvent(ev);
     }
 }
 
 void MOUSE_EventWheel(const int16_t w_rel)
 {
-    MouseEvent event(MouseEventId::WheelHasMoved);
+    MouseEvent ev;
     for (auto &interface : mouse_interfaces)
         if (interface->IsUsingHostPointer())
-            interface->NotifyWheel(event, w_rel);
-
-    queue.AddEvent(event);
+            interface->NotifyWheel(ev, w_rel);
+    queue.AddEvent(ev);
 }
 
 void MOUSE_EventWheel(const int16_t w_rel,
@@ -261,9 +255,9 @@ void MOUSE_EventWheel(const int16_t w_rel,
 {
     auto interface = MouseInterface::Get(interface_id);
     if (interface && interface->IsUsingEvents()) {
-        MouseEvent event(MouseEventId::WheelHasMoved);
-        interface->NotifyWheel(event, w_rel);
-        queue.AddEvent(event);
+        MouseEvent ev;
+        interface->NotifyWheel(ev, w_rel);
+        queue.AddEvent(ev);
     }
 }
 

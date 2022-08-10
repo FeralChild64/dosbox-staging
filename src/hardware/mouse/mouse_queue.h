@@ -27,11 +27,12 @@ public:
 
     static MouseQueue &GetInstance();
 
-    void SetRateDOS(const uint16_t rate_hz);
-    void SetRatePS2(const uint16_t rate_hz);
+    void SetRateDOS(const uint16_t rate_hz); // for DOS mouse driver
+    void SetRatePS2(const uint16_t rate_hz); // for PS/2 AUX port mice
+    void SetRateBUS(const uint16_t rate_hz); // for Bus / InPort mice
 
-    void AddEvent(MouseEvent &event);
-    void FetchEvent(MouseEvent &event);
+    void AddEvent(MouseEvent &ev);
+    void FetchEvent(MouseEvent &ev);
     void ClearEventsDOS();
     void StartTimerIfNeeded();
 
@@ -45,54 +46,45 @@ private:
     void Tick();
     friend void mouse_queue_tick(uint32_t);
 
-    void AggregateEventsDOS(MouseEvent &event);
-    MouseEvent &PopEventButton();
+    void AggregateDosEvents(MouseEvent &ev);
     void UpdateDelayCounters();
     uint8_t ClampStartDelay(float value_ms) const;
 
     struct { // intial value of delay counters, in milliseconds
-        uint8_t ps2_ms             = 5;
-        uint8_t dos_button_ms      = 1;
-        uint8_t dos_moved_wheel_ms = 5;
+        uint8_t dos_ms = 5;
+        uint8_t ps2_ms = 5;
+        uint8_t bus_ms = 20;
     } start_delay = {};
-
-    // A 'modulo' queue of events
-    static constexpr uint8_t event_queue_size = 10;
-    std::array<MouseEvent, event_queue_size> events = {};
-    uint8_t idx_first  = 0; // index of the first event
-    uint8_t num_events = 0; // number of events in the queue
-
-    bool queue_overflow    = false;
-    bool timer_in_progress = false;
 
     // Time in milliseconds which has to elapse before event can take place
     struct {
-        uint8_t ps2_ms             = 0;
-        uint8_t dos_button_ms      = 0;
-        uint8_t dos_moved_wheel_ms = 0;
+        uint8_t dos_ms = 0;
+        uint8_t ps2_ms = 0;
+        uint8_t bus_ms = 0;
     } delay = {};
 
-    // Events for which we do not need a queue (alway aggregated)
-    bool event_ps2       = false;
-    bool event_dos_moved = false;
-    bool event_dos_wheel = false;
+    // Pending events, waiting to be passed to guest system
+    bool pending_dos_moved  = false;
+    bool pending_dos_button = false;
+    bool pending_dos_wheel  = false;
+    bool pending_ps2        = false;
+    bool pending_bus        = false;
 
-    MouseButtons12S payload_dos_buttons = 0;
+    MouseButtons12S pending_dos_buttons_state = 0;
 
+    bool timer_in_progress = false;
     uint32_t pic_ticks_start = 0; // PIC_Ticks value when timer starts
 
     // Helpers to check if there are events in the queue
-    bool HasEventDosMoved() const;
-    bool HasEventDosButton() const;
-    bool HasEventDosAny() const;
+    bool HasEventDos() const;
     bool HasEventPS2() const;
+    bool HasEventBus() const;
     bool HasEventAny() const;
 
     // Helpers to check if there are events ready to be handled
+    bool HasReadyEventDos() const;
     bool HasReadyEventPS2() const;
-    bool HasReadyEventDosMoved() const;
-    bool HasReadyEventDosButton() const;
-    bool HasReadyEventAny() const;
+    bool HasReadyEventBus() const;
 };
 
 #endif // DOSBOX_MOUSE_QUEUE_H
