@@ -379,6 +379,24 @@
     <ClCompile Include="..\src\libs\decoders\wav.c">
       <Filter>src\libs\decoders</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\libs\manymouse\linux_evdev.c">
+      <Filter>src\libs\manymouse</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libs\manymouse\macosx_hidmanager.c">
+      <Filter>src\libs\manymouse</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libs\manymouse\macosx_hidutilities.c">
+      <Filter>src\libs\manymouse</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libs\manymouse\manymouse.c">
+      <Filter>src\libs\manymouse</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libs\manymouse\windows_wminput.c">
+      <Filter>src\libs\manymouse</Filter>
+    </ClCompile>
+      <ClCompile Include="..\src\libs\manymouse\x11_xinput2.c">
+      <Filter>src\libs\manymouse</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\libs\nuked\opl3.c">
       <Filter>src\libs\nuked</Filter>
     </ClCompile>
@@ -1058,6 +1076,9 @@
     </ClInclude>
     <ClInclude Include="..\src\libs\decoders\xxhash.h">
       <Filter>src\libs\decoders</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\libs\manymouse\manymouse.h">
+      <Filter>src\libs\manymouse</Filter>
     </ClInclude>
     <ClInclude Include="..\src\libs\nuked\opl3.h">
       <Filter>src\libs\nuked</Filter>

@@ -72,6 +72,7 @@ libhardware = static_library(
         libslirp_dep,
         libym7128bemu_dep,
         libzmbv_dep,
+        manymouse_dep,
         png_dep,
         sdl2_dep,
         sdl2_net_dep,

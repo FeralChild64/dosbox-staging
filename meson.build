@@ -640,6 +640,7 @@ internal_deps = []
 subdir('src/libs/ghc')
 subdir('src/libs/loguru')
 subdir('src/libs/decoders')
+subdir('src/libs/manymouse')
 subdir('src/libs/nuked')
 subdir('src/libs/ppscale')
 subdir('src/libs/residfp')
@@ -667,6 +668,7 @@ third_party_deps = [
     tracy_dep,
     libwhereami_dep,
     libtalchorus_dep,
+    manymouse_dep,
 ]
 
 # internal libs
