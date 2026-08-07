@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText:  2022-2025 The DOSBox Staging Team
+// SPDX-FileCopyrightText:  2026 dosbox-automation Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include "private/mouse_common.h"
-
 #include <algorithm>
+
+#include "private/mouse_common.h"
 
 #include "utils/checks.h"
 #include "utils/math_utils.h"
@@ -15,7 +16,6 @@ CHECK_NARROWING();
 // Common variables
 // ***************************************************************************
 
-MouseInfo mouse_info     = {};
 MouseShared mouse_shared = {};
 
 // ***************************************************************************

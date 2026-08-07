@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText:  2022-2025 The DOSBox Staging Team
+// SPDX-FileCopyrightText:  2026 dosbox-automation Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #ifndef DOSBOX_PROGRAM_MOUSECTL_H
@@ -26,7 +27,6 @@ private:
 	bool ParseSensitivity(const std::string& param, int16_t& value);
 	static bool ParseIntParam(const std::string& param, int& value);
 	bool CheckInterfaces();
-	bool CheckMappingSupported();
 	bool CheckMappingPossible();
 	void FinalizeMapping();
 

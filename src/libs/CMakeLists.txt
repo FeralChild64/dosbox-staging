@@ -25,7 +25,6 @@ add_subdirectory(http)
 add_subdirectory(json)
 add_subdirectory(loguru)
 add_subdirectory(lua)
-add_subdirectory(manymouse)
 add_subdirectory(mverb)
 add_subdirectory(nuked)
 

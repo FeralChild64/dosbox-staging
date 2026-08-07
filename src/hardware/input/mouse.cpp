@@ -7,13 +7,9 @@
 
 #include "private/mouse_config.h"
 #include "private/mouse_interfaces.h"
-#include "private/mouse_manymouse.h"
 
 #include <algorithm>
-#include <cctype>
-#include <sstream>
 #include <string>
-#include <vector>
 
 #include "cpu/callback.h"
 #include "cpu/cpu.h"
@@ -31,7 +27,13 @@ MouseWheelHookFn mouse_wheel_hook   = nullptr;
 
 static callback_number_t int74_ret_callback = 0;
 
-static ManyMouseGlue& manymouse = ManyMouseGlue::GetInstance();
+// ***************************************************************************
+// Physical mice database
+// ***************************************************************************
+
+static std::map<MouseId, std::string> mouse_names = {};
+// XXX add known connected mouse IDs
+// XXX add disconnected mouse IDs, still mapped
 
 // ***************************************************************************
 // GFX-related decision making
@@ -219,7 +221,7 @@ static void update_state() // updates whole 'state' structure, except cursor
 	// Due to ManyMouse API limitation, we are unable to support seamless
 	// integration if mapping is in effect
 	const bool is_mapping = state.is_mapping_in_progress ||
-	                        manymouse.IsMappingInEffect();
+	                        MOUSE_IsMappingInEffect();
 	if (state.is_seamless && is_mapping) {
 		state.is_seamless          = false;
 		static bool already_warned = false;
@@ -546,10 +548,15 @@ void MOUSE_NotifyWindowActive(const bool is_active)
 	MOUSE_UpdateGFX();
 }
 
-void MOUSE_NotifyDisconnect(const MouseInterfaceId interface_id)
+void MOUSE_NotifyConnected(const MouseId mouse_id, const std::string& mouse_name)
 {
-	auto& interface = MouseInterface::GetInstance(interface_id);
-	interface.NotifyDisconnect();
+	mouse_names[mouse_id] = mouse_name;
+}
+
+void MOUSE_NotifyDisconnected(const MouseId mouse_id)
+{
+	mouse_names.erase(mouse_id);
+	// XXX interface.NotifyDisconnect();
 }
 
 void MOUSE_NotifyBooting()
@@ -560,8 +567,9 @@ void MOUSE_NotifyBooting()
 	}
 }
 
-void MOUSE_EventMoved(const float x_rel, const float y_rel, const float x_abs,
-                      const float y_abs)
+void MOUSE_EventMoved(const float x_rel, const float y_rel,
+                      const float x_abs, const float y_abs,
+                      const MouseId mouse_id)
 {
 	// Event from GFX
 
@@ -608,7 +616,7 @@ void MOUSE_EventMoved(const float x_rel, const float y_rel, const float x_abs,
 	}
 }
 
-void MOUSE_EventMoved(const float x_rel, const float y_rel,
+void MOUSE_EventMoved(const float x_rel, const float y_rel, // XXX to be removed
                       const MouseInterfaceId interface_id)
 {
 	// Event from ManyMouse
@@ -627,7 +635,8 @@ void MOUSE_EventMoved(const float x_rel, const float y_rel,
 	}
 }
 
-void MOUSE_EventButton(const MouseButtonId button_id, const bool pressed)
+void MOUSE_EventButton(const MouseButtonId button_id, const bool pressed,
+                       const MouseId mouse_id)
 {
 	// Event from GFX
 
@@ -677,7 +686,7 @@ void MOUSE_EventButton(const MouseButtonId button_id, const bool pressed)
 }
 
 void MOUSE_EventButton(const MouseButtonId button_id, const bool pressed,
-                       const MouseInterfaceId interface_id)
+                       const MouseInterfaceId interface_id) // XXX to be removed
 {
 	// Event from ManyMouse
 
@@ -695,7 +704,7 @@ void MOUSE_EventButton(const MouseButtonId button_id, const bool pressed,
 	}
 }
 
-void MOUSE_EventWheel(const float w_rel)
+void MOUSE_EventWheel(const float w_rel, const MouseId mouse_id)
 {
 	// Event from GFX
 
@@ -717,7 +726,7 @@ void MOUSE_EventWheel(const float w_rel)
 	}
 }
 
-void MOUSE_EventWheel(const int16_t w_rel, const MouseInterfaceId interface_id)
+void MOUSE_EventWheel(const int16_t w_rel, const MouseInterfaceId interface_id) // XXX to be removed
 {
 	// Event from ManyMouse
 
@@ -810,103 +819,245 @@ void MOUSE_InjectWheel(const float w_rel)
 // MOUSECTL.COM / GUI configurator interface
 // ***************************************************************************
 
-static std::vector<MouseInterface*> get_relevant_interfaces(
-        const std::vector<MouseInterfaceId>& list_ids)
+MouseIdList MOUSE_GetPhysicalMouseIdList()
 {
-	std::vector<MouseInterface*> list_tmp = {};
+	// XXX implement
+	return {};
+}
 
-	if (list_ids.empty()) {
-		// If command does not specify interfaces,
-		// assume we are interested in all of them
-		for (const auto interface_id : AllMouseInterfaceIds) {
-			auto& interface = MouseInterface::GetInstance(interface_id);
-			list_tmp.push_back(&interface);
-		}
-	} else {
-		for (const auto& interface_id : list_ids) {
-			auto& interface = MouseInterface::GetInstance(interface_id);
-			list_tmp.push_back(&interface);
+std::string MOUSE_GetPhysicalDeviceName(const MouseId mouse_id)
+{
+	// XXX implement
+	return {};
+}
+
+bool MOUSE_IsMappedAndConnected(const MouseId mouse_id)
+{
+	// XXX implement
+	return false;
+}
+
+bool MOUSE_IsMappedButDisconnected(const MouseId mouse_id)
+{
+	// XXX implement
+	return false;
+}
+
+std::string MOUSE_GetInterfaceName(const MouseInterfaceId interface_id)
+{
+	switch (interface_id) {
+	case MouseInterfaceId::DOS:  return "DOS";
+	case MouseInterfaceId::PS2:  return "PS/2";
+	case MouseInterfaceId::COM1: return "COM1";
+	case MouseInterfaceId::COM2: return "COM2";
+	case MouseInterfaceId::COM3: return "COM3";
+	case MouseInterfaceId::COM4: return "COM4";
+	default:
+		assert(false); // missing implementation
+		return {};
+	}
+}
+
+std::string MOUSE_GetMappedMouseName(const MouseInterfaceId interface_id_list) // XXX we should probably get rid of this
+{
+	// XXX implement
+	return {};
+}
+
+bool MOUSE_IsEmulated(const MouseInterfaceId interface_id)
+{
+	auto& interface = MouseInterface::GetInstance(interface_id);
+	if (interface.IsEmulated()) {
+		return true;
+	}
+
+	return false;
+}
+
+bool MOUSE_IsAnyEmulated(const MouseInterfaceIdList &interface_id_list)
+{
+	for (const auto interface_id : interface_id_list) {
+		if (MOUSE_IsEmulated(interface_id)) {
+			return true;
 		}
 	}
 
-	// Filter out not emulated ones
-	std::vector<MouseInterface*> list_out = {};
-	for (const auto& interface : list_tmp) {
-		if (interface->IsEmulated()) {
-			list_out.push_back(interface);
+	return false;
+}
+
+bool MOUSE_IsAnyEmulated()
+{
+	for (const auto interface_id : AllMouseInterfaceIds) {
+		if (MOUSE_IsEmulated(interface_id)) {
+			return true;
 		}
 	}
 
-	return list_out;
+	return false;
 }
 
-MouseControlAPI::MouseControlAPI()
-{
-	manymouse.StartConfigAPI();
-}
-
-MouseControlAPI::~MouseControlAPI()
-{
-	manymouse.StopConfigAPI();
-	if (was_interactive_mapping_started) {
-		state.is_mapping_in_progress = false;
-	}
-	MOUSE_UpdateGFX();
-}
-
-bool MouseControlAPI::IsNoMouseMode()
+bool MOUSE_IsNoMouseMode()
 {
 	return mouse_config.capture == MouseCapture::NoMouse;
 }
 
-bool MouseControlAPI::IsMappingBlockedByDriver()
+bool MOUSE_IsMappingInEffect()
+{
+	// XXX implement
+	return false;
+}
+
+bool MOUSE_IsMappingBlockedByDriver()
 {
 	return state.vmm_wants_pointer;
 }
 
-MouseControlAPI::MappingSupport MouseControlAPI::IsMappingSupported()
+void MOUSE_OnOff(const MouseInterfaceIdList &interface_id_list, const bool enable)
 {
-#ifndef C_MANYMOUSE
-	return MappingSupport::NotCompiledIn;
-#else
-#if defined(WIN32)
-	if (mouse_config.raw_input) {
-		return MappingSupport::NotAvailableRawInput;
-	}
-#endif
-	return MappingSupport::Supported;
-#endif
+	// XXX implement
 }
 
-const std::vector<MouseInterfaceInfoEntry>& MouseControlAPI::GetInfoInterfaces() const
+void MOUSE_Reset(const MouseInterfaceIdList &interface_id_list)
 {
-	return mouse_info.interfaces;
+	// XXX implement
 }
 
-const std::vector<MousePhysicalInfoEntry>& MouseControlAPI::GetInfoPhysical()
+bool MOUSE_Map(const MouseInterfaceId interface_id, const MouseId mouse_id)
 {
-	manymouse.RescanIfSafe();
-	return mouse_info.physical;
+	// XXX implement
+	return false;
 }
 
-bool MouseControlAPI::CheckInterfaces(const MouseControlAPI::ListIDs& list_ids)
+bool MOUSE_Map(const MouseInterfaceId interface_id, const std::regex &regex)
 {
-	const auto list = get_relevant_interfaces(list_ids);
-
-	if (list_ids.empty() && list.empty()) {
-		return false; // no emulated mouse interfaces
-	}
-	if (list_ids.empty()) {
-		return true; // OK, requested all emulated interfaces
-	}
-	if (list_ids.size() != list.size()) {
-		return false; // at least one requested interface is not emulated
-	}
-
-	return true;
+	// XXX implement
+	return false;
 }
 
-bool MouseControlAPI::PatternToRegex(const std::string& pattern, std::regex& regex)
+bool MOUSE_MapInteractively(const MouseInterfaceId interface_id, MouseId &mouse_id)
+{
+	// XXX implement
+	return false;
+}
+
+void MOUSE_UnMap(const MouseInterfaceId interface_id)
+{
+	// XXX implement
+}
+
+void MOUSE_UnMap(const MouseInterfaceIdList &interface_id_list)
+{
+	// XXX implement
+}
+
+void MOUSE_UnMapAll()
+{
+	// XXX implement
+}
+
+MouseMapStatus MOUSE_GetMapStatus(const MouseInterfaceId interface_id)
+{
+	// XXX implement
+	return {};
+}
+
+MouseId MOUSE_GetMappedDeviceId(const MouseInterfaceId interface_id)
+{
+	// XXX implement
+	return 0;
+}
+
+bool MOUSE_SetSensitivity(const MouseInterfaceIdList &interface_id_list,
+                          const int16_t sensitivity_x,
+                          const int16_t sensitivity_y)
+{
+	// XXX implement
+	return false;
+}
+
+bool MOUSE_SetSensitivityX(const MouseInterfaceIdList &interface_id_list,
+                           const int16_t sensitivity_x)
+{
+	// XXX implement
+	return false;
+}
+
+bool MOUSE_SetSensitivityY(const MouseInterfaceIdList &interface_id_list,
+                           const int16_t sensitivity_y)
+{
+	// XXX implement
+	return false;
+}
+
+int16_t MOUSE_GetSensitivityX(const MouseInterfaceId interface_id)
+{
+	auto& interface = MouseInterface::GetInstance(interface_id);
+	return interface.GetSensitivityX();
+}
+
+int16_t MOUSE_GetSensitivityY(const MouseInterfaceId interface_id)
+{
+	auto& interface = MouseInterface::GetInstance(interface_id);
+	return interface.GetSensitivityY();
+}
+
+bool MOUSE_ResetSensitivity(const MouseInterfaceIdList &interface_id_list)
+{
+	// XXX implement
+	return false;
+}
+
+bool MOUSE_ResetSensitivityX(const MouseInterfaceIdList &interface_id_list)
+{
+	// XXX implement
+	return false;
+}
+
+bool MOUSE_ResetSensitivityY(const MouseInterfaceIdList &interface_id_list)
+{
+	// XXX implement
+	return false;
+}
+
+const std::vector<uint16_t> &MOUSE_GetValidMinRateList()
+{
+	// XXX implement
+	return {};
+}
+
+const std::string &MOUSE_GetValidMinRateStr()
+{
+	// XXX implement
+	return {};
+}
+
+bool MOUSE_SetMinRate(const MouseInterfaceIdList &interface_id_list,
+                      const uint16_t value_hz)
+{
+	// XXX implement
+	return false;
+}
+
+bool MOUSE_ResetMinRate(const MouseInterfaceIdList &interface_id_list)
+{
+	// XXX implement
+	return false;
+}
+
+uint16_t MOUSE_GetRate(const MouseInterfaceId interface_id)
+{
+	auto& interface = MouseInterface::GetInstance(interface_id);
+	return interface.GetRate();
+}
+
+uint16_t MOUSE_GetMinRate(const MouseInterfaceId interface_id)
+{
+	auto& interface = MouseInterface::GetInstance(interface_id);
+	return interface.GetMinRate();
+}
+
+// XXX this should go to general header
+bool MOUSE_PatternToRegex(const std::string& pattern, std::regex& regex)
 {
 	// Convert DOS wildcard pattern to a regular expression
 	std::stringstream pattern_regex;
@@ -931,247 +1082,7 @@ bool MouseControlAPI::PatternToRegex(const std::string& pattern, std::regex& reg
 	return true;
 }
 
-bool MouseControlAPI::MapInteractively(const MouseInterfaceId interface_id,
-                                       uint8_t& physical_device_idx)
-{
-	if (MappingSupport::Supported != IsMappingSupported() ||
-	    IsNoMouseMode() || IsMappingBlockedByDriver()) {
-		return false;
-	}
 
-	if (!was_interactive_mapping_started) {
-		// Interactive mapping was started
-		assert(!state.is_mapping_in_progress);
-		// Capture the mouse, otherwise it might be confusing
-		// for the user when it gets captured after he clicks
-		// simply to select the mouse
-		state.capture_was_requested = true;
-		// Tell the other code that mapping is in progress,
-		// so that it can disable seamless mouse integration,
-		// and possibly apply other changes to mouse behavior
-		state.is_mapping_in_progress    = true;
-		was_interactive_mapping_started = true;
-		MOUSE_UpdateGFX();
-	}
-
-	manymouse.RescanIfSafe();
-	if (!manymouse.ProbeForMapping(physical_device_idx)) {
-		return false;
-	}
-
-	return Map(interface_id, physical_device_idx);
-}
-
-bool MouseControlAPI::Map(const MouseInterfaceId interface_id,
-                          const uint8_t physical_device_idx)
-{
-	if (MappingSupport::Supported != IsMappingSupported() ||
-	    IsNoMouseMode() || IsMappingBlockedByDriver()) {
-		return false;
-	}
-
-	auto& interface = MouseInterface::GetInstance(interface_id);
-	return interface.ConfigMap(physical_device_idx);
-}
-
-bool MouseControlAPI::Map(const MouseInterfaceId interface_id, const std::regex& regex)
-{
-	if (MappingSupport::Supported != IsMappingSupported() ||
-	    IsNoMouseMode() || IsMappingBlockedByDriver()) {
-		return false;
-	}
-
-	manymouse.RescanIfSafe();
-	const auto idx = manymouse.GetIdx(regex);
-	if (idx >= mouse_info.physical.size()) {
-		return false;
-	}
-	const auto result = Map(interface_id, idx);
-
-	MOUSE_UpdateGFX();
-	return result;
-}
-
-bool MouseControlAPI::UnMap(const MouseControlAPI::ListIDs& list_ids)
-{
-	auto list = get_relevant_interfaces(list_ids);
-	for (auto& interface : list) {
-		interface->ConfigUnMap();
-	}
-
-	MOUSE_UpdateGFX();
-	return !list.empty();
-}
-
-bool MouseControlAPI::OnOff(const MouseControlAPI::ListIDs& list_ids, const bool enable)
-{
-	auto list = get_relevant_interfaces(list_ids);
-	for (auto& interface : list) {
-		interface->ConfigOnOff(enable);
-	}
-
-	return !list.empty();
-}
-
-bool MouseControlAPI::Reset(const MouseControlAPI::ListIDs& list_ids)
-{
-	auto list = get_relevant_interfaces(list_ids);
-	for (auto& interface : list) {
-		interface->ConfigReset();
-	}
-
-	MOUSE_UpdateGFX();
-	return !list.empty();
-}
-
-bool MouseControlAPI::SetSensitivity(const MouseControlAPI::ListIDs& list_ids,
-                                     const int16_t sensitivity_x,
-                                     const int16_t sensitivity_y)
-{
-	if (sensitivity_x < Mouse::MinSensitivity ||
-	    sensitivity_x > Mouse::MaxSensitivity ||
-	    sensitivity_y < Mouse::MinSensitivity ||
-	    sensitivity_y > Mouse::MaxSensitivity) {
-
-		return false;
-	}
-
-	auto list = get_relevant_interfaces(list_ids);
-	for (auto& interface : list) {
-		interface->ConfigSetSensitivity(sensitivity_x, sensitivity_y);
-	}
-
-	return !list.empty();
-}
-
-bool MouseControlAPI::SetSensitivityX(const MouseControlAPI::ListIDs& list_ids,
-                                      const int16_t sensitivity_x)
-{
-	if (sensitivity_x < Mouse::MinSensitivity ||
-	    sensitivity_x > Mouse::MaxSensitivity) {
-		return false;
-	}
-
-	auto list = get_relevant_interfaces(list_ids);
-	for (auto& interface : list) {
-		interface->ConfigSetSensitivityX(sensitivity_x);
-	}
-
-	return !list.empty();
-}
-
-bool MouseControlAPI::SetSensitivityY(const MouseControlAPI::ListIDs& list_ids,
-                                      const int16_t sensitivity_y)
-{
-	if (sensitivity_y < Mouse::MinSensitivity ||
-	    sensitivity_y > Mouse::MaxSensitivity) {
-		return false;
-	}
-
-	auto list = get_relevant_interfaces(list_ids);
-	for (auto& interface : list) {
-		interface->ConfigSetSensitivityY(sensitivity_y);
-	}
-
-	return !list.empty();
-}
-
-bool MouseControlAPI::ResetSensitivity(const MouseControlAPI::ListIDs& list_ids)
-{
-	auto list = get_relevant_interfaces(list_ids);
-	for (auto& interface : list) {
-		interface->ConfigResetSensitivity();
-	}
-
-	return !list.empty();
-}
-
-bool MouseControlAPI::ResetSensitivityX(const MouseControlAPI::ListIDs& list_ids)
-{
-	auto list = get_relevant_interfaces(list_ids);
-	for (auto& interface : list) {
-		interface->ConfigResetSensitivityX();
-	}
-
-	return !list.empty();
-}
-
-bool MouseControlAPI::ResetSensitivityY(const MouseControlAPI::ListIDs& list_ids)
-{
-	auto list = get_relevant_interfaces(list_ids);
-	for (auto& interface : list) {
-		interface->ConfigResetSensitivityY();
-	}
-
-	return !list.empty();
-}
-
-const std::vector<uint16_t>& MouseControlAPI::GetValidMinRateList()
-{
-	return MouseConfig::GetValidMinRateList();
-}
-
-const std::string& MouseControlAPI::GetValidMinRateStr()
-{
-	static std::string out_str = "";
-
-	if (out_str.empty()) {
-		const auto& valid_list = GetValidMinRateList();
-
-		bool first = true;
-		for (const auto& rate : valid_list) {
-			if (first) {
-				first = false;
-			} else {
-				out_str += std::string(", ");
-			}
-			out_str += std::to_string(rate);
-		}
-	}
-
-	return out_str;
-}
-
-std::string MouseControlAPI::GetInterfaceNameStr(const MouseInterfaceId interface_id)
-{
-	switch (interface_id) {
-	case MouseInterfaceId::DOS: return "DOS";
-	case MouseInterfaceId::PS2: return "PS/2";
-	case MouseInterfaceId::COM1: return "COM1";
-	case MouseInterfaceId::COM2: return "COM2";
-	case MouseInterfaceId::COM3: return "COM3";
-	case MouseInterfaceId::COM4: return "COM4";
-	default:
-		assert(false); // missing implementation
-		return {};
-	}
-}
-
-bool MouseControlAPI::SetMinRate(const MouseControlAPI::ListIDs& list_ids,
-                                 const uint16_t value_hz)
-{
-	const auto& valid_list = GetValidMinRateList();
-	if (!contains(valid_list, value_hz)) {
-		return false; // invalid value
-	}
-
-	auto list = get_relevant_interfaces(list_ids);
-	for (auto& interface : list) {
-		interface->ConfigSetMinRate(value_hz);
-	}
-
-	return !list.empty();
-}
-
-bool MouseControlAPI::ResetMinRate(const MouseControlAPI::ListIDs& list_ids)
-{
-	auto list = get_relevant_interfaces(list_ids);
-	for (auto& interface : list) {
-		interface->ConfigResetMinRate();
-	}
-
-	return !list.empty();
-}
 
 // ***************************************************************************
 // Initialization

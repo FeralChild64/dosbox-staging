@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText:  2022-2025 The DOSBox Staging Team
+// SPDX-FileCopyrightText:  2026 dosbox-automation Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "mousectl.h"
@@ -156,7 +157,7 @@ bool MOUSECTL::ParseIntParam(const std::string& param, int& value)
 bool MOUSECTL::ParseInterfaces(std::vector<std::string>& params)
 {
 	auto add_if_is_interface = [&](const std::string& param) {
-		for (const auto id : {
+		for (const auto interface_id : {
 		             MouseInterfaceId::DOS,
 		             MouseInterfaceId::PS2,
 		             MouseInterfaceId::COM1,
@@ -164,8 +165,8 @@ bool MOUSECTL::ParseInterfaces(std::vector<std::string>& params)
 		             MouseInterfaceId::COM3,
 		             MouseInterfaceId::COM4,
 		     }) {
-			if (iequals(param, MouseControlAPI::GetInterfaceNameStr(id))) {
-				list_ids.push_back(id);
+			if (iequals(param, MOUSE_GetInterfaceName(interface_id))) {
+				list_ids.push_back(interface_id);
 				return true;
 			}
 		}
@@ -192,7 +193,8 @@ bool MOUSECTL::ParseInterfaces(std::vector<std::string>& params)
 
 bool MOUSECTL::CheckInterfaces()
 {
-	if (MouseControlAPI::CheckInterfaces(list_ids)) {
+	const auto result = list_ids.empty() ? MOUSE_IsAnyEmulated() : MOUSE_IsAnyEmulated(list_ids);
+	if (result) {
 		return true;
 	}
 
@@ -226,9 +228,6 @@ std::string MOUSECTL::GetMapStatusStr(const MouseMapStatus map_status)
 
 bool MOUSECTL::CmdShow(const bool show_all)
 {
-	MouseControlAPI mouse_config_api;
-	const auto info_interfaces = mouse_config_api.GetInfoInterfaces();
-
 	bool show_mapped   = false;
 	bool hint_rate_com = false;
 	bool hint_rate_min = false;
@@ -237,13 +236,13 @@ bool MOUSECTL::CmdShow(const bool show_all)
 	WriteOut("\n");
 	WriteOut(MSG_Get("PROGRAM_MOUSECTL_TABLE_HEADER1"));
 	WriteOut("\n");
-	for (const auto& entry : info_interfaces) {
-		if (!entry.IsEmulated()) {
+	for (const auto interface_id : AllMouseInterfaceIds) {
+		if (!MOUSE_IsEmulated(interface_id)) {
 			continue;
 		}
-		const auto interface_id  = entry.GetInterfaceId();
-		const auto rate_hz       = entry.GetRate();
-		const bool rate_enforced = entry.GetMinRate();
+		const auto rate_hz       = MOUSE_GetRate(interface_id);
+		const auto rate_enforced = MOUSE_GetMinRate(interface_id);
+		const auto map_status    = MOUSE_GetMapStatus(interface_id);
 
 		if (rate_enforced) {
 			hint_rate_min = true;
@@ -257,16 +256,16 @@ bool MOUSECTL::CmdShow(const bool show_all)
 		}
 
 		WriteOut(MSG_Get("PROGRAM_MOUSECTL_TABLE_LAYOUT1"),
-		         MouseControlAPI::GetInterfaceNameStr(interface_id).c_str(),
-		         entry.GetSensitivityX(),
-		         entry.GetSensitivityY(),
+		         MOUSE_GetInterfaceName(interface_id).c_str(),
+		         MOUSE_GetSensitivityX(interface_id),
+		         MOUSE_GetSensitivityY(interface_id),
 		         rate_enforced ? "*" : "",
 		         rate_hz ? std::to_string(rate_hz).c_str() : "-",
-		         convert_ansi_markup(GetMapStatusStr(entry.GetMapStatus()))
+		         convert_ansi_markup(GetMapStatusStr(map_status))
 		                 .c_str());
 		WriteOut("\n");
 
-		if (entry.GetMapStatus() == MouseMapStatus::Mapped) {
+		if (map_status == MouseMapStatus::Mapped) {
 			show_mapped = true;
 		}
 	}
@@ -289,13 +288,8 @@ bool MOUSECTL::CmdShow(const bool show_all)
 		return true;
 	}
 
-	if (!CheckMappingSupported()) {
-		WriteOut("\n");
-		return true;
-	}
-
-	const auto info_physical = mouse_config_api.GetInfoPhysical();
-	if (info_physical.empty()) {
+	const auto mouse_id_list = MOUSE_GetPhysicalMouseIdList();
+	if (mouse_id_list.empty()) {
 		WriteOut(MSG_Get("PROGRAM_MOUSECTL_NO_PHYSICAL_MICE"));
 		WriteOut("\n\n");
 		return true;
@@ -309,14 +303,15 @@ bool MOUSECTL::CmdShow(const bool show_all)
 
 	// Display physical mice mapped to some interface
 	bool needs_newline = false;
-	for (const auto& entry : info_interfaces) {
-		if (!entry.IsMapped() || entry.IsMappedDeviceDisconnected()) {
+	for (const auto interface_id : AllMouseInterfaceIds) {
+		const auto map_status = MOUSE_GetMapStatus(interface_id);
+		if (map_status != MouseMapStatus::Mapped) {
 			continue;
 		}
+
 		WriteOut(MSG_Get("PROGRAM_MOUSECTL_TABLE_LAYOUT2"),
-		         MouseControlAPI::GetInterfaceNameStr(entry.GetInterfaceId())
-		                 .c_str(),
-		         entry.GetMappedDeviceName().c_str());
+		        MOUSE_GetInterfaceName(interface_id).c_str(),
+		        MOUSE_GetMappedMouseName(interface_id).c_str());
 		WriteOut("\n");
 		needs_newline = true;
 	}
@@ -329,12 +324,12 @@ bool MOUSECTL::CmdShow(const bool show_all)
 	}
 
 	// Display physical mice not mapped to any interface
-	for (const auto& entry : info_physical) {
-		if (entry.IsMapped() || entry.IsDeviceDisconnected()) {
+	for (const auto& mouse_id : mouse_id_list) {
+		if (MOUSE_IsMappedAndConnected(mouse_id) || MOUSE_IsMappedButDisconnected(mouse_id)) {
 			continue;
 		}
 		WriteOut(MSG_Get("PROGRAM_MOUSECTL_TABLE_LAYOUT2_UNMAPPED"),
-		         entry.GetDeviceName().c_str());
+		         MOUSE_GetPhysicalDeviceName(mouse_id).c_str());
 		WriteOut("\n");
 	}
 	WriteOut("\n");
@@ -349,28 +344,14 @@ void MOUSECTL::FinalizeMapping()
 	WriteOut("\n\n");
 }
 
-bool MOUSECTL::CheckMappingSupported()
-{
-	switch (MouseControlAPI::IsMappingSupported()) {
-	case MouseControlAPI::MappingSupport::Supported: return true;
-	case MouseControlAPI::MappingSupport::NotCompiledIn:
-		WriteOut(MSG_Get("PROGRAM_MOUSECTL_MANYMOUSE_NOT_BUILT"));
-		return false;
-	case MouseControlAPI::MappingSupport::NotAvailableRawInput:
-		WriteOut(MSG_Get("PROGRAM_MOUSECTL_MANYMOUSE_RAW_INPUT"));
-		return false;
-	default: assert(false); return false;
-	}
-}
-
 bool MOUSECTL::CheckMappingPossible()
 {
-	if (MouseControlAPI::IsNoMouseMode()) {
+	if (MOUSE_IsNoMouseMode()) {
 		WriteOut(MSG_Get("PROGRAM_MOUSECTL_MAPPING_NO_MOUSE"));
 		return false;
 	}
 
-	if (MouseControlAPI::IsMappingBlockedByDriver()) {
+	if (MOUSE_IsMappingBlockedByDriver()) {
 		WriteOut(MSG_Get("PROGRAM_MOUSECTL_MAPPING_BLOCKED_BY_DRIVER"));
 		return false;
 	}
@@ -381,17 +362,16 @@ bool MOUSECTL::CheckMappingPossible()
 bool MOUSECTL::CmdMap(const MouseInterfaceId interface_id, const std::string& pattern)
 {
 	std::regex regex;
-	if (!MouseControlAPI::PatternToRegex(pattern, regex)) {
+	if (!MOUSE_PatternToRegex(pattern, regex)) {
 		WriteOut(MSG_Get("PROGRAM_MOUSECTL_SYNTAX_PATTERN"));
 		return false;
 	}
 
-	if (!CheckMappingSupported() || !CheckMappingPossible()) {
+	if (!CheckMappingPossible()) {
 		return false;
 	}
 
-	MouseControlAPI mouse_config_api;
-	if (!mouse_config_api.Map(interface_id, regex)) {
+	if (!MOUSE_Map(interface_id, regex)) {
 		WriteOut(MSG_Get("PROGRAM_MOUSECTL_NO_MATCH"));
 		return false;
 	}
@@ -404,22 +384,19 @@ bool MOUSECTL::CmdMap()
 {
 	assert(!list_ids.empty());
 
-	if (!CheckMappingSupported() || !CheckMappingPossible()) {
+	if (!CheckMappingPossible()) {
 		return false;
 	}
 
-	MouseControlAPI mouse_config_api;
-	const auto info_physical = mouse_config_api.GetInfoPhysical();
-
-	if (info_physical.empty()) {
+	const auto mouse_id_list = MOUSE_GetPhysicalMouseIdList();
+	if (mouse_id_list.empty()) {
 		WriteOut(MSG_Get("PROGRAM_MOUSECTL_NO_PHYSICAL_MICE"));
 		WriteOut("\n\n");
 		return false;
 	}
 
 	// Clear the current mapping before starting interactive mapper
-	std::vector<MouseInterfaceId> empty;
-	mouse_config_api.UnMap(empty);
+	MOUSE_UnMapAll();
 
 	WriteOut("\n");
 	WriteOut(MSG_Get("PROGRAM_MOUSECTL_MAP_ADVICE"));
@@ -427,11 +404,11 @@ bool MOUSECTL::CmdMap()
 
 	for (const auto& interface_id : list_ids) {
 		WriteOut(convert_ansi_markup("[color=light-cyan]%-4s[reset]   ?"),
-		         MouseControlAPI::GetInterfaceNameStr(interface_id).c_str());
+		         MOUSE_GetInterfaceName(interface_id).c_str());
 
-		uint8_t device_idx = 0;
-		if (!mouse_config_api.MapInteractively(interface_id, device_idx)) {
-			mouse_config_api.UnMap(empty);
+		MouseId mouse_id = 0;
+		if (!MOUSE_MapInteractively(interface_id, mouse_id)) {
+			MOUSE_UnMapAll();
 			WriteOut("\b");
 			WriteOut(MSG_Get("PROGRAM_MOUSECTL_MAP_CANCEL"));
 			WriteOut("\n\n");
@@ -439,7 +416,7 @@ bool MOUSECTL::CmdMap()
 		}
 
 		WriteOut("\b");
-		WriteOut(info_physical[device_idx].GetDeviceName());
+		WriteOut(MOUSE_GetPhysicalDeviceName(mouse_id));
 		WriteOut("\n");
 	}
 
@@ -449,22 +426,19 @@ bool MOUSECTL::CmdMap()
 
 bool MOUSECTL::CmdUnMap()
 {
-	MouseControlAPI mouse_config_api;
-	mouse_config_api.UnMap(list_ids);
+	MOUSE_UnMap(list_ids);
 	return true;
 }
 
 bool MOUSECTL::CmdOnOff(const bool enable)
 {
-	MouseControlAPI mouse_config_api;
-	mouse_config_api.OnOff(list_ids, enable);
+	MOUSE_OnOff(list_ids, enable);
 	return true;
 }
 
 bool MOUSECTL::CmdReset()
 {
-	MouseControlAPI mouse_config_api;
-	mouse_config_api.Reset(list_ids);
+	MOUSE_Reset(list_ids);
 	return true;
 }
 
@@ -477,8 +451,7 @@ bool MOUSECTL::CmdSensitivity(const std::string& param_x, const std::string& par
 		return false;
 	}
 
-	MouseControlAPI mouse_config_api;
-	mouse_config_api.SetSensitivity(list_ids, value_x, value_y);
+	MOUSE_SetSensitivity(list_ids, value_x, value_y);
 	return true;
 }
 
@@ -489,8 +462,7 @@ bool MOUSECTL::CmdSensitivityX(const std::string& param)
 		return false;
 	}
 
-	MouseControlAPI mouse_config_api;
-	mouse_config_api.SetSensitivityX(list_ids, value);
+	MOUSE_SetSensitivityX(list_ids, value);
 	return true;
 }
 
@@ -501,36 +473,32 @@ bool MOUSECTL::CmdSensitivityY(const std::string& param)
 		return false;
 	}
 
-	MouseControlAPI mouse_config_api;
-	mouse_config_api.SetSensitivityY(list_ids, value);
+	MOUSE_SetSensitivityY(list_ids, value);
 	return true;
 }
 
 bool MOUSECTL::CmdSensitivity()
 {
-	MouseControlAPI mouse_config_api;
-	mouse_config_api.ResetSensitivity(list_ids);
+	MOUSE_ResetSensitivity(list_ids);
 	return true;
 }
 
 bool MOUSECTL::CmdSensitivityX()
 {
-	MouseControlAPI mouse_config_api;
-	mouse_config_api.ResetSensitivityX(list_ids);
+	MOUSE_ResetSensitivityX(list_ids);
 	return true;
 }
 
 bool MOUSECTL::CmdSensitivityY()
 {
-	MouseControlAPI mouse_config_api;
-	mouse_config_api.ResetSensitivityY(list_ids);
+	MOUSE_ResetSensitivityY(list_ids);
 	return true;
 }
 
 bool MOUSECTL::CmdMinRate(const std::string& param)
 {
-	const auto& valid_list = MouseControlAPI::GetValidMinRateList();
-	const auto& valid_str  = MouseControlAPI::GetValidMinRateStr();
+	const auto& valid_list = MOUSE_GetValidMinRateList();
+	const auto& valid_str  = MOUSE_GetValidMinRateStr();
 
 	int tmp = 0;
 	if (!ParseIntParam(param, tmp)) {
@@ -554,15 +522,13 @@ bool MOUSECTL::CmdMinRate(const std::string& param)
 		return false;
 	}
 
-	MouseControlAPI mouse_config_api;
-	mouse_config_api.SetMinRate(list_ids, value_hz);
+	MOUSE_SetMinRate(list_ids, value_hz);
 	return true;
 }
 
 bool MOUSECTL::CmdMinRate()
 {
-	MouseControlAPI mouse_config_api;
-	mouse_config_api.ResetMinRate(list_ids);
+	MOUSE_ResetMinRate(list_ids);
 	return true;
 }
 
@@ -613,12 +579,6 @@ void MOUSECTL::AddMessages()
 
 	MSG_Add("PROGRAM_MOUSECTL_MAPPING_BLOCKED_BY_DRIVER",
 	        "Mapping not possible with current guest mouse driver.\n");
-
-	MSG_Add("PROGRAM_MOUSECTL_MANYMOUSE_NOT_BUILT",
-	        "Individual physical mice not supported in this build.\n");
-
-	MSG_Add("PROGRAM_MOUSECTL_MANYMOUSE_RAW_INPUT",
-	        "Individual physical mice not supported if 'mouse_raw_input' is enabled.\n");
 
 	MSG_Add("PROGRAM_MOUSECTL_NO_INTERFACES", "No mouse interfaces available.\n");
 

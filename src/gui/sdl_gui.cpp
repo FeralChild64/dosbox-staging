@@ -5,6 +5,7 @@
 
 #include "private/sdl_gui.h"
 
+#include <SDL3/SDL_mouse.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -51,6 +52,8 @@
 #include <SDL3/SDL.h>
 
 CHECK_NARROWING();
+
+static_assert(sizeof(MouseId) == sizeof(SDL_MouseID));
 
 namespace Webserver {
 void ReplayDispatchFrame(uint64_t);
@@ -1937,6 +1940,15 @@ void GFX_InitSdl()
 		}
 	}
 #endif
+
+	// XXX move it to a separate function
+	int mouse_count = 0;
+	const auto id_list_pointer = SDL_GetMice(&mouse_count);
+	for (auto idx = 0; idx < mouse_count; ++idx) {
+		const auto mouse_id = *(id_list_pointer + idx);
+		LOG_ERR("XXX found mouse #%u, '%s'", mouse_id, SDL_GetMouseNameForID(mouse_id));
+		MOUSE_NotifyConnected(mouse_id, SDL_GetMouseNameForID(mouse_id));
+	}
 }
 
 void GFX_InitAndStartGui()
@@ -2128,36 +2140,61 @@ static void notify_sdl_setting_updated(SectionProp& section,
 	}
 }
 
+static void notify_mouse_connected_disconnected(SDL_MouseDeviceEvent* mouse_device)
+{
+	// XXX do we need to populate mice during the startup?
+	if (mouse_device->type == SDL_EVENT_MOUSE_ADDED) {
+		LOG_ERR("XXX connected mouse #%u, '%s'", mouse_device->which, SDL_GetMouseNameForID(mouse_device->which));
+		MOUSE_NotifyConnected(mouse_device->which, SDL_GetMouseNameForID(mouse_device->which));
+	} else if (mouse_device->type == SDL_EVENT_MOUSE_REMOVED) {
+		LOG_ERR("XXX disconnected mouse #%u", mouse_device->which);
+		MOUSE_NotifyDisconnected(mouse_device->which);
+	}
+}
+
 static void handle_mouse_motion(SDL_MouseMotionEvent* motion)
 {
 	MOUSE_EventMoved(motion->xrel,
 	                 motion->yrel,
 	                 motion->x,
-	                 motion->y);
+	                 motion->y,
+	                 motion->which);
 }
 
 static void handle_mouse_wheel(SDL_MouseWheelEvent* wheel)
 {
 	const auto tmp = (wheel->direction == SDL_MOUSEWHEEL_NORMAL) ? -wheel->y
 	                                                             : wheel->y;
-	MOUSE_EventWheel(tmp);
+	MOUSE_EventWheel(tmp, wheel->which);
 }
 
 static void handle_mouse_button(SDL_MouseButtonEvent* button)
 {
-	auto notify_button = [](const uint8_t button, const bool pressed) {
-		// clang-format off
+	auto notify_button = [](const uint8_t button,
+	                        const bool is_pressed,
+	                        const SDL_MouseID mouse_id) {
+
 		switch (button) {
-		case SDL_BUTTON_LEFT:   MOUSE_EventButton(MouseButtonId::Left,   pressed); break;
-		case SDL_BUTTON_RIGHT:  MOUSE_EventButton(MouseButtonId::Right,  pressed); break;
-		case SDL_BUTTON_MIDDLE: MOUSE_EventButton(MouseButtonId::Middle, pressed); break;
-		case SDL_BUTTON_X1:     MOUSE_EventButton(MouseButtonId::Extra1, pressed); break;
-		case SDL_BUTTON_X2:     MOUSE_EventButton(MouseButtonId::Extra2, pressed); break;
+		case SDL_BUTTON_LEFT:
+			MOUSE_EventButton(MouseButtonId::Left,   is_pressed, mouse_id);
+			break;
+		case SDL_BUTTON_RIGHT:
+			MOUSE_EventButton(MouseButtonId::Right,  is_pressed, mouse_id);
+			break;
+		case SDL_BUTTON_MIDDLE:
+			MOUSE_EventButton(MouseButtonId::Middle, is_pressed, mouse_id);
+			break;
+		case SDL_BUTTON_X1:
+			MOUSE_EventButton(MouseButtonId::Extra1, is_pressed, mouse_id);
+			break;
+		case SDL_BUTTON_X2:
+			MOUSE_EventButton(MouseButtonId::Extra2, is_pressed, mouse_id);
+			break;
 		}
-		// clang-format on
 	};
+
 	assert(button);
-	notify_button(button->button, button->down);
+	notify_button(button->button, button->down, button->which);
 }
 
 void GFX_LosingFocus()
@@ -2615,7 +2652,7 @@ bool GFX_PollAndHandleEvents()
 	}
 
 	while (SDL_PollEvent(&event)) {
-		
+
 #if C_DEBUGGER
 		if (is_debugger_event(event)) {
 			if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED &&
@@ -2644,13 +2681,18 @@ bool GFX_PollAndHandleEvents()
 			}
 			if (sdl.pause_when_inactive) {
 				handle_pause_when_inactive(event);
-			}			
+			}
 		}
 
 		switch(event.type) {
 		case SDL_EVENT_DISPLAY_ADDED:
 		case SDL_EVENT_DISPLAY_REMOVED:
 			notify_new_mouse_screen_params();
+			break;
+
+		case SDL_EVENT_MOUSE_ADDED:
+		case SDL_EVENT_MOUSE_REMOVED:
+			notify_mouse_connected_disconnected(&event.mdevice);
 			break;
 
 		case SDL_EVENT_MOUSE_MOTION: handle_mouse_motion(&event.motion); break;

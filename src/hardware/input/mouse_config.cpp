@@ -527,8 +527,7 @@ static void notify_mouse_setting_updated(SectionProp& section,
 		if (mouse_config.capture == MouseCapture::NoMouse) {
 			// If NoMouse got configured at runtime,
 			// immediately clear all the mappings.
-			MouseControlAPI mouse_config_api;
-			mouse_config_api.UnMap(MouseControlAPI::ListIDs());
+			MOUSE_UnMapAll();
 		}
 		MOUSE_UpdateGFX();
 

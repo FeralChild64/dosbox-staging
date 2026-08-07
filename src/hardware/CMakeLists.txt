@@ -1,4 +1,4 @@
-target_sources(dosboxcommon PRIVATE 
+target_sources(dosboxcommon PRIVATE
   audio/adlib_gold.cpp
   audio/cms.cpp
   audio/covox.cpp
@@ -29,7 +29,6 @@ target_sources(dosboxcommon PRIVATE
   input/mouse_common.cpp
   input/mouse_config.cpp
   input/mouse_interfaces.cpp
-  input/mouse_manymouse.cpp
   input/mouseif_dos_driver.cpp
   input/mouseif_dos_driver_state.cpp
   input/mouseif_ps2_bios.cpp
@@ -90,8 +89,3 @@ target_link_libraries(dosboxcommon PRIVATE
   plmpeg
   PkgConfig::SPEEXDSP
 )
-
-if (C_MANYMOUSE)
-  target_link_libraries(dosboxcommon PRIVATE manymouse)
-endif()
-

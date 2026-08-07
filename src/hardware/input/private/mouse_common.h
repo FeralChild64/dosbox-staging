@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText:  2022-2026 The DOSBox Staging Team
+// SPDX-FileCopyrightText:  2026 dosbox-automation Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #ifndef DOSBOX_MOUSE_COMMON_H
@@ -38,13 +39,6 @@ public:
 	uint32_t resolution_y = 400;
 };
 
-class MouseInfo {
-public:
-	std::vector<MouseInterfaceInfoEntry> interfaces = {};
-	std::vector<MousePhysicalInfoEntry> physical    = {};
-};
-
-extern MouseInfo   mouse_info;   // information which can be shared externally
 extern MouseShared mouse_shared; // shared internal information
 
 // ***************************************************************************

@@ -6,7 +6,6 @@
 #include "mouse.h"
 #include "private/mouse_common.h"
 #include "private/mouse_config.h"
-#include "private/mouse_manymouse.h"
 
 #include <memory>
 
@@ -16,115 +15,6 @@ CHECK_NARROWING();
 
 constexpr auto NumInterfaces = AllMouseInterfaceIds.size();
 static std::array<MouseInterface*, NumInterfaces> mouse_interfaces = {nullptr};
-
-// ***************************************************************************
-// Mouse interface information facade
-// ***************************************************************************
-
-MouseInterfaceInfoEntry::MouseInterfaceInfoEntry(const MouseInterfaceId interface_id)
-        : interface_id(interface_id)
-{}
-
-const MouseInterface& MouseInterfaceInfoEntry::Interface() const
-{
-	return MouseInterface::GetInstance(interface_id);
-}
-
-const MousePhysical& MouseInterfaceInfoEntry::MappedPhysical() const
-{
-	const auto mapped_physical_idx = Interface().GetMappedDeviceIdx();
-	return ManyMouseGlue::GetInstance().physical_devices[mapped_physical_idx];
-}
-
-bool MouseInterfaceInfoEntry::IsEmulated() const
-{
-	return Interface().IsEmulated();
-}
-
-bool MouseInterfaceInfoEntry::IsMapped() const
-{
-	return Interface().IsMapped();
-}
-
-bool MouseInterfaceInfoEntry::IsMapped(const uint8_t physical_device_idx) const
-{
-	return Interface().IsMapped(physical_device_idx);
-}
-
-bool MouseInterfaceInfoEntry::IsMappedDeviceDisconnected() const
-{
-	if (!IsMapped()) {
-		return false;
-	}
-
-	return MappedPhysical().IsDisconnected();
-}
-
-MouseInterfaceId MouseInterfaceInfoEntry::GetInterfaceId() const
-{
-	return Interface().GetInterfaceId();
-}
-
-MouseMapStatus MouseInterfaceInfoEntry::GetMapStatus() const
-{
-	return Interface().GetMapStatus();
-}
-
-const std::string& MouseInterfaceInfoEntry::GetMappedDeviceName() const
-{
-	static const std::string empty = "";
-	if (!IsMapped()) {
-		return empty;
-	}
-
-	return MappedPhysical().GetName();
-}
-
-int16_t MouseInterfaceInfoEntry::GetSensitivityX() const
-{
-	return Interface().GetSensitivityX();
-}
-
-int16_t MouseInterfaceInfoEntry::GetSensitivityY() const
-{
-	return Interface().GetSensitivityY();
-}
-
-uint16_t MouseInterfaceInfoEntry::GetMinRate() const
-{
-	return Interface().GetMinRate();
-}
-
-uint16_t MouseInterfaceInfoEntry::GetRate() const
-{
-	return Interface().GetRate();
-}
-
-// ***************************************************************************
-// Physical mouse information facade
-// ***************************************************************************
-
-MousePhysicalInfoEntry::MousePhysicalInfoEntry(const uint8_t idx) : idx(idx) {}
-
-const MousePhysical& MousePhysicalInfoEntry::Physical() const
-{
-	return ManyMouseGlue::GetInstance().physical_devices[idx];
-}
-
-bool MousePhysicalInfoEntry::IsMapped() const
-{
-	return Physical().IsMapped();
-}
-
-bool MousePhysicalInfoEntry::IsDeviceDisconnected() const
-{
-	return Physical().IsDisconnected();
-}
-
-const std::string& MousePhysicalInfoEntry::GetDeviceName() const
-{
-	return Physical().GetName();
-}
 
 // ***************************************************************************
 // Concrete interfaces - declarations
@@ -260,7 +150,6 @@ MouseInterface::MouseInterface(const MouseInterfaceId interface_id,
         : interface_id(interface_id),
           sensitivity_predefined(sensitivity_predefined)
 {
-	mouse_info.interfaces.emplace_back(MouseInterfaceInfoEntry(interface_id));
 }
 
 void MouseInterface::Init()
@@ -277,12 +166,14 @@ uint8_t MouseInterface::GetInterfaceIdx() const
 
 bool MouseInterface::IsMapped() const
 {
-	return mapped_physical_idx < mouse_info.physical.size();
+	// XXX reimplement
+	return false;
 }
 
 bool MouseInterface::IsMapped(const uint8_t physical_device_idx) const
 {
-	return mapped_physical_idx == physical_device_idx;
+	// XXX reimplement
+	return false;
 }
 
 bool MouseInterface::IsEmulated() const
@@ -364,6 +255,7 @@ void MouseInterface::NotifyDisconnect()
 void MouseInterface::SetMapStatus(const MouseMapStatus status,
                                   const uint8_t physical_device_idx)
 {
+	/* XXX reimplement
 	MouseMapStatus new_map_status   = status;
 	uint8_t new_mapped_physical_idx = physical_device_idx;
 
@@ -396,6 +288,7 @@ void MouseInterface::SetMapStatus(const MouseMapStatus status,
 	// Apply new mapping
 	mapped_physical_idx = new_mapped_physical_idx;
 	map_status          = new_map_status;
+	*/
 }
 
 bool MouseInterface::ConfigMap(const uint8_t physical_device_idx)
@@ -648,7 +541,7 @@ void InterfaceDos::NotifyBooting()
 
 	ConfigReset();
 	emulated = false;
-	ManyMouseGlue::GetInstance().ShutdownIfSafe();
+	// XXX remove mapping
 }
 
 void InterfaceDos::UpdateInputType()
@@ -806,7 +699,7 @@ void InterfaceCOM::UnregisterListener()
 	ConfigReset();
 	listener = nullptr;
 	emulated = false;
-	ManyMouseGlue::GetInstance().ShutdownIfSafe();
+	// XXX remove mapping
 }
 
 void MOUSECOM_RegisterListener(const MouseInterfaceId interface_id,
