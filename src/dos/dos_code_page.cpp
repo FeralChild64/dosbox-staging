@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText:  2025-2026 The DOSBox Staging Team
+// SPDX-FileCopyrightText:  2026 dosbox-automation Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "dos_code_page.h"
@@ -16,6 +17,7 @@
 #include "ints/bios.h"
 #include "utils/checks.h"
 #include "dos_locale.h"
+#include "gui/truetype_output.h"
 #include "ints/int10.h"
 #include "utils/math_utils.h"
 #include "hardware/memory.h"
@@ -38,6 +40,7 @@ static void notify_code_page_changed()
 	DOS_UpdateCurrentProgramName();
 	DOS_RepopulateCountryInfo();
 	AUTOEXEC_RefreshFile();
+	TRUETYPE_NotifyNewCodePage();
 }
 
 // ***************************************************************************
@@ -512,7 +515,7 @@ std::optional<CodePageEntryHeader> CpiReader::ReadCodePageEntryHeader()
 	// - sometimes (in old files) the structure is 26 bytes due to offset
 	//   being stored on 2 bytes
 	constexpr uint16_t SizeRegular = 28;
-	constexpr uint16_t SizeShort   = 26;	
+	constexpr uint16_t SizeShort   = 26;
 
 	const auto size = result.cpeh_size;
 	if (size == SizeShort) {

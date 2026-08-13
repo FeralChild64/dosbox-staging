@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText:  2020-2026 The DOSBox Staging Team
 // SPDX-FileCopyrightText:  2002-2021 The DOSBox Team
+// SPDX-FileCopyrightText:  2026 dosbox-automation Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #ifndef DOSBOX_VIDEO_H
@@ -127,6 +128,11 @@ struct VideoMode {
 	// colours).
 	bool has_vga_colors = false;
 
+	// If true, the TTF output engine wants to take over the rendering. This
+	// will produce a high-resolution image, comparable to the window or
+	// screen resolution. It can only be set for the text modes.
+	bool ttf_override = false;
+
 	constexpr bool operator==(const VideoMode& that) const
 	{
 		return (bios_mode_number == that.bios_mode_number &&
@@ -137,7 +143,8 @@ struct VideoMode {
 		        graphics_standard == that.graphics_standard &&
 		        color_depth == that.color_depth &&
 		        is_double_scanned_mode == that.is_double_scanned_mode &&
-		        has_vga_colors == that.has_vga_colors);
+		        has_vga_colors == that.has_vga_colors &&
+		        ttf_override == that.ttf_override);
 	}
 };
 

@@ -1,11 +1,13 @@
 // SPDX-FileCopyrightText:  2002-2025 The DOSBox Team
+// SPDX-FileCopyrightText:  2026 dosbox-automation Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "keyb.h"
 
-#include "misc/ansi_code_markup.h"
 #include "dos/dos_locale.h"
+#include "gui/truetype_output.h"
 #include "ints/int10.h"
+#include "misc/ansi_code_markup.h"
 #include "more_output.h"
 #include "shell/shell.h"
 #include "utils/string_utils.h"
@@ -181,10 +183,12 @@ void KEYB::WriteOutSuccess()
 	// Prepare strings based on translation
 
 	std::string code_page_msg = MSG_Get("PROGRAM_KEYB_CODE_PAGE");
+	std::string truetype_msg  = MSG_Get("PROGRAM_KEYB_TTF_FONT");
 	std::string layout_msg    = MSG_Get("PROGRAM_KEYB_KEYBOARD_LAYOUT");
 	std::string script_msg    = MSG_Get("PROGRAM_KEYB_KEYBOARD_SCRIPT");
 
 	const auto code_page_len = code_page_msg.length();
+	const auto truetype_len  = truetype_msg.length();
 	const auto layout_len    = layout_msg.length();
 	const auto script_len    = script_msg.length();
 
@@ -192,16 +196,22 @@ void KEYB::WriteOutSuccess()
 	if (show_layout) {
 		target_len = std::max(target_len, script_len);
 	}
+	if (TRUETYPE_IsOverridingScreen()) {
+		target_len = std::max(target_len, truetype_len);
+	}
 	target_len += NormalSpacingSize;
 
 	const auto code_page_diff = target_len - code_page_len;
+	const auto truetype_diff  = target_len - truetype_len;
 	const auto layout_diff    = target_len - layout_len;
 	const auto script_diff    = target_len - script_len;
 
 	code_page_msg = AnsiWhite + code_page_msg + AnsiReset;
+	truetype_msg  = AnsiWhite + truetype_msg + AnsiReset;
 	layout_msg    = AnsiWhite + layout_msg + AnsiReset;
 
 	code_page_msg.resize(code_page_msg.size() + code_page_diff, ' ');
+	truetype_msg.resize(truetype_msg.size() + truetype_diff, ' ');
 	layout_msg.resize(layout_msg.size() + layout_diff, ' ');
 
 	if (show_layout) {
@@ -216,6 +226,21 @@ void KEYB::WriteOutSuccess()
 	auto print_message = [&]() {
 		message += "\n";
 		WriteOut(convert_ansi_markup(message));
+	};
+
+	auto maybe_add_truetype_info = [&]() {
+		if (!TRUETYPE_IsOverridingScreen()) {
+			return;
+		}
+
+		const auto space_font_name = INT10_GetTextColumns() - 1 - target_len;
+
+		auto font_name = TRUETYPE_GetLoadedScreenFont();
+		font_name = TRUETYPE_ShortenFontName(font_name, space_font_name);
+
+		message += "\n";
+		message += truetype_msg + font_name;
+		message += "\n";
 	};
 
 	const auto space_layout = show_layout ? layout.length() + 2 : 0;
@@ -271,6 +296,7 @@ void KEYB::WriteOutSuccess()
 	message += "\n";
 
 	if (!show_layout) {
+		maybe_add_truetype_info();
 		print_message();
 		return;
 	}
@@ -331,6 +357,7 @@ void KEYB::WriteOutSuccess()
 		message += "\n";
 	}
 
+	maybe_add_truetype_info();
 	print_message();
 }
 
@@ -377,6 +404,7 @@ void KEYB::AddMessages()
 	// Success/status message
 	MSG_Add("PROGRAM_KEYB_CODE_PAGE", "Code page");
 	MSG_Add("PROGRAM_KEYB_ROM_FONT", "ROM font");
+	MSG_Add("PROGRAM_KEYB_TTF_FONT", "TrueType font");
 	MSG_Add("PROGRAM_KEYB_KEYBOARD_LAYOUT", "Keyboard layout");
 	MSG_Add("PROGRAM_KEYB_KEYBOARD_SCRIPT", "Keyboard script");
 	MSG_Add("PROGRAM_KEYB_NOT_LOADED", "not loaded");

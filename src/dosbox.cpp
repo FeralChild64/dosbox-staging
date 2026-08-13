@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText:  2020-2026 The DOSBox Staging Team
 // SPDX-FileCopyrightText:  2002-2021 The DOSBox Team
+// SPDX-FileCopyrightText:  2026 dosbox-automation Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "dosbox.h"
@@ -35,6 +36,7 @@
 #include "fpu/fpu.h"
 #include "gui/common.h"
 #include "gui/mapper.h"
+#include "gui/truetype_output.h"
 #include "gui/render/render.h"
 #include "hardware/audio/gus.h"
 #include "hardware/audio/imfc.h"
@@ -1159,6 +1161,7 @@ void DOSBOX_InitModules()
 	SPEAKER_Init();
 
 	REELMAGIC_Init();
+	TRUETYPE_Init();
 
 	BIOS_Init();
 	INT10_Init();

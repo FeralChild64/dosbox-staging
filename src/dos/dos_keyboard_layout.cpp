@@ -408,7 +408,7 @@ KeyboardLayoutResult KeyboardLayout::ReadKeyboardFile(const std::string& keyboar
 	}
 
 	bool found_matching_layout=false;
-	
+
 	// check all submappings and use them if general submapping or same codepage submapping
 	for (uint16_t sub_map=0; (sub_map<submappings) && (!found_matching_layout); sub_map++) {
 		uint16_t submap_cp, table_offset;

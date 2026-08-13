@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText:  2023-2026 The DOSBox Staging Team
+// SPDX-FileCopyrightText:  2026 dosbox-automation Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "private/auto_shader_switcher.h"
@@ -239,13 +240,21 @@ ShaderDescriptor AutoShaderSwitcher::MaybeAutoSwitchShader(
 
 ShaderDescriptor AutoShaderSwitcher::GetHerculesShader(const ShaderMode shader_mode) const
 {
-	return {ShaderName::CrtHyllian, "hercules", shader_mode};
+	using namespace ShaderName;
+
+	if (video_mode.ttf_override) {
+		return {Bilinear, "", shader_mode};
+	}
+	return {CrtHyllian, "hercules", shader_mode};
 }
 
 ShaderDescriptor AutoShaderSwitcher::GetCgaShader(const ShaderMode shader_mode) const
 {
 	using namespace ShaderName;
 
+	if (video_mode.ttf_override) {
+		return {Bilinear, "", shader_mode};
+	}
 	if (video_mode.color_depth == ColorDepth::Monochrome) {
 		if (video_mode.width < 640) {
 			return {CrtHyllian, "monochrome-lowres", shader_mode};
@@ -272,6 +281,9 @@ ShaderDescriptor AutoShaderSwitcher::GetCompositeShader(const ShaderMode shader_
 {
 	using namespace ShaderName;
 
+	if (video_mode.ttf_override) {
+		return {Bilinear, "", shader_mode};
+	}
 	if (pixels_per_scanline >= 8) {
 		return {CrtHyllian, "composite-4k", shader_mode};
 	}
@@ -288,6 +300,9 @@ ShaderDescriptor AutoShaderSwitcher::GetEgaShader(const ShaderMode shader_mode) 
 {
 	using namespace ShaderName;
 
+	if (video_mode.ttf_override) {
+		return {Bilinear, "", shader_mode};
+	}
 	if (pixels_per_scanline_force_single_scan >= 8) {
 		return {CrtHyllian, "ega-4k", shader_mode};
 	}
@@ -307,6 +322,9 @@ ShaderDescriptor AutoShaderSwitcher::GetVgaShader(const ShaderMode shader_mode) 
 {
 	using namespace ShaderName;
 
+	if (video_mode.ttf_override) {
+		return {Bilinear, "", shader_mode};
+	}
 	if (pixels_per_scanline >= 4) {
 		return {CrtHyllian, "vga-4k", shader_mode};
 	}

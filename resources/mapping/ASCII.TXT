@@ -2100,7 +2100,6 @@
 # Please keep the list synchronized with 'is_code_point_private_well_known'
 # implementation in 'unicode.cpp'
 
-# When TTF output is implemented, consider rendering 0xf20d as 0x0257 0x0335
 0xf20d NNN #PRIVATE COMMON LATIN CAPITAL LETTER D WITH HOOK AND TAIL
 0xf8ff NNN #PRIVATE APPLE LOGO
 

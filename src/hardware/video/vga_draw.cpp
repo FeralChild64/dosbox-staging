@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText:  2020-2026 The DOSBox Staging Team
 // SPDX-FileCopyrightText:  2002-2021 The DOSBox Team
+// SPDX-FileCopyrightText:  2026 dosbox-automation Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "dosbox.h"
@@ -15,6 +16,7 @@
 #include "gui/common.h"
 #include "gui/render/render.h"
 #include "gui/render/scaler/scalers.h"
+#include "gui/truetype_output.h"
 #include "hardware/pic.h"
 #include "hardware/video/reelmagic/reelmagic.h"
 #include "ints/int10.h"
@@ -93,6 +95,25 @@
 //   strategy games with mostly static graphics and infrequent screen updated
 //   (~3% constant CPU usage vs 0.1-0.3% in typical non-fast-paced games).
 //
+// - TrueType output works in a slightly different way - 'VGA_TTF_DrawPart()'
+//   handler is scheduled to be called at the start of each row of text and
+//   always renders a complete text row, calling the render directly instead
+//   of going through 'ReelMagic_RENDER_DrawLine'.
+//   The handler does not do the rendering by itself (the processing is too
+//   complex) - it calls 'TRUETYPE_DrawPrepareScreen()' at the beginning of the
+//   frame to fetch the color palette, than 'TRUETYPE_DrawPrepareBlockLine()'
+//   at the beginning of each row of text to interpret the character
+//   attributes, and then 'TRUETYPE_DrawLine()' to render the concrete line.
+//
+// - The TTF renderer is highly optimized - whatever can be calculated only
+//   once per frame or row of text, is calculated only once. It utilizes an
+//   internal rendering cache and the most CPU intensive part is written
+//   in a SIMD vectorization friendly way.
+//
+// - The TTF renderer can get enabled or disabled at any time when the
+//   conditions change, for example it can auto-disengage when the guest side
+//   code switches to it's own, non-standard character set - see the
+//   'TRUETYPE_ShouldChangeScreenOverride()' calls.
 
 // #define DEBUG_VGA_DRAW
 
@@ -1261,9 +1282,13 @@ static void VGA_DrawSingleLine([[maybe_unused]] uint32_t dummy)
 		PIC_AddEvent(VGA_DrawSingleLine, vga.draw.delay.per_line_ms);
 
 	} else {
-		// We've drawn the full frame, notify the renderer the frame is
-		// ready
-		RENDER_EndUpdate(false);
+		if (TRUETYPE_ShouldChangeScreenOverride()) {
+			PIC_RemoveEvents(VGA_SetupDrawing);
+			PIC_AddEvent(VGA_SetupDrawing, 0);
+		} else {
+			// We've drawn the full frame, notify the renderer the frame is ready
+			RENDER_EndUpdate(false);
+		}
 	}
 }
 
@@ -1305,9 +1330,13 @@ static void VGA_DrawEGASingleLine([[maybe_unused]] uint32_t dummy)
 		PIC_AddEvent(VGA_DrawEGASingleLine, vga.draw.delay.per_line_ms);
 
 	} else {
-		// We've drawn the full frame, notify the renderer the frame is
-		// ready
-		RENDER_EndUpdate(false);
+		if (TRUETYPE_ShouldChangeScreenOverride()) {
+			PIC_RemoveEvents(VGA_SetupDrawing);
+			PIC_AddEvent(VGA_SetupDrawing, 0);
+		} else {
+			// We've drawn the full frame, notify the renderer the frame is ready
+			RENDER_EndUpdate(false);
+		}
 	}
 }
 
@@ -1339,7 +1368,97 @@ static void VGA_DrawPart(uint32_t lines)
 		                     ? vga.draw.parts_lines
 		                     : (vga.draw.lines_total - vga.draw.lines_done));
 	} else {
-		RENDER_EndUpdate(false);
+		if (TRUETYPE_ShouldChangeScreenOverride()) {
+			PIC_RemoveEvents(VGA_SetupDrawing);
+			PIC_AddEvent(VGA_SetupDrawing, 0);
+		} else {
+			// We've drawn the full frame, notify the renderer the frame is ready
+			RENDER_EndUpdate(false);
+		}
+	}
+}
+
+static void VGA_TTF_DrawPart(uint32_t lines)
+{
+	auto skip_cursor = [&](const uint32_t line_in_block, const uint32_t cursor_block) {
+		if (cursor_block >= vga.draw.ttf.blocks_horizontal) {
+			return true;
+		}
+
+		float cursor_line_float = static_cast<float>(line_in_block);
+		cursor_line_float /= static_cast<float>(vga.draw.ttf.block_height - 1);
+		cursor_line_float *= static_cast<float>(vga.draw.address_line_total - 1);
+
+		const uint32_t cursor_line = clamp_to_uint32(std::lround(cursor_line_float));
+
+		return SkipCursor(vga.draw.address, cursor_line);
+	};
+
+	if (vga.draw.ttf.render_lines_done == 0) {
+		// Start of the screen
+		TRUETYPE_DrawPrepareScreen();
+	}
+
+	while (lines--) {
+
+		// Always render the full line of text at once
+		if (vga.draw.address_line == 0) {
+
+			// TODO: Contrary to other line/part drawing routines, we can easily get
+			// the information whether the line is precisely as it was before, or
+			// if anything changed. We could pass this information to the renderer,
+			// which in turn could skip it's 'memcmp' calls.
+
+			const auto address = VGA_Text_Memwrap(vga.draw.address);
+			TRUETYPE_DrawPrepareBlockLine(address, vga.draw.ttf.render_lines_done);
+			for (uint32_t line_in_block = 0; line_in_block < vga.draw.ttf.block_height; line_in_block++) {
+
+				const uint8_t* data = nullptr;
+
+				const uint32_t cursor_block = (vga.draw.cursor.address - vga.draw.address) >> 1;
+				if (skip_cursor(line_in_block, cursor_block)) {
+					data = TRUETYPE_DrawLine(address, vga.draw.ttf.render_lines_done);
+
+				} else {
+					const auto color_index   = TXT_FG_Table[vga.tandy.draw_base[vga.draw.cursor.address + 1] & 0xf] ;
+					const auto &cursor_color = render.palette.rgb[color_index% 0x100];
+
+					data = TRUETYPE_DrawLine(address, vga.draw.ttf.render_lines_done, cursor_block, cursor_color);
+				}
+
+				RENDER_DrawLine(data);
+				++vga.draw.ttf.render_lines_done;
+			}
+		}
+
+		++vga.draw.address_line;
+		if (vga.draw.address_line >= vga.draw.address_line_total) {
+			vga.draw.address_line = 0;
+			vga.draw.address += vga.draw.address_add;
+		}
+
+		++vga.draw.lines_done;
+
+		if (vga.draw.split_line == vga.draw.lines_done) {
+			VGA_ProcessSplit();
+		}
+	}
+
+	if (--vga.draw.parts_left) {
+		// Schedule drawing the next part if we're not at the last part
+		PIC_AddEvent(VGA_TTF_DrawPart,
+		             vga.draw.delay.parts,
+		             (vga.draw.parts_left != 1)
+		                     ? vga.draw.parts_lines
+		                     : (vga.draw.lines_total - vga.draw.lines_done));
+	} else {
+		if (TRUETYPE_ShouldChangeScreenOverride()) {
+			PIC_RemoveEvents(VGA_SetupDrawing);
+			PIC_AddEvent(VGA_SetupDrawing, 0);
+		} else {
+			// We've drawn the full frame, notify the renderer the frame is ready
+			RENDER_EndUpdate(false);
+		}
 	}
 }
 
@@ -1597,6 +1716,24 @@ static void VGA_VerticalTimer(uint32_t /*val*/)
 		             vga.draw.parts_lines);
 		break;
 
+	case DrawMode::TrueType:
+		if (vga.draw.parts_left) {
+			LOG(LOG_VGAMISC, LOG_NORMAL)("Parts left: %u",
+			                             vga.draw.parts_left);
+			PIC_RemoveEvents(VGA_TTF_DrawPart);
+			RENDER_EndUpdate(true);
+		}
+
+		vga.draw.ttf.render_lines_done = 0;
+
+		vga.draw.lines_done = 0;
+		vga.draw.parts_left = vga.draw.parts_total;
+
+		PIC_AddEvent(VGA_TTF_DrawPart,
+		             vga.draw.delay.parts + draw_skip,
+		             vga.draw.parts_lines);
+		break;
+
 	case DrawMode::Scanline:
 	case DrawMode::ScanlineEga:
 		if (vga.draw.lines_done < vga.draw.lines_total) {
@@ -1741,7 +1878,12 @@ static void setup_line_drawing_delays()
 {
 	switch (vga.draw.mode) {
 	case DrawMode::Part:
-		vga.draw.parts_total = 4;
+	case DrawMode::TrueType:
+		if (vga.draw.mode == DrawMode::TrueType) {
+			vga.draw.parts_total = vga.draw.ttf.blocks_vertical;
+		} else {
+			vga.draw.parts_total = 4;
+		}
 		vga.draw.delay.parts = vga.draw.delay.vdend / vga.draw.parts_total;
 		vga.draw.parts_lines = vga.draw.lines_total / vga.draw.parts_total;
 		break;
@@ -2211,18 +2353,30 @@ constexpr auto pixel_aspect_1280x1024 = Fraction(4, 3) / Fraction(1280, 1024);
 //   vga.draw.line_length
 //   vga.draw.linear_base
 //   vga.draw.linear_mask
+//   vga.draw.lines_total
 //   vga.draw.mode
 //   vga.draw.resizing
 //   vga.draw.uses_vga_palette
 //   vga.draw.vblank_skip
 //   vga.draw.vret_triggered
+//   vga.draw.ttf.override
 //
 ImageInfo setup_drawing()
 {
 	const auto bios_mode_number = CurMode->mode;
 
+	// Check if we are going to use a TTF output
+	vga.draw.ttf.override = TRUETYPE_ShouldOverrideScreen();
+
 	// Set the drawing mode
-	switch (machine) {
+	if (vga.draw.ttf.override) {
+		// Similar to 'DrawMode::Part', draws one row of text a time.
+		// With the TrueType renderer changing the VGA registers mid frame won't
+		// work correctly nevertheless, so no point in using anything similar to
+		// 'DrawMode::Scanline'.
+		vga.draw.mode = DrawMode::TrueType;
+
+	} else switch (machine) {
 	case MachineType::Hercules: vga.draw.mode = DrawMode::Part; break;
 
 	case MachineType::CgaMono:
@@ -2363,6 +2517,7 @@ ImageInfo setup_drawing()
 	Fraction render_pixel_aspect_ratio = {1};
 
 	VideoMode video_mode = {};
+	video_mode.ttf_override = vga.draw.ttf.override;
 
 	PixelFormat pixel_format;
 	switch (vga.mode) {
@@ -3017,31 +3172,39 @@ ImageInfo setup_drawing()
 		vga.draw.blocks = horiz_end;
 
 		double_width = vga.seq.clocking_mode.is_pixel_doubling &&
-		               vga.draw.pixel_doubling_allowed;
+		               vga.draw.pixel_doubling_allowed &&
+		               !vga.draw.ttf.override;
 
 		if (is_machine_vga_or_better()) {
 			vga.draw.pixels_per_character = vga.seq.clocking_mode.is_eight_dot_mode
 			                                      ? PixelsPerChar::Eight
 			                                      : PixelsPerChar::Nine;
 
-			pixel_format = PixelFormat::BGRX32_ByteArray;
+			if (!vga.draw.ttf.override) {
+				pixel_format = PixelFormat::BGRX32_ByteArray;
 
-			render_pixel_aspect_ratio = calc_pixel_aspect_from_timings(
-			        vga_timings);
+				render_pixel_aspect_ratio = calc_pixel_aspect_from_timings(vga_timings);
+			} else {
+				pixel_format = PixelFormat::BGR24_ByteArray;
+			}
 
 			// Text mode double scanning can only be done by setting
 			// the Double Scanning bit.
-			video_mode.is_double_scanned_mode = is_vga_scan_doubling_bit_set();
+			if (!vga.draw.ttf.override) {
+				video_mode.is_double_scanned_mode = is_vga_scan_doubling_bit_set();
+			}
 
 			video_mode.width = horiz_end * vga.draw.pixels_per_character;
 
 			if (video_mode.is_double_scanned_mode) {
 				video_mode.height = vert_end / 2;
 
-				if (vga.draw.scan_doubling_allowed) {
-					double_height = true;
-				} else {
-					render_pixel_aspect_ratio /= 2;
+				if (!vga.draw.ttf.override) {
+					if (vga.draw.scan_doubling_allowed) {
+						double_height = true;
+					} else {
+						render_pixel_aspect_ratio /= 2;
+					}
 				}
 			} else { // single scan
 				video_mode.height = vert_end;
@@ -3051,7 +3214,8 @@ ImageInfo setup_drawing()
 			render_height = video_mode.height;
 
 			if (vga.seq.clocking_mode.is_pixel_doubling &&
-			    !vga.draw.pixel_doubling_allowed) {
+			    !vga.draw.pixel_doubling_allowed &&
+			    !vga.draw.ttf.override) {
 				render_pixel_aspect_ratio *= 2;
 			}
 
@@ -3066,14 +3230,19 @@ ImageInfo setup_drawing()
 			render_width  = video_mode.width;
 			render_height = video_mode.height;
 
-			render_pixel_aspect_ratio = calc_pixel_aspect_from_dimensions(
-			        render_width, render_height, double_width, double_height);
+			if (!vga.draw.ttf.override) {
+				render_pixel_aspect_ratio = calc_pixel_aspect_from_dimensions(render_width, render_height, double_width, double_height);
+			} else {
+				pixel_format = PixelFormat::BGR24_ByteArray;
+			}
 
 			VGA_DrawLine = VGA_TEXT_Draw_Line;
 		}
 
-		render_pixel_aspect_ratio *= {PixelsPerChar::Eight,
-		                              vga.draw.pixels_per_character};
+		if (!vga.draw.ttf.override) {
+			render_pixel_aspect_ratio *= {PixelsPerChar::Eight,
+			                              vga.draw.pixels_per_character};
+		}
 		break;
 
 	case M_TANDY_TEXT:
@@ -3093,10 +3262,15 @@ ImageInfo setup_drawing()
 		render_height = video_mode.height;
 
 		double_width = !vga.tandy.mode.is_high_bandwidth &&
-		               vga.draw.pixel_doubling_allowed;
+		               vga.draw.pixel_doubling_allowed &&
+		               !vga.draw.ttf.override;
 
-		render_pixel_aspect_ratio = calc_pixel_aspect_from_dimensions(
-		        render_width, render_height, double_width, double_height);
+		if (!vga.draw.ttf.override) {
+			render_pixel_aspect_ratio = calc_pixel_aspect_from_dimensions(
+		        	render_width, render_height, double_width, double_height);
+		} else {
+			pixel_format = PixelFormat::BGR24_ByteArray;
+		}
 
 		VGA_DrawLine = VGA_TEXT_Draw_Line;
 		break;
@@ -3117,8 +3291,12 @@ ImageInfo setup_drawing()
 		render_width  = video_mode.width;
 		render_height = video_mode.height;
 
-		render_pixel_aspect_ratio = calc_pixel_aspect_from_dimensions(
-		        render_width, render_height, double_width, double_height);
+		if (!vga.draw.ttf.override) {
+			render_pixel_aspect_ratio = calc_pixel_aspect_from_dimensions(
+		        	render_width, render_height, double_width, double_height);
+		} else {
+			pixel_format = PixelFormat::BGR24_ByteArray;
+		}
 
 		VGA_DrawLine = VGA_CGA_TEXT_Composite_Draw_Line;
 		break;
@@ -3141,8 +3319,12 @@ ImageInfo setup_drawing()
 		render_width  = video_mode.width;
 		render_height = video_mode.height;
 
-		render_pixel_aspect_ratio = calc_pixel_aspect_from_dimensions(
-		        render_width, render_height, double_width, double_height);
+		if (!vga.draw.ttf.override) {
+			render_pixel_aspect_ratio = calc_pixel_aspect_from_dimensions(
+		        	render_width, render_height, double_width, double_height);
+		} else {
+			pixel_format = PixelFormat::BGR24_ByteArray;
+		}
 
 		VGA_DrawLine = VGA_TEXT_Herc_Draw_Line;
 		break;
@@ -3171,47 +3353,52 @@ ImageInfo setup_drawing()
 	// 'render_per_video_mode_scale' to derive the video mode's pixel aspect
 	// ratio. It's just less redundant and error prone to derive the video
 	// mode PAR this way.
-	const auto final_render_width = (render_width * (double_width ? 2 : 1));
-	const auto final_render_height = (render_height * (double_height ? 2 : 1));
+	if (vga.draw.ttf.override) {
+		video_mode.pixel_aspect_ratio = 1.0f;
 
-	const auto render_per_video_mode_scale =
-	        Fraction(final_render_width / video_mode.width,
-	                 final_render_height / video_mode.height);
+	} else {
+		const auto final_render_width = (render_width * (double_width ? 2 : 1));
+		const auto final_render_height = (render_height * (double_height ? 2 : 1));
 
-	switch (RENDER_GetAspectRatioCorrectionMode()) {
-	case AspectRatioCorrectionMode::Auto:
-		// Derive video mode pixel aspect ratio from the render PAR
-		video_mode.pixel_aspect_ratio = render_pixel_aspect_ratio *
-		                                render_per_video_mode_scale;
-		break;
+		const auto render_per_video_mode_scale =
+		        Fraction(final_render_width / video_mode.width,
+		                 final_render_height / video_mode.height);
 
-	case AspectRatioCorrectionMode::SquarePixels:
-		// Override PARs if square pixels are forced in aspect ratio
-		// correction disabled mode
-		render_pixel_aspect_ratio = render_per_video_mode_scale.Inverse();
-		video_mode.pixel_aspect_ratio = {1};
-		break;
+		switch (RENDER_GetAspectRatioCorrectionMode()) {
+		case AspectRatioCorrectionMode::Auto:
+			// Derive video mode pixel aspect ratio from the render PAR
+			video_mode.pixel_aspect_ratio = render_pixel_aspect_ratio *
+			                                render_per_video_mode_scale;
+			break;
 
-	case AspectRatioCorrectionMode::Stretch: {
-		// Stretch image to the viewport and calculate the resulting PARs
-		const auto viewport_px = GFX_GetViewportSizeInPixels();
+		case AspectRatioCorrectionMode::SquarePixels:
+			// Override PARs if square pixels are forced in aspect ratio
+			// correction disabled mode
+			render_pixel_aspect_ratio = render_per_video_mode_scale.Inverse();
+			video_mode.pixel_aspect_ratio = {1};
+			break;
 
-		const Fraction viewport_aspect_ratio = {iroundf(viewport_px.w),
-		                                        iroundf(viewport_px.h)};
+		case AspectRatioCorrectionMode::Stretch: {
+			// Stretch image to the viewport and calculate the resulting PARs
+			const auto viewport_px = GFX_GetViewportSizeInPixels();
 
-		const Fraction final_render_aspect_ratio = {final_render_width,
-		                                            final_render_height};
+			const Fraction viewport_aspect_ratio = {iroundf(viewport_px.w),
+			                                        iroundf(viewport_px.h)};
 
-		render_pixel_aspect_ratio = viewport_aspect_ratio /
-		                            final_render_aspect_ratio;
+			const Fraction final_render_aspect_ratio = {final_render_width,
+			                                            final_render_height};
 
-		video_mode.pixel_aspect_ratio = render_pixel_aspect_ratio *
-		                                render_per_video_mode_scale;
-	} break;
+			render_pixel_aspect_ratio = viewport_aspect_ratio /
+			                            final_render_aspect_ratio;
 
-	default:
-		assertm(false, "Invalid AspectRatioCorrectionMode value");
-		return {};
+			video_mode.pixel_aspect_ratio = render_pixel_aspect_ratio *
+			                                render_per_video_mode_scale;
+		} break;
+
+		default:
+			assertm(false, "Invalid AspectRatioCorrectionMode value");
+			return {};
+		}
 	}
 
 	// Try to determine if this is a custom mode
@@ -3226,7 +3413,30 @@ ImageInfo setup_drawing()
 	vga.draw.line_length = render_width *
 	                       ((get_bits_per_pixel(pixel_format) + 1) / 8);
 
+	if (vga.draw.ttf.override) {
+		vga.draw.ttf.blocks_horizontal = vga.draw.blocks;
+		vga.draw.ttf.blocks_vertical   = vga.draw.lines_total / vga.draw.address_line_total;
+		// Cut away all possible remaining lines
+		vga.draw.lines_total -= vga.draw.lines_total % vga.draw.address_line_total;
+	}
+
+	// Recheck if the TTF subsystem should really override the rendering,
+	// as the final decision depends upon whether the screen font is
+	// unaltered
+	if (TRUETYPE_ShouldChangeScreenOverride()) {
+		// Do all the calculations once again
+        	return setup_drawing();
+	}
+
+	if (vga.draw.ttf.override) {
+		TRUETYPE_CalculateRenderSize(render_width, render_height);
+	}
+
 	setup_line_drawing_delays();
+
+	if (!vga.draw.ttf.override) {
+		TRUETYPE_FreeCacheMemory();
+	}
 
 #ifdef DEBUG_VGA_DRAW
 	LOG_DEBUG("VGA: horiz.total: %d, vert.total: %d",
@@ -3361,6 +3571,7 @@ void VGA_SetupDrawing(uint32_t /*val*/)
 void VGA_KillDrawing(void)
 {
 	PIC_RemoveEvents(VGA_DrawPart);
+	PIC_RemoveEvents(VGA_TTF_DrawPart);
 	PIC_RemoveEvents(VGA_DrawSingleLine);
 	PIC_RemoveEvents(VGA_DrawEGASingleLine);
 

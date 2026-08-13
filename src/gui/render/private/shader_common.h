@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText:  2026-2026 The DOSBox Staging Team
+// SPDX-FileCopyrightText:  2026 dosbox-automation Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #ifndef DOSBOX_SHADER_COMMON_H
@@ -23,6 +24,7 @@ namespace ShaderName {
 
 constexpr auto CrtHyllian = "crt/crt-hyllian";
 constexpr auto Sharp      = "interpolation/sharp";
+constexpr auto Bilinear   = "interpolation/bilinear";
 } // namespace ShaderName
 
 enum class ShaderMode {
