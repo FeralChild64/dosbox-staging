@@ -2079,6 +2079,9 @@
 # ****************************************************************************
 
 # DOSBox Staging private (not part of Unicode standard) code points
+#
+# Please keep the list synchronized with 'is_code_point_dosbox_specific'
+# implementation in 'unicode.cpp'
 
 0xedb0 NNN #PRIVATE DOSBOX PLN SYMBOL
 0xedb1 NNN #PRIVATE DOSBOX DOUBLE TILDE
@@ -2093,12 +2096,12 @@
 0xedba NNN #PRIVATE DOSBOX CYRILLIC CAPITAL LETTER EM WITH HOOK
 0xedbb NNN #PRIVATE DOSBOX CYRILLIC SMALL LETTER EM WITH HOOK
 
-
 # Other common unofficial code points
+# Please keep the list synchronized with 'is_code_point_private_well_known'
+# implementation in 'unicode.cpp'
 
-# In case TTF output is implemented, consider rendering it as 0x0257 0x0335
+# When TTF output is implemented, consider rendering 0xf20d as 0x0257 0x0335
 0xf20d NNN #PRIVATE COMMON LATIN CAPITAL LETTER D WITH HOOK AND TAIL
-
 0xf8ff NNN #PRIVATE APPLE LOGO
 
 # ****************************************************************************

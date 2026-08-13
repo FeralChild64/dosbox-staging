@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText:  2022-2025 The DOSBox Staging Team
+// SPDX-FileCopyrightText:  2026 dosbox-automation Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "dosbox.h"
@@ -2006,6 +2007,13 @@ uint16_t get_utf8_code_page()
 	return 0;
 }
 
+bool is_code_page_supported(const uint16_t code_page)
+{
+	load_config_if_needed();
+
+	return config_mappings.contains(deduplicate_code_page(code_page));
+}
+
 static std::string utf8_to_dos_common(const std::string& str,
                                       const DosStringConvertMode convert_mode,
                                       const UnicodeFallback fallback,
@@ -2059,6 +2067,21 @@ std::string dos_to_utf8(const std::string& str,
                         const uint16_t code_page)
 {
 	return dos_to_utf8_common(str, convert_mode, get_custom_code_page(code_page));
+}
+
+std::u32string dos_to_unicode(const std::string& str,
+                              const DosStringConvertMode convert_mode)
+{
+	load_config_if_needed();
+
+	return dos_to_wide(str, convert_mode, get_utf8_code_page());
+}
+
+std::u32string dos_to_unicode(const std::string& str,
+                              const DosStringConvertMode convert_mode,
+                              const uint16_t code_page)
+{
+	return dos_to_wide(str, convert_mode, get_custom_code_page(code_page));
 }
 
 std::string fs_utf8_to_dos_437(const std::string& str)
@@ -2200,4 +2223,32 @@ bool is_code_page_equal(const uint16_t code_page1, const uint16_t code_page2)
 
 	return deduplicate_code_page(code_page1) ==
 	       deduplicate_code_page(code_page2);
+}
+
+bool is_code_point_private(const char32_t code_point)
+{
+	// U+E000   - U+F8FF   - Private Use Area
+	// U+F0000  - U+FFFFF  - Supplementary Private Use Area-A
+	// U+100000 - U+10FFFF - Supplementary Private Use Area-B
+
+	// clang-format off
+	return (code_point >= 0xe000   && code_point <= 0xf8ff) ||
+	       (code_point >= 0xf0000  && code_point <= 0xfffff) ||
+	       (code_point >= 0x100000 && code_point <= 0x10ffff);
+	// clang-format on
+}
+
+bool is_code_point_private_well_known(const char32_t code_point)
+{
+	// Please keep the condition synchronized with the list in 'ASCII.TXT'
+
+	// U+F20D - PRIVATE COMMON LATIN CAPITAL LETTER D WITH HOOK AND TAIL
+	// U+F8FF - PRIVATE APPLE LOGO
+	return (code_point == 0xf20d) || (code_point == 0xf8ff);
+}
+
+bool is_code_point_dosbox_specific(const char32_t code_point)
+{
+	// Please keep the condition synchronized with the list in 'ASCII.TXT'
+	return (code_point >= 0xedb0 && code_point <= 0xedbb);
 }
