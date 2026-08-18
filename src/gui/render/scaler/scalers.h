@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText:  2025-2026 The DOSBox Staging Team
 // SPDX-FileCopyrightText:  2002-2021 The DOSBox Team
+// SPDX-FileCopyrightText:  2026 dosbox-automation Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #ifndef DOSBOX_RENDER_SCALERS_H
@@ -19,8 +20,14 @@
 // Make sure ScalerMaxWidth remains a multiple of 8
 constexpr int ScalerWidthExtraPadding = 8 * 5;
 
-constexpr int ScalerMaxWidth  = 1600 + ScalerWidthExtraPadding;
-constexpr int ScalerMaxHeight = 1200;
+// The maximum supported VESA screen resolution is 1600x1200, but this is not
+// enough for TTF output; that would have created a blurry image on modern
+// high-end displays, especially with text modes like 132x50.
+// 5120×2880 (5K resolution) should be enough for a while; at the moment of
+// writing this comment (2026) only a select few high-end monitors can display
+// such a resolution.
+constexpr int ScalerMaxWidth  = 5120 + ScalerWidthExtraPadding;
+constexpr int ScalerMaxHeight = 2880;
 
 extern std::array<int, ScalerMaxHeight> scaler_changed_lines;
 extern int scaler_changed_line_index;
