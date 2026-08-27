@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText:  2021-2025 The DOSBox Staging Team
 // SPDX-FileCopyrightText:  2002-2021 The DOSBox Team
+// SPDX-FileCopyrightText:  2026 dosbox-automation Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #ifndef DOSBOX_CROSS_H
@@ -9,6 +10,7 @@
 
 #include <cstdio>
 #include <ctime>
+#include <deque>
 #include <string>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -30,7 +32,7 @@
 
 
 #if defined (WIN32)
-#define CROSS_FILENAME(blah) 
+#define CROSS_FILENAME(blah)
 #define CROSS_FILESPLIT '\\'
 #else
 #define	CROSS_FILENAME(blah) strreplace(blah,'\\','/')
@@ -99,6 +101,9 @@ std_fs::path get_primary_config_path();
 
 std_fs::path resolve_home(const std::string &str) noexcept;
 
+// Get the list of standard directories with fonts
+std::deque<std_fs::path> get_standard_font_dirs();
+
 #if defined (WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -116,7 +121,7 @@ typedef struct dir_struct {
 //#include <sys/types.h> //Included above
 #include <dirent.h>
 
-typedef struct dir_struct { 
+typedef struct dir_struct {
 	DIR*  dir;
 	char base_path[CROSS_LEN];
 } DirInformation;

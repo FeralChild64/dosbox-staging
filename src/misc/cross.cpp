@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText:  2021-2026 The DOSBox Staging Team
 // SPDX-FileCopyrightText:  2002-2021 The DOSBox Team
+// SPDX-FileCopyrightText:  2026 dosbox-automation Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "misc/cross.h"
@@ -229,6 +230,49 @@ std_fs::path resolve_home(const std::string &str) noexcept
 		if(!home.empty()) temp_line.replace(0, 1, home);
 	}
 	return temp_line;
+}
+
+std::deque<std_fs::path> get_standard_font_dirs()
+{
+#if defined(WIN32)
+	const std::string windows_directory = getenv("WINDIR");
+	if (windows_directory.empty()) {
+		return {};
+	}
+	return {std_fs::path(windows_directory) / "Fonts"};
+#elif C_COREFOUNDATION
+	std::deque<std_fs::path> result = {};
+
+	const auto path_1 = to_native_path("/Library/Fonts");
+	const auto path_2 = to_native_path("~/Library/Fonts");
+
+	if (!path_1.empty()) {
+		result.push_back(path_1);
+	}
+	if (!path_2.empty()) {
+		result.push_back(path_2);
+	}
+
+	return result;
+#else
+	const auto FontsSubDirectory = std_fs::path("fonts");
+
+	std::deque<std_fs::path> result = {};
+
+	const auto hidden_local_path = to_native_path("~/.local/share/fonts");
+	if (!hidden_local_path.empty()) {
+		result.push_back(hidden_local_path);
+	}
+
+	for (const auto& directory : get_xdg_data_dirs()) {
+		const auto path = to_native_path(directory / FontsSubDirectory);
+		if (!path.empty()) {
+			result.push_back(path);
+		}
+	}
+
+	return result;
+#endif
 }
 
 #if defined(WIN32)
